@@ -1,0 +1,276 @@
+/* ============================================
+ * Codeback — Global Styles (Black & White Box Theme)
+ * Minimalist, high-contrast brutalist / box design
+ * ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+/* ---- CSS Custom Properties (Design Tokens) ---- */
+:root {
+  /* Core Palette — Pure Black & White */
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #141414;
+  --bg-elevated: #1a1a1a;
+  --bg-hover: #222222;
+
+  /* Surfaces & Borders */
+  --surface-glass: #0a0a0a;
+  --surface-glass-hover: #141414;
+  --border-subtle: #262626;
+  --border-medium: #404040;
+  --border-strong: #ffffff;
+
+  /* Text */
+  --text-primary: #ffffff;
+  --text-secondary: #a3a3a3;
+  --text-tertiary: #737373;
+  --text-inverse: #000000;
+
+  /* Accents — Pure White & Light Grays */
+  --accent-primary: #ffffff;
+  --accent-secondary: #e5e5e5;
+  --accent-gradient: #ffffff;
+  --accent-gradient-subtle: #171717;
+
+  /* Status */
+  --success: #ffffff;
+  --warning: #a3a3a3;
+  --error: #ffffff;
+  --info: #ffffff;
+
+  /* Message bubbles */
+  --bubble-inbound: #141414;
+  --bubble-outbound: #ffffff;
+
+  /* Shadows */
+  --shadow-sm: none;
+  --shadow-md: 0 4px 0 #171717;
+  --shadow-lg: 0 8px 0 #171717;
+  --shadow-glow: none;
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Spacing & Radii — Box Aesthetic (Sharp 0px / 2px borders) */
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 4px;
+  --radius-xl: 4px;
+  --radius-full: 0px;
+
+  /* Transitions */
+  --transition-fast: 100ms ease;
+  --transition-normal: 150ms ease;
+}
+
+/* ---- Reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  transition: opacity var(--transition-fast);
+}
+
+a:hover {
+  opacity: 0.8;
+}
+
+button {
+  font-family: var(--font-sans);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+input, textarea {
+  font-family: var(--font-sans);
+  outline: none;
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333333;
+  border: 1px solid #000000;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #ffffff;
+}
+
+/* ============================================
+ * Utility Classes — Basic Box Aesthetic
+ * ============================================ */
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+  transition: all var(--transition-fast);
+  text-transform: uppercase;
+}
+
+.btn-primary {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #ffffff;
+}
+
+.btn-primary:hover {
+  background: #e5e5e5;
+  border-color: #e5e5e5;
+}
+
+.btn-primary:active {
+  background: #cccccc;
+}
+
+.btn-secondary {
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid var(--border-medium);
+}
+
+.btn-secondary:hover {
+  background: #171717;
+  border-color: #ffffff;
+}
+
+.btn-danger {
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid #ffffff;
+}
+
+.btn-danger:hover {
+  background: #ffffff;
+  color: #000000;
+}
+
+.btn-lg {
+  padding: 14px 24px;
+  font-size: 0.9375rem;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+}
+
+/* ---- Cards ---- */
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 20px;
+}
+
+.card-glass {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 20px;
+}
+
+/* ---- Badges ---- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border-medium);
+}
+
+.badge-success {
+  background: #ffffff;
+  color: #000000;
+  border-color: #ffffff;
+}
+
+.badge-warning {
+  background: #171717;
+  color: #ffffff;
+  border-color: var(--border-medium);
+}
+
+/* ---- Avatar ---- */
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 0px;
+  object-fit: cover;
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.avatar-lg {
+  width: 48px;
+  height: 48px;
+  font-size: 1.125rem;
+}
+
+.avatar-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 0.75rem;
+}
+
+/* ---- Loading spinner ---- */
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #333333;
+  border-top-color: #ffffff;
+  border-radius: 0px;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

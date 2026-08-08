@@ -1,0 +1,23 @@
+{
+  "uploadExcludes": [
+    "backend/**"
+  ],
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://codeback-backend.onrender.com/api/:path*"
+    },
+    {
+      "source": "/auth/:path*",
+      "destination": "https://codeback-backend.onrender.com/auth/:path*"
+    },
+    {
+      "source": "/webhook/:path*",
+      "destination": "https://codeback-backend.onrender.com/webhook/:path*"
+    },
+    {
+      "source": "/webhooks/instagram/:path*",
+      "destination": "https://codeback-backend.onrender.com/webhooks/instagram/:path*"
+    }
+  ]
+}

@@ -1,0 +1,167 @@
+/* ============================================
+ * Landing Page Styles — Monochrome Box Aesthetic
+ * ============================================ */
+
+.loadingScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #000000;
+}
+
+.landing {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #000000;
+}
+
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 24px;
+  max-width: 760px;
+}
+
+.logoContainer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.logoIcon {
+  width: 44px;
+  height: 44px;
+  border: 1px solid #ffffff;
+  background: #ffffff;
+  color: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.logoText {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.tagline {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  margin-bottom: 16px;
+  text-transform: uppercase;
+}
+
+.taglineAccent {
+  color: #a3a3a3;
+}
+
+.description {
+  font-size: 1rem;
+  color: #a3a3a3;
+  max-width: 520px;
+  line-height: 1.6;
+  margin-bottom: 36px;
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 1px solid #ffffff;
+  background: #171717;
+  color: #ffffff;
+  font-size: 0.875rem;
+  margin-bottom: 24px;
+}
+
+.ctaButton {
+  font-size: 1rem;
+  padding: 16px 32px;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.note {
+  font-size: 0.75rem;
+  color: #737373;
+  margin-top: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Feature cards — sharp boxes */
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 64px;
+  width: 100%;
+}
+
+.featureCard {
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.featureCard:hover {
+  border-color: #ffffff;
+}
+
+.featureIcon {
+  font-size: 1.5rem;
+  margin-bottom: 12px;
+}
+
+.featureCard h3 {
+  font-size: 0.875rem;
+  font-weight: 800;
+  margin-bottom: 6px;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.featureCard p {
+  font-size: 0.75rem;
+  color: #a3a3a3;
+  line-height: 1.5;
+}
+
+/* Footer */
+.footer {
+  padding: 24px;
+  color: #737373;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+@media (max-width: 768px) {
+  .tagline {
+    font-size: 1.75rem;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+  }
+}
+

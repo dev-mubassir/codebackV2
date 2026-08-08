@@ -1,0 +1,368 @@
+/* ============================================
+ * Codeback Admin Panel — Styles
+ * High contrast dark theme for dense data tables,
+ * metrics grids, log payload viewers, and action bars.
+ * ============================================ */
+
+.adminLayout {
+  display: flex;
+  min-height: 100vh;
+  background: #000000;
+  color: #ffffff;
+}
+
+/* Impersonation Banner */
+.impersonationBanner {
+  background: #ffffff;
+  color: #000000;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  border-bottom: 2px solid #000000;
+}
+
+.impersonationBanner button {
+  background: #000000;
+  color: #ffffff;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid #000000;
+  cursor: pointer;
+}
+
+/* Sidebar Navigation */
+.sidebar {
+  width: 240px;
+  background: #0a0a0a;
+  border-right: 1px solid #262626;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.sidebarHeader {
+  padding: 20px;
+  border-bottom: 1px solid #262626;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.brandBadge {
+  background: #ffffff;
+  color: #000000;
+  font-weight: 800;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+}
+
+.brandTitle {
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #ffffff;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 8px;
+  gap: 4px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: #a3a3a3;
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: all 100ms ease;
+}
+
+.navItem:hover {
+  background: #141414;
+  color: #ffffff;
+  border-color: #333333;
+}
+
+.navItemActive {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border-color: #ffffff !important;
+}
+
+.sidebarFooter {
+  margin-top: auto;
+  padding: 16px;
+  border-top: 1px solid #262626;
+  font-size: 0.75rem;
+  color: #737373;
+}
+
+/* Main Content Wrapper */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #000000;
+}
+
+.header {
+  height: 60px;
+  padding: 0 24px;
+  border-bottom: 1px solid #262626;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #0a0a0a;
+}
+
+.headerTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.content {
+  padding: 24px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Dashboard Cards & Grid */
+.metricsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metricCard {
+  background: #0a0a0a;
+  border: 1px solid #262626;
+  padding: 18px;
+}
+
+.metricTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a3a3a3;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.metricValue {
+  font-size: 1.75rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.metricSub {
+  font-size: 0.75rem;
+  color: #737373;
+  margin-top: 4px;
+}
+
+/* System Alerts Container */
+.alertBox {
+  background: #171717;
+  border: 1px solid #ffffff;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.alertBoxWarning {
+  border-color: #ffffff;
+}
+
+.alertTitle {
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.alertText {
+  font-size: 0.8125rem;
+  color: #a3a3a3;
+}
+
+/* Filter Bar & Search */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.searchInput {
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  color: #ffffff;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  min-width: 260px;
+}
+
+.searchInput:focus {
+  border-color: #ffffff;
+}
+
+.selectInput {
+  background: #0a0a0a;
+  border: 1px solid #333333;
+  color: #ffffff;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+}
+
+/* Data Tables */
+.tableContainer {
+  background: #0a0a0a;
+  border: 1px solid #262626;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.table th {
+  background: #141414;
+  padding: 12px 16px;
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a3a3a3;
+  border-bottom: 1px solid #262626;
+}
+
+.table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #1a1a1a;
+  vertical-align: middle;
+}
+
+.table tr:hover td {
+  background: #121212;
+}
+
+/* Badges */
+.badgeValid {
+  background: #ffffff;
+  color: #000000;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+
+.badgeExpired {
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid #ffffff;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+
+.badgeSuspended {
+  background: #ffffff;
+  color: #000000;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  padding: 2px 6px;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #0a0a0a;
+  border: 1px solid #262626;
+  border-top: none;
+  font-size: 0.8125rem;
+  color: #a3a3a3;
+}
+
+/* JSON Code Viewer */
+.codeViewer {
+  background: #050505;
+  border: 1px solid #262626;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: #00ff66;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Modal Dialog */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.modalContent {
+  background: #0a0a0a;
+  border: 1px solid #ffffff;
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+}
+
+.modalTitle {
+  font-size: 1.125rem;
+  font-weight: 800;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}

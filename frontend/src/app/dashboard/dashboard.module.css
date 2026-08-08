@@ -1,0 +1,193 @@
+/* ============================================
+ * Dashboard Page Styles — Monochrome Box Aesthetic
+ * ============================================ */
+
+.loadingScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #000000;
+}
+
+.dashboard {
+  min-height: 100vh;
+  background: #000000;
+}
+
+/* ---- Navigation ---- */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 32px;
+  background: #000000;
+  border-bottom: 1px solid var(--border-medium);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.navBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.navLogo {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #ffffff;
+  background: #ffffff;
+  color: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.navTitle {
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.navActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- Content ---- */
+.content {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
+.header {
+  margin-bottom: 32px;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.subtitle {
+  color: #a3a3a3;
+  font-size: 0.875rem;
+}
+
+/* ---- Account Cards ---- */
+.accountsGrid {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.accountCard {
+  background: #0a0a0a;
+  border: 1px solid var(--border-medium);
+  padding: 20px;
+}
+
+.accountCard:hover {
+  border-color: #ffffff;
+}
+
+.accountHeader {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.accountInfo h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+  color: #ffffff;
+}
+
+.accountName {
+  color: #a3a3a3;
+  font-size: 0.8125rem;
+}
+
+.accountMeta {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: #000000;
+  border: 1px solid var(--border-subtle);
+}
+
+.metaItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.metaLabel {
+  font-size: 0.75rem;
+  color: #737373;
+  text-transform: uppercase;
+}
+
+.metaValue {
+  font-size: 0.75rem;
+  color: #a3a3a3;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.accountActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- Empty State ---- */
+.emptyState {
+  text-align: center;
+  padding: 48px 24px;
+  border: 1px dashed var(--border-medium);
+  margin-bottom: 32px;
+}
+
+.emptyIcon {
+  font-size: 2.5rem;
+  margin-bottom: 12px;
+}
+
+.emptyState h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.emptyState p {
+  color: #a3a3a3;
+  max-width: 400px;
+  margin: 0 auto;
+  font-size: 0.8125rem;
+}
+
+/* ---- Connect CTA ---- */
+.connectSection {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.connectSection a {
+  text-decoration: none;
+}
+

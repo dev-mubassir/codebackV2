@@ -1,0 +1,155 @@
+// This is the Prisma schema for Codeback — Instagram DM Inbox SaaS
+// It defines 5 tables: users, instagram_accounts, contacts, conversations, messages
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Codeback user — a person using the SaaS
+// ============================================
+model User {
+  id          String   @id @default(uuid())
+  email       String?  @unique
+  name        String?
+  role        String   @default("USER")             // "USER" or "ADMIN"
+  isSuspended Boolean  @default(false) @map("is_suspended")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  instagramAccounts InstagramAccount[]
+  adminLogs         AdminLog[]
+
+  @@map("users")
+}
+
+// ============================================
+// Connected Instagram Professional account
+// ============================================
+model InstagramAccount {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  igUserId       String    @unique @map("ig_user_id")   // Instagram User ID (numeric string)
+  igUsername     String?   @map("ig_username")
+  igName         String?   @map("ig_name")
+  igProfilePic   String?   @map("ig_profile_pic")
+  accessToken    String    @map("access_token")          // Long-lived token (encrypted)
+  tokenExpiresAt DateTime? @map("token_expires_at")
+  tokenStatus    String    @default("VALID") @map("token_status") // "VALID", "EXPIRED", "NEEDS_RECONNECT"
+  lastWebhookAt  DateTime? @map("last_webhook_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts      Contact[]
+  conversations Conversation[]
+  webhookLogs   WebhookLog[]
+
+  @@map("instagram_accounts")
+}
+
+// ============================================
+// A person who has messaged an Instagram account
+// ============================================
+model Contact {
+  id                 String   @id @default(uuid())
+  instagramAccountId String   @map("instagram_account_id")
+  igsid              String   @map("igsid")               // Instagram Scoped ID of the contact
+  username           String?
+  name               String?
+  profilePicUrl      String?  @map("profile_pic_url")
+  lastFetchedAt      DateTime? @map("last_fetched_at")     // When we last fetched their profile
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  conversations    Conversation[]
+
+  // Each contact is unique per Instagram account
+  @@unique([instagramAccountId, igsid])
+  @@map("contacts")
+}
+
+// ============================================
+// A conversation thread between an IG account and a contact
+// ============================================
+model Conversation {
+  id                 String    @id @default(uuid())
+  instagramAccountId String    @map("instagram_account_id")
+  contactId          String    @map("contact_id")
+  category           String?   // "Brand/Collab", "Business", "Fan", "Question", "Spam", "Other"
+  lastMessage        String?   @map("last_message")
+  lastMessageAt      DateTime? @map("last_message_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  contact          Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  messages         Message[]
+
+  // One conversation per contact per IG account
+  @@unique([instagramAccountId, contactId])
+  @@map("conversations")
+}
+
+// ============================================
+// A single message in a conversation
+// ============================================
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  igMessageId    String?  @unique @map("ig_message_id")   // Instagram's message ID (for deduplication)
+  direction      String   // "inbound" or "outbound"
+  content        String?
+  category       String?  // "Brand/Collab", "Business", "Fan", "Question", "Spam", "Other"
+  suggestedReply String?  @map("suggested_reply")
+  messageType    String   @default("text") @map("message_type") // text, image, video, story_mention, etc.
+  attachmentUrl  String?  @map("attachment_url")
+  igTimestamp     DateTime? @map("ig_timestamp")            // Timestamp from Instagram
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+// ============================================
+// Security Audit Log for Admin Actions
+// ============================================
+model AdminLog {
+  id          String   @id @default(uuid())
+  adminUserId String   @map("admin_user_id")
+  action      String   // e.g. "USER_SUSPEND", "TOKEN_REFRESH", "ACCOUNT_DISCONNECT"
+  targetType  String   @map("target_type") // "USER", "INSTAGRAM_ACCOUNT", "SYSTEM"
+  targetId    String?  @map("target_id")
+  details     String?  // JSON string or summary
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  adminUser User @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@map("admin_logs")
+}
+
+// ============================================
+// Webhook Event & Health Log
+// ============================================
+model WebhookLog {
+  id                 String   @id @default(uuid())
+  instagramAccountId String?  @map("instagram_account_id")
+  igUserId           String?  @map("ig_user_id")
+  eventType          String   @map("event_type")   // "message", "reaction", "read", "error"
+  status             String   // "SUCCESS", "FAILED", "SKIPPED"
+  payload            String?  // JSON string (sanitized)
+  errorMessage       String?  @map("error_message")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  instagramAccount InstagramAccount? @relation(fields: [instagramAccountId], references: [id], onDelete: SetNull)
+
+  @@map("webhook_logs")
+}
