@@ -1,15 +1,21 @@
 /**
  * Account management routes.
- * 
- * List and disconnect Instagram accounts for the logged-in user.
+ *
+ * List, disconnect, and reconnect-status Instagram accounts for the
+ * logged-in user.
+ *
+ * IMPORTANT: Disconnecting an Instagram account from Codeback NEVER deletes
+ * historical conversations/messages/contacts. It only flips the account's
+ * connectionStatus to DISCONNECTED. Reconnecting the same Instagram account
+ * later (via OAuth) re-activates the same row (igUserId is globally unique)
+ * and all history reappears automatically. A separate, explicit "erase all
+ * data" action is required to actually delete history.
  */
 
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
-
-const prisma = new PrismaClient();
 
 // All routes require authentication
 router.use(requireAuth);
@@ -29,7 +35,12 @@ router.get('/', async (req, res) => {
         igName: true,
         igProfilePic: true,
         tokenExpiresAt: true,
+        tokenStatus: true,
+        connectionStatus: true,
+        disconnectedAt: true,
+        lastWebhookAt: true,
         createdAt: true,
+        _count: { select: { conversations: true } },
       },
     });
 
@@ -42,7 +53,12 @@ router.get('/', async (req, res) => {
           igName: true,
           igProfilePic: true,
           tokenExpiresAt: true,
+          tokenStatus: true,
+          connectionStatus: true,
+          disconnectedAt: true,
+          lastWebhookAt: true,
           createdAt: true,
+          _count: { select: { conversations: true } },
         },
       });
     }
@@ -56,11 +72,17 @@ router.get('/', async (req, res) => {
 
 // ============================================
 // DELETE /api/accounts/:id
-// Disconnect an Instagram account (deletes account + all related data)
+// Disconnect an Instagram account.
+//
+// By default this is a SOFT disconnect — it stops treating the account as
+// actively connected but keeps every contact/conversation/message intact so
+// the creator never loses history. Pass ?purge=true to permanently erase
+// all data for this account instead (irreversible).
 // ============================================
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const purge = req.query.purge === 'true';
 
     // Verify the account belongs to the logged-in user
     const account = await prisma.instagramAccount.findFirst({
@@ -71,13 +93,21 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Account not found' });
     }
 
-    // Cascade delete will remove contacts, conversations, and messages
-    await prisma.instagramAccount.delete({
+    if (purge) {
+      // Explicit, irreversible data deletion — cascades to contacts,
+      // conversations, messages, AI analyses, brand deals, etc.
+      await prisma.instagramAccount.delete({ where: { id: id } });
+      console.log('[Accounts] Purged account and all historical data:', account.igUsername);
+      return res.json({ message: 'Account and all historical data permanently deleted' });
+    }
+
+    await prisma.instagramAccount.update({
       where: { id: id },
+      data: { connectionStatus: 'DISCONNECTED', disconnectedAt: new Date() },
     });
 
-    console.log('[Accounts] Disconnected account:', account.igUsername);
-    res.json({ message: 'Account disconnected successfully' });
+    console.log('[Accounts] Disconnected account (history preserved):', account.igUsername);
+    res.json({ message: 'Account disconnected. Your conversation history has been preserved and will reappear if you reconnect.' });
   } catch (error) {
     console.error('[Accounts] Error disconnecting account:', error.message);
     res.status(500).json({ error: 'Failed to disconnect account' });

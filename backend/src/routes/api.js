@@ -1,48 +1,65 @@
 /**
- * API routes — conversations, messages, and reply.
- * 
- * All routes require authentication (session cookie).
- * They operate on the logged-in user's Instagram accounts.
+ * API routes — conversations, messages, AI analysis, reply generation, and
+ * sending replies.
+ *
+ * All routes require authentication (session cookie) and are strictly
+ * tenant-scoped to the logged-in user's own Instagram accounts/conversations
+ * — every query below filters by `instagramAccount: { userId: req.userId }`
+ * (or an equivalent account-id whitelist), never by a client-supplied id.
  */
 
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
-
-const prisma = new PrismaClient();
+const aiService = require('../services/aiService');
+const { getOrCreatePreferences } = require('../services/preferencesService');
+const { normalizeCategory } = require('../lib/constants');
 
 // All API routes require authentication
 router.use(requireAuth);
 
+async function getOwnedAccountIds(userId) {
+  let accounts = await prisma.instagramAccount.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+
+  if (accounts.length === 0 && process.env.NODE_ENV !== 'production') {
+    accounts = await prisma.instagramAccount.findMany({ select: { id: true } });
+  }
+
+  return accounts.map((a) => a.id);
+}
+
 // ============================================
 // GET /api/conversations
-// List all conversations for the logged-in user's Instagram accounts
+// List all conversations for the logged-in user's Instagram accounts.
+// Supports filtering by accountId, category, priority, and unread, and
+// sorts important/unread conversations first.
 // ============================================
 router.get('/conversations', async (req, res) => {
   try {
-    const { accountId, category } = req.query;
+    const { accountId, category, priority, unread, important } = req.query;
 
-    // Get all Instagram accounts owned by this user
-    let accounts = await prisma.instagramAccount.findMany({
-      where: { userId: req.userId },
-      select: { id: true },
-    });
-
-    if (accounts.length === 0 && process.env.NODE_ENV !== 'production') {
-      accounts = await prisma.instagramAccount.findMany({
-        select: { id: true },
-      });
-    }
-
-    const userAccountIds = accounts.map(a => a.id);
-    const targetAccountIds = accountId ? [accountId].filter(id => userAccountIds.includes(id)) : userAccountIds;
+    const userAccountIds = await getOwnedAccountIds(req.userId);
+    const targetAccountIds = accountId ? [accountId].filter((id) => userAccountIds.includes(id)) : userAccountIds;
 
     const whereClause = { instagramAccountId: { in: targetAccountIds } };
     if (category) {
-      whereClause.category = category;
+      whereClause.category = normalizeCategory(category) === category ? category : category;
+    }
+    if (priority) {
+      whereClause.priority = priority;
+    }
+    if (important === 'true') {
+      // Same definition used by the dashboard's "attention queue" count.
+      whereClause.OR = [{ needsAttention: true }, { priority: 'critical' }];
+    }
+    if (unread === 'true') {
+      whereClause.unread = true;
     }
 
     // Fetch conversations with contact info
@@ -70,8 +87,14 @@ router.get('/conversations', async (req, res) => {
           take: 1,
           select: { createdAt: true },
         },
+        summaryRecord: { select: { summary: true, stage: true } },
+        brandDeals: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, brandName: true, budgetAmount: true, budgetCurrency: true, status: true },
+        },
       },
-      orderBy: { lastMessageAt: 'desc' },
+      orderBy: [{ priorityScore: 'desc' }, { lastMessageAt: 'desc' }],
     });
 
     // Add 24-hour messaging window status to each conversation
@@ -94,8 +117,14 @@ router.get('/conversations', async (req, res) => {
       }
 
       // Remove the raw messages field, replace with window info
-      const { messages, ...rest } = conv;
-      return { ...rest, messagingWindow };
+      const { messages, brandDeals, summaryRecord, ...rest } = conv;
+      return {
+        ...rest,
+        messagingWindow,
+        summary: summaryRecord?.summary || null,
+        stage: summaryRecord?.stage || null,
+        latestBrandDeal: brandDeals?.[0] || null,
+      };
     });
 
     res.json(conversationsWithWindow);
@@ -107,7 +136,7 @@ router.get('/conversations', async (req, res) => {
 
 // ============================================
 // GET /api/conversations/:id/messages
-// Get messages for a specific conversation
+// Get messages for a specific conversation. Marks the conversation as read.
 // ============================================
 router.get('/conversations/:id/messages', async (req, res) => {
   try {
@@ -166,6 +195,15 @@ router.get('/conversations/:id/messages', async (req, res) => {
       take: parseInt(limit),
     });
 
+    // Opening a conversation marks it read.
+    if (conversation.unread) {
+      conversation = await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { unread: false },
+        include: { contact: { select: { id: true, igsid: true, username: true, name: true, profilePicUrl: true } } },
+      });
+    }
+
     res.json({
       conversation,
       messages,
@@ -177,13 +215,139 @@ router.get('/conversations/:id/messages', async (req, res) => {
 });
 
 // ============================================
+// POST /api/conversations/:id/read
+// Explicitly mark a conversation read/unread (used by the inbox UI).
+// ============================================
+router.post('/conversations/:id/read', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { unread = false } = req.body || {};
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, instagramAccount: { userId: req.userId } },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: { unread: Boolean(unread) },
+    });
+
+    res.json({ id: updated.id, unread: updated.unread });
+  } catch (error) {
+    console.error('[API] Error updating read state:', error.message);
+    res.status(500).json({ error: 'Failed to update conversation' });
+  }
+});
+
+// ============================================
+// GET /api/conversations/:id/ai-analysis
+// Latest AI understanding of a conversation: analysis, summary, brand deal.
+// ============================================
+router.get('/conversations/:id/ai-analysis', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, instagramAccount: { userId: req.userId } },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const [latestAnalysis, summary, brandDeal, replyGenerations] = await Promise.all([
+      prisma.aIAnalysis.findFirst({ where: { conversationId: id }, orderBy: { createdAt: 'desc' } }),
+      prisma.conversationSummary.findUnique({ where: { conversationId: id } }),
+      prisma.brandDeal.findFirst({ where: { conversationId: id }, orderBy: { createdAt: 'desc' } }),
+      prisma.replyGeneration.findMany({ where: { conversationId: id }, orderBy: { createdAt: 'desc' }, take: 5 }),
+    ]);
+
+    res.json({
+      category: conversation.category,
+      priority: conversation.priority,
+      priorityScore: conversation.priorityScore,
+      needsAttention: conversation.needsAttention,
+      latestAnalysis,
+      summary,
+      brandDeal,
+      recentReplyGenerations: replyGenerations,
+    });
+  } catch (error) {
+    console.error('[API] Error fetching AI analysis:', error.message);
+    res.status(500).json({ error: 'Failed to fetch AI analysis' });
+  }
+});
+
+// ============================================
+// POST /api/conversations/:id/generate-reply
+// On-demand AI reply draft. NEVER sends anything — only returns text for
+// the creator to review, edit, and (separately) send via POST .../reply.
+// ============================================
+router.post('/conversations/:id/generate-reply', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { instructions } = req.body || {};
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, instagramAccount: { userId: req.userId } },
+      include: { contact: true },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const [recentMessages, preferences, brandDeal] = await Promise.all([
+      prisma.message.findMany({ where: { conversationId: id }, orderBy: { createdAt: 'desc' }, take: 10 }),
+      getOrCreatePreferences(req.userId),
+      prisma.brandDeal.findFirst({ where: { conversationId: id }, orderBy: { createdAt: 'desc' } }),
+    ]);
+
+    const result = await aiService.generateReply({
+      recentMessages: recentMessages.reverse(),
+      contactUsername: conversation.contact.username,
+      brandDeal,
+      preferences,
+      instructions: typeof instructions === 'string' ? instructions.slice(0, 500) : null,
+      category: conversation.category || 'other',
+    });
+
+    if (result.failed || !result.text) {
+      return res.status(502).json({
+        error: 'AI reply generation is unavailable right now.',
+        details: result.errorMessage || 'The AI provider did not return a draft.',
+      });
+    }
+
+    const saved = await prisma.replyGeneration.create({
+      data: {
+        conversationId: id,
+        userId: req.userId,
+        contextRef: `messages:${recentMessages.length};category:${conversation.category || 'other'}`,
+        instructions: typeof instructions === 'string' ? instructions.slice(0, 500) : null,
+        generatedText: result.text,
+        model: result.model,
+      },
+    });
+
+    res.json({ id: saved.id, text: saved.generatedText, model: saved.model, createdAt: saved.createdAt });
+  } catch (error) {
+    console.error('[API] Error generating reply:', error.message);
+    res.status(500).json({ error: 'Failed to generate reply' });
+  }
+});
+
+// ============================================
 // POST /api/conversations/:id/reply
-// Send a reply message in a conversation
+// Send a reply message in a conversation. This is the ONLY code path that
+// ever calls the Instagram send-message API — always an explicit creator
+// action, never automatic.
 // ============================================
 router.post('/conversations/:id/reply', async (req, res) => {
   try {
     const { id } = req.params;
-    const { text } = req.body;
+    const { text, replyGenerationId } = req.body;
 
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Message text is required' });
@@ -240,18 +404,29 @@ router.post('/conversations/:id/reply', async (req, res) => {
         direction: 'outbound',
         content: text.trim(),
         messageType: 'text',
+        aiStatus: 'skipped', // outbound/creator messages are never AI-classified
         igTimestamp: new Date(),
       },
     });
 
-    // Update conversation's last message
+    // Update conversation's last message; replying implies it's been handled.
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         lastMessage: text.trim(),
         lastMessageAt: new Date(),
+        unread: false,
+        needsAttention: false,
       },
     });
+
+    // Best-effort audit trail: mark the draft as sent if it was used verbatim.
+    if (replyGenerationId) {
+      await prisma.replyGeneration.updateMany({
+        where: { id: replyGenerationId, conversationId: conversation.id },
+        data: { wasSent: true },
+      }).catch(() => {});
+    }
 
     console.log('[API] Reply sent and saved:', savedMessage.id);
 

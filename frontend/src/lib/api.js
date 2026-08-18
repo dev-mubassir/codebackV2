@@ -59,9 +59,14 @@ export async function getAccounts() {
   return data;
 }
 
-/** Disconnect an Instagram account */
-export async function disconnectAccount(accountId) {
-  const { data } = await api.delete(`/api/accounts/${accountId}`);
+/**
+ * Disconnect an Instagram account. By default this is a SOFT disconnect —
+ * historical conversations/messages are preserved and reappear if the
+ * account is reconnected. Pass purge=true for irreversible data deletion.
+ */
+export async function disconnectAccount(accountId, purge = false) {
+  const url = purge ? `/api/accounts/${accountId}?purge=true` : `/api/accounts/${accountId}`;
+  const { data } = await api.delete(url);
   return data;
 }
 
@@ -73,27 +78,117 @@ export async function syncConversations() {
   return data;
 }
 
-/** List all conversations (optionally filtered by accountId and category) */
-export async function getConversations(accountId, category) {
+/** List all conversations (optionally filtered by accountId, category, priority, unread, important) */
+export async function getConversations(accountId, category, extra = {}) {
   const params = new URLSearchParams();
   if (accountId) params.append('accountId', accountId);
   if (category) params.append('category', category);
-  
+  if (extra.priority) params.append('priority', extra.priority);
+  if (extra.unread) params.append('unread', 'true');
+  if (extra.important) params.append('important', 'true');
+
   const queryString = params.toString();
   const url = queryString ? `/api/conversations?${queryString}` : '/api/conversations';
   const { data } = await api.get(url);
   return data;
 }
 
-/** Get messages for a conversation */
+/** Get messages for a conversation (also marks it read server-side) */
 export async function getMessages(conversationId) {
   const { data } = await api.get(`/api/conversations/${conversationId}/messages`);
   return data;
 }
 
-/** Send a reply in a conversation */
-export async function sendReply(conversationId, text) {
-  const { data } = await api.post(`/api/conversations/${conversationId}/reply`, { text });
+/** Explicitly mark a conversation read/unread */
+export async function setConversationRead(conversationId, unread = false) {
+  const { data } = await api.post(`/api/conversations/${conversationId}/read`, { unread });
+  return data;
+}
+
+/** Get the latest AI analysis, summary, and brand deal for a conversation */
+export async function getConversationAnalysis(conversationId) {
+  const { data } = await api.get(`/api/conversations/${conversationId}/ai-analysis`);
+  return data;
+}
+
+/**
+ * Ask AI to draft a reply. This NEVER sends anything — it only returns text
+ * for the creator to review/edit. Only sendReply() below actually sends.
+ */
+export async function generateReply(conversationId, instructions) {
+  const { data } = await api.post(`/api/conversations/${conversationId}/generate-reply`, { instructions });
+  return data;
+}
+
+/** Send a reply in a conversation — the ONLY call that reaches Instagram. */
+export async function sendReply(conversationId, text, replyGenerationId) {
+  const { data } = await api.post(`/api/conversations/${conversationId}/reply`, { text, replyGenerationId });
+  return data;
+}
+
+// ---- Brand Deals ----
+
+export async function getBrandDeals(status) {
+  const url = status ? `/api/brand-deals?status=${encodeURIComponent(status)}` : '/api/brand-deals';
+  const { data } = await api.get(url);
+  return data;
+}
+
+export async function getBrandDeal(id) {
+  const { data } = await api.get(`/api/brand-deals/${id}`);
+  return data;
+}
+
+export async function updateBrandDealStatus(id, status) {
+  const { data } = await api.patch(`/api/brand-deals/${id}`, { status });
+  return data;
+}
+
+// ---- Notifications ----
+
+export async function getNotifications() {
+  const { data } = await api.get('/api/notifications');
+  return data;
+}
+
+export async function markNotificationRead(id) {
+  const { data } = await api.post(`/api/notifications/${id}/read`);
+  return data;
+}
+
+export async function markAllNotificationsRead() {
+  const { data } = await api.post('/api/notifications/read-all');
+  return data;
+}
+
+// ---- Creator AI Settings ----
+
+export async function getAISettings() {
+  const { data } = await api.get('/api/settings/ai');
+  return data;
+}
+
+export async function updateAISettings(update) {
+  const { data } = await api.put('/api/settings/ai', update);
+  return data;
+}
+
+// ---- Subscription & Usage ----
+
+export async function getSubscription() {
+  const { data } = await api.get('/api/subscription');
+  return data;
+}
+
+export async function getUsage() {
+  const { data } = await api.get('/api/usage');
+  return data;
+}
+
+// ---- Dashboard ----
+
+export async function getDashboardSummary() {
+  const { data } = await api.get('/api/dashboard/summary');
   return data;
 }
 

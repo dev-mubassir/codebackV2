@@ -1,10 +1,11 @@
 /**
  * Webhook routes — handles incoming Instagram webhook events.
- * 
- * Meta sends all DM events to a single webhook endpoint.
- * We identify which Codeback user owns the account via entry.id (the IG User ID),
- * then process the message and push it to the frontend in real-time.
- * 
+ *
+ * Meta sends all DM events to a single webhook endpoint. We identify which
+ * Codeback user owns the account via entry.id (the IG User ID), persist the
+ * message immediately, and queue AI analysis to run in the background — the
+ * webhook itself must stay fast and must never block on AI inference.
+ *
  * Important: The raw body must be available for signature verification.
  * The main server passes `req.rawBody` for this purpose.
  */
@@ -12,18 +13,15 @@
 const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
-const { classifyAndSuggest, shouldUpdateCategory } = require('../services/aiService');
+const { emitToUser } = require('../lib/socket');
+const { enqueueMessageAnalysis } = require('../jobs');
 
-const prisma = new PrismaClient();
-
-// Reference to Socket.io server — set from index.js
-let io = null;
-function setSocketIO(socketIO) {
-  io = socketIO;
-}
+// Kept for backwards compatibility with index.js — Socket.io is now
+// accessed through lib/socket.js everywhere, so this is a no-op shim.
+function setSocketIO() {}
 
 // ============================================
 // GET /webhook & GET /webhooks/instagram
@@ -48,15 +46,22 @@ router.get('/', (req, res) => {
 // Receive incoming webhook events (messages, reactions, read receipts)
 // ============================================
 router.post('/', async (req, res) => {
+  const signatureHeader = req.headers['x-hub-signature-256'];
+
+  if (!verifySignature(req.rawBody, signatureHeader)) {
+    console.warn('[Webhook] Rejected request: invalid or missing X-Hub-Signature-256.');
+    return res.status(401).send('Invalid signature');
+  }
+
   const body = req.body || {};
 
-  // Respond immediately with 200 (Meta requires fast response)
+  // Respond immediately with 200 (Meta requires a fast response — all AI
+  // processing happens asynchronously after this, never before it).
   res.status(200).send('EVENT_RECEIVED');
 
-  // Process the webhook payload asynchronously
   try {
     for (const entry of body.entry || []) {
-      await processEntry(entry);
+      await processEntry(entry, body);
     }
   } catch (error) {
     console.error('[Webhook] Error processing event:', error.message);
@@ -68,23 +73,29 @@ router.post('/', async (req, res) => {
  */
 function verifySignature(rawBody, signatureHeader) {
   if (!signatureHeader || !rawBody) {
-    console.warn('[Webhook] Missing signature or raw body');
-    // For testing, allow unsigned requests if WEBHOOK_VERIFY_SIGNATURE is not set
     if (process.env.SKIP_SIGNATURE_VERIFICATION === 'true') {
+      console.warn('[Webhook] Missing signature/raw body — allowed because SKIP_SIGNATURE_VERIFICATION=true.');
       return true;
     }
+    console.warn('[Webhook] Missing signature or raw body.');
     return false;
   }
 
   const expectedSignature = 'sha256=' + crypto
-    .createHmac('sha256', process.env.INSTAGRAM_APP_SECRET)
+    .createHmac('sha256', process.env.INSTAGRAM_APP_SECRET || '')
     .update(rawBody)
     .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signatureHeader),
-    Buffer.from(expectedSignature)
-  );
+  const provided = Buffer.from(signatureHeader);
+  const expected = Buffer.from(expectedSignature);
+
+  // Buffers of different lengths would make timingSafeEqual throw instead of
+  // returning false — guard against that first.
+  if (provided.length !== expected.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(provided, expected);
 }
 
 /**
@@ -175,12 +186,13 @@ async function processEntry(entry, fullBody) {
  * Handle an incoming DM.
  * - Find or create the contact (fetch profile if needed)
  * - Find or create the conversation
- * - Save the message
- * - Push to frontend via Socket.io
+ * - Save the message (original content is never modified by AI)
+ * - Push the raw message to the frontend via Socket.io immediately
+ * - Queue AI analysis to run in the background (classification, priority,
+ *   brand-deal extraction, summary) — never inline/blocking here.
  */
 async function handleIncomingMessage(account, messagingEvent) {
   const senderIgsid = String(messagingEvent.sender.id);
-  const recipientId = String(messagingEvent.recipient.id);
   const message = messagingEvent.message;
   const timestamp = messagingEvent.timestamp;
 
@@ -189,6 +201,18 @@ async function handleIncomingMessage(account, messagingEvent) {
   if (message.is_echo || senderIgsid === account.igUserId) {
     console.log('[Webhook] Skipping echo/outbound message (is_echo:', message.is_echo, ', sender:', senderIgsid, ')');
     return;
+  }
+
+  // Deduplication: Instagram/Meta can redeliver the same webhook event more
+  // than once. Check first (fast path), and also guard the insert itself
+  // against a race between two near-simultaneous deliveries (belt & braces).
+  const igMessageId = message.mid;
+  if (igMessageId) {
+    const existingMsg = await prisma.message.findUnique({ where: { igMessageId } });
+    if (existingMsg) {
+      console.log('[Webhook] Duplicate message, skipping:', igMessageId);
+      return;
+    }
   }
 
   console.log('[Webhook] Incoming message from IGSID:', senderIgsid);
@@ -213,7 +237,6 @@ async function handleIncomingMessage(account, messagingEvent) {
     const profile = await instagram.fetchUserProfile(senderIgsid, accessToken);
 
     if (contact) {
-      // Update existing contact with fresh profile data
       contact = await prisma.contact.update({
         where: { id: contact.id },
         data: {
@@ -224,21 +247,36 @@ async function handleIncomingMessage(account, messagingEvent) {
         },
       });
     } else {
-      // Create new contact
-      contact = await prisma.contact.create({
-        data: {
-          instagramAccountId: account.id,
-          igsid: senderIgsid,
-          username: profile?.username || `user_${senderIgsid.slice(-6)}`,
-          name: profile?.name || null,
-          profilePicUrl: profile?.profile_pic || null,
-          lastFetchedAt: new Date(),
-        },
-      });
+      try {
+        contact = await prisma.contact.create({
+          data: {
+            instagramAccountId: account.id,
+            igsid: senderIgsid,
+            username: profile?.username || `user_${senderIgsid.slice(-6)}`,
+            name: profile?.name || null,
+            profilePicUrl: profile?.profile_pic || null,
+            lastFetchedAt: new Date(),
+          },
+        });
+      } catch (err) {
+        // P2002 = unique constraint violation on (instagramAccountId, igsid) —
+        // a concurrent webhook delivery for the same contact already created
+        // it between our findUnique() above and this create(). Re-fetch
+        // instead of failing the whole event.
+        if (err.code === 'P2002') {
+          contact = await prisma.contact.findUnique({
+            where: { instagramAccountId_igsid: { instagramAccountId: account.id, igsid: senderIgsid } },
+          });
+        } else {
+          throw err;
+        }
+      }
     }
   }
 
-  // Step 2: Find or create the conversation
+  // Step 2: Find or create the conversation. Category/priority are left at
+  // their defaults ("other"/"normal") here — the async AI job fills them in
+  // moments later so the webhook never waits on AI inference.
   let conversation = await prisma.conversation.findUnique({
     where: {
       instagramAccountId_contactId: {
@@ -248,21 +286,13 @@ async function handleIncomingMessage(account, messagingEvent) {
     },
   });
 
-  // Determine message content and type
   const messageText = message.text || null;
   const messageType = message.attachments?.[0]?.type || 'text';
   const attachmentUrl = message.attachments?.[0]?.payload?.url || null;
   // Timestamp from Meta is often in milliseconds. If it's less than 1e11, it's seconds.
   const parsedTimestamp = typeof timestamp === 'number' ? (timestamp > 1e11 ? timestamp : timestamp * 1000) : parseInt(timestamp, 10);
   const igTimestamp = timestamp ? new Date(parsedTimestamp) : new Date();
-
   const lastMessagePreview = messageText || `[${messageType}]`;
-
-  // Step 2.5: Classify incoming message & generate AI reply suggestion
-  const { category, reply: suggestedReply } = await classifyAndSuggest(messageText, contact.username);
-  console.log(`[Webhook] Classified message from @${contact.username} as [${category}]`);
-
-  const updatedConvCategory = shouldUpdateCategory(conversation?.category, category);
 
   if (conversation) {
     conversation = await prisma.conversation.update({
@@ -270,100 +300,100 @@ async function handleIncomingMessage(account, messagingEvent) {
       data: {
         lastMessage: lastMessagePreview,
         lastMessageAt: igTimestamp,
-        category: updatedConvCategory,
+        unread: true,
       },
     });
   } else {
-    conversation = await prisma.conversation.create({
+    try {
+      conversation = await prisma.conversation.create({
+        data: {
+          instagramAccountId: account.id,
+          contactId: contact.id,
+          lastMessage: lastMessagePreview,
+          lastMessageAt: igTimestamp,
+        },
+      });
+    } catch (err) {
+      // P2002 = a concurrent webhook delivery for the same contact already
+      // created this conversation between our findUnique() and this create().
+      if (err.code === 'P2002') {
+        conversation = await prisma.conversation.update({
+          where: { instagramAccountId_contactId: { instagramAccountId: account.id, contactId: contact.id } },
+          data: { lastMessage: lastMessagePreview, lastMessageAt: igTimestamp, unread: true },
+        });
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Step 3: Save the message. aiStatus defaults to "pending" — the
+  // background job fills in category/priority after this transaction.
+  let savedMessage;
+  try {
+    savedMessage = await prisma.message.create({
       data: {
-        instagramAccountId: account.id,
-        contactId: contact.id,
-        lastMessage: lastMessagePreview,
-        lastMessageAt: igTimestamp,
-        category: category,
+        conversationId: conversation.id,
+        igMessageId: igMessageId || null,
+        direction: 'inbound',
+        content: messageText,
+        messageType: messageType,
+        attachmentUrl: attachmentUrl,
+        igTimestamp: igTimestamp,
       },
     });
-  }
-
-  // Step 3: Save the message (with deduplication via igMessageId)
-  const igMessageId = message.mid;
-  let existingMsg = null;
-
-  if (igMessageId) {
-    existingMsg = await prisma.message.findUnique({
-      where: { igMessageId: igMessageId },
-    });
-  }
-
-  if (existingMsg) {
-    console.log('[Webhook] Duplicate message, skipping:', igMessageId);
-    return;
-  }
-
-  const savedMessage = await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      igMessageId: igMessageId,
-      direction: 'inbound',
-      content: messageText,
-      category: category,
-      suggestedReply: suggestedReply,
-      messageType: messageType,
-      attachmentUrl: attachmentUrl,
-      igTimestamp: igTimestamp,
-    },
-  });
-
-  // Step 4: Emit Socket.io event for real-time UI updates
-  try {
-    const io = req.app.get('io');
-    if (io) {
-      const roomName = `user:${account.userId}`;
-      io.to(roomName).emit('new_message', {
-        conversationId: conversation.id,
-        accountId: account.id,
-        category: category,
-        suggestedReply: suggestedReply,
-        message: savedMessage,
-        contact: contact,
-      });
+  } catch (err) {
+    // P2002 = unique constraint violation on igMessageId — another
+    // concurrent delivery of the same event already inserted it.
+    if (err.code === 'P2002') {
+      console.log('[Webhook] Duplicate message caught at insert time, skipping:', igMessageId);
+      return;
     }
-  } catch (socketErr) {
-    console.warn('[Webhook] Failed to emit Socket.io event:', socketErr.message);
+    throw err;
   }
+
+  await prisma.usageEvent.create({
+    data: { userId: account.userId, type: 'messages_received', quantity: 1, metadata: JSON.stringify({ conversationId: conversation.id }) },
+  }).catch(() => {});
 
   console.log('[Webhook] Message saved:', savedMessage.id);
 
-  // Step 4: Push to frontend via Socket.io
-  if (io) {
-    const payload = {
-      conversationId: conversation.id,
-      message: {
-        id: savedMessage.id,
-        direction: 'inbound',
-        content: savedMessage.content,
-        messageType: savedMessage.messageType,
-        attachmentUrl: savedMessage.attachmentUrl,
-        igTimestamp: savedMessage.igTimestamp,
-        createdAt: savedMessage.createdAt,
-      },
-      contact: {
-        id: contact.id,
-        username: contact.username,
-        name: contact.name,
-        profilePicUrl: contact.profilePicUrl,
-      },
-      conversation: {
-        id: conversation.id,
-        lastMessage: conversation.lastMessage,
-        lastMessageAt: conversation.lastMessageAt,
-      },
-    };
+  // Step 4: Push the raw message to the frontend via Socket.io immediately —
+  // the creator should see new DMs the instant they arrive, without waiting
+  // for AI classification.
+  emitToUser(account.userId, 'new_message', {
+    conversationId: conversation.id,
+    accountId: account.id,
+    message: {
+      id: savedMessage.id,
+      direction: 'inbound',
+      content: savedMessage.content,
+      messageType: savedMessage.messageType,
+      attachmentUrl: savedMessage.attachmentUrl,
+      igTimestamp: savedMessage.igTimestamp,
+      createdAt: savedMessage.createdAt,
+      aiStatus: savedMessage.aiStatus,
+    },
+    contact: {
+      id: contact.id,
+      username: contact.username,
+      name: contact.name,
+      profilePicUrl: contact.profilePicUrl,
+    },
+    conversation: {
+      id: conversation.id,
+      lastMessage: conversation.lastMessage,
+      lastMessageAt: conversation.lastMessageAt,
+      category: conversation.category,
+      priority: conversation.priority,
+      unread: conversation.unread,
+    },
+  });
 
-    // Emit to the user's room (user ID-based room)
-    io.to(`user:${account.userId}`).emit('new_message', payload);
-    console.log('[Webhook] Emitted new_message to user:', account.userId);
-  }
+  // Step 5: Queue AI analysis to run in the background. This never blocks
+  // the webhook and is safe to call even if it later fails — the message is
+  // already persisted and visible regardless of AI outcome.
+  await enqueueMessageAnalysis(savedMessage.id);
 }
 
 module.exports = router;

@@ -7,8 +7,7 @@
  * 3. User account is not suspended
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../lib/prisma');
 
 async function requireAdmin(req, res, next) {
   // Allow dedicated admin session (Username/Password login)

@@ -8,13 +8,12 @@
 
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const { requireAdmin } = require('../middleware/adminAuth');
 const { logAdminAction } = require('../lib/auditLogger');
 const instagram = require('../lib/instagram');
+const { encrypt, decrypt } = require('../lib/crypto');
 const { getAIStats } = require('../services/aiService');
-
-const prisma = new PrismaClient();
 
 // ============================================
 // Public Admin Authentication Routes (No requireAdmin needed)
@@ -184,6 +183,12 @@ router.get('/stats', async (req, res) => {
       _count: { id: true },
     });
 
+    const totalBrandDeals = await prisma.brandDeal.count();
+    const pendingAiMessages = await prisma.message.count({ where: { aiStatus: { in: ['pending', 'processing'] } } });
+    const failedAiMessages = await prisma.message.count({ where: { aiStatus: 'failed' } });
+    const { getJobSystem } = require('../lib/queue');
+    const queueMode = getJobSystem('ai-processing').mode;
+
     res.json({
       totalUsers,
       totalAccounts,
@@ -196,6 +201,10 @@ router.get('/stats', async (req, res) => {
       recentSignups,
       aiStats,
       categoryBreakdown,
+      totalBrandDeals,
+      pendingAiMessages,
+      failedAiMessages,
+      queueMode,
     });
   } catch (error) {
     console.error('[Admin API] Error fetching stats:', error.message);
@@ -242,6 +251,7 @@ router.get('/users', async (req, res) => {
               igName: true,
               igProfilePic: true,
               tokenStatus: true,
+              connectionStatus: true,
               tokenExpiresAt: true,
               lastWebhookAt: true,
             }
@@ -303,6 +313,7 @@ router.get('/users/:id', async (req, res) => {
             igName: true,
             igProfilePic: true,
             tokenStatus: true,
+            connectionStatus: true,
             tokenExpiresAt: true,
             lastWebhookAt: true,
             createdAt: true,
@@ -475,6 +486,7 @@ router.get('/accounts', async (req, res) => {
         igName: true,
         igProfilePic: true,
         tokenStatus: true,
+        connectionStatus: true,
         tokenExpiresAt: true,
         lastWebhookAt: true,
         createdAt: true,

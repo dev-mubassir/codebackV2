@@ -3,28 +3,40 @@
 import { useEffect, useState, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { io } from 'socket.io-client';
-import { getMe, getConversations, getMessages, getAccounts, logout } from '@/lib/api';
+import {
+  getMe, getConversations, getMessages, getAccounts, logout,
+  getConversationAnalysis, generateReply, sendReply, setConversationRead,
+  updateBrandDealStatus, getNotifications,
+} from '@/lib/api';
+import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
 import styles from './inbox.module.css';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
-
-const CATEGORIES = ['All', 'Brand/Collab', 'Business', 'Question', 'Fan', 'Spam', 'Other'];
+const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];
 
 function InboxPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialAccountId = searchParams.get('accountId') || '';
+  const initialConversationId = searchParams.get('conversationId') || '';
+  const initialFilter = searchParams.get('filter') || 'all';
 
   const [user, setUser] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState(initialAccountId);
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedFilter, setSelectedFilter] = useState(initialFilter);
   const [conversations, setConversations] = useState([]);
   const [selectedConv, setSelectedConv] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [contactInfo, setContactInfo] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [analysis, setAnalysis] = useState(null);
+  const [draftText, setDraftText] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
   const messageIdsRef = useRef(new Set());
@@ -39,7 +51,13 @@ function InboxPageContent() {
         const accountsData = await getAccounts();
         setAccounts(accountsData);
 
-        await loadConversations(initialAccountId, '');
+        await loadConversations(initialAccountId, initialFilter);
+
+        if (initialConversationId) {
+          await selectConversation(initialConversationId);
+        }
+
+        getNotifications().then((d) => setNotifUnreadCount(d.unreadCount || 0)).catch(() => {});
       } catch (err) {
         router.push('/');
       } finally {
@@ -47,7 +65,8 @@ function InboxPageContent() {
       }
     }
     init();
-  }, [router, initialAccountId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   // ---- Socket.io connection ----
   useEffect(() => {
@@ -57,19 +76,18 @@ function InboxPageContent() {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('[Socket] Connected:', socket.id);
       socket.emit('join', { userId: user.id });
     });
 
     socket.on('new_message', handleNewMessage);
-
-    socket.on('disconnect', () => {
-      console.log('[Socket] Disconnected');
-    });
+    socket.on('analysis_completed', handleAnalysisCompleted);
+    socket.on('brand_deal_detected', handleBrandDealDetected);
+    socket.on('notification', () => setNotifUnreadCount((c) => c + 1));
 
     return () => {
       socket.disconnect();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   // ---- Auto-scroll to bottom on new messages ----
@@ -83,8 +101,6 @@ function InboxPageContent() {
 
   // ---- Handle real-time new message from Socket.io ----
   const handleNewMessage = useCallback((data) => {
-    console.log('[Socket] New message received:', data);
-
     setConversations(prev => {
       const existing = prev.find(c => c.id === data.conversationId);
       if (existing) {
@@ -94,7 +110,7 @@ function InboxPageContent() {
               ...c,
               lastMessage: data.message.content || `[${data.message.messageType}]`,
               lastMessageAt: data.message.igTimestamp,
-              category: data.category || c.category,
+              unread: true,
             }
             : c
         ).sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
@@ -114,13 +130,57 @@ function InboxPageContent() {
       }
       return current;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---- Handle live AI analysis completion (category/priority/summary) ----
+  const handleAnalysisCompleted = useCallback((data) => {
+    setConversations(prev => prev.map(c =>
+      c.id === data.conversationId
+        ? { ...c, category: data.category, priority: data.priority, priorityScore: data.priorityScore, needsAttention: data.needsAttention, summary: data.summary || c.summary }
+        : c
+    ));
+
+    setSelectedConv(current => {
+      if (current === data.conversationId) {
+        setAnalysis(prevAnalysis => prevAnalysis ? {
+          ...prevAnalysis,
+          category: data.category,
+          priority: data.priority,
+          priorityScore: data.priorityScore,
+          needsAttention: data.needsAttention,
+          summary: { ...(prevAnalysis.summary || {}), summary: data.summary || prevAnalysis.summary?.summary },
+        } : prevAnalysis);
+      }
+      return current;
+    });
+  }, []);
+
+  // ---- Handle live brand deal detection ----
+  const handleBrandDealDetected = useCallback((data) => {
+    setSelectedConv(current => {
+      if (current === data.conversationId) {
+        setAnalysis(prevAnalysis => prevAnalysis ? { ...prevAnalysis, brandDeal: data.brandDeal } : prevAnalysis);
+      }
+      return current;
+    });
+    loadConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- Build query extras from the active pseudo/real filter ----
+  function filterToQuery(filterId) {
+    if (filterId === 'all' || !filterId) return {};
+    if (filterId === 'unread') return { unread: true };
+    if (filterId === 'important') return { important: true };
+    return { category: filterId };
+  }
+
   // ---- Load conversations ----
-  async function loadConversations(accId = selectedAccountId, categoryFilter = selectedCategory) {
+  async function loadConversations(accId = selectedAccountId, filterId = selectedFilter) {
     try {
-      const categoryParam = categoryFilter === 'All' ? '' : categoryFilter;
-      const data = await getConversations(accId, categoryParam);
+      const extra = filterToQuery(filterId);
+      const data = await getConversations(accId, extra.category, extra);
       setConversations(data);
     } catch (err) {
       console.error('Failed to load conversations:', err);
@@ -132,22 +192,24 @@ function InboxPageContent() {
     setSelectedAccountId(accId);
     setSelectedConv(null);
     setMessages([]);
-    await loadConversations(accId, selectedCategory);
+    await loadConversations(accId, selectedFilter);
   }
 
-  // ---- Switch category filter ----
-  async function handleCategoryChange(cat) {
-    const catVal = cat === 'All' ? '' : cat;
-    setSelectedCategory(catVal);
+  // ---- Switch category/status filter ----
+  async function handleFilterChange(filterId) {
+    setSelectedFilter(filterId);
     setSelectedConv(null);
     setMessages([]);
-    await loadConversations(selectedAccountId, catVal);
+    await loadConversations(selectedAccountId, filterId);
   }
 
   // ---- Select a conversation ----
   async function selectConversation(convId) {
     setSelectedConv(convId);
     setMessages([]);
+    setAnalysis(null);
+    setDraftText('');
+    setSendError('');
     messageIdsRef.current.clear();
     setCopied(false);
 
@@ -160,6 +222,12 @@ function InboxPageContent() {
       });
       setMessages(uniqueMessages);
       setContactInfo(data.conversation.contact);
+
+      // The GET above marks it read server-side — reflect that optimistically.
+      setConversations(prev => prev.map(c => (c.id === convId ? { ...c, unread: false } : c)));
+
+      const analysisData = await getConversationAnalysis(convId).catch(() => null);
+      if (analysisData) setAnalysis(analysisData);
     } catch (err) {
       console.error('Failed to load messages:', err);
     }
@@ -175,11 +243,12 @@ function InboxPageContent() {
     }
   }
 
-  // ---- Extract AI suggestion for active chat ----
   const activeConvData = conversations.find(c => c.id === selectedConv);
-  const latestInboundWithReply = [...messages].reverse().find(m => m.direction === 'inbound' && m.suggestedReply);
-  const activeSuggestedReply = latestInboundWithReply?.suggestedReply || null;
-  const activeCategory = activeConvData?.category || latestInboundWithReply?.category || 'General';
+  const activeCategory = analysis?.category || activeConvData?.category || 'other';
+  const activeCategoryMeta = getCategoryMeta(activeCategory);
+  const activePriorityMeta = getPriorityMeta(analysis?.priority || activeConvData?.priority);
+  const messagingWindow = activeConvData?.messagingWindow;
+  const canSend = messagingWindow?.canReply !== false; // unknown/open => allow attempt, closed => block
 
   function handleCopyReply(text) {
     if (!text) return;
@@ -188,13 +257,48 @@ function InboxPageContent() {
     setTimeout(() => setCopied(false), 2500);
   }
 
-  function handleUseReply(text) {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    // Focus Instagram link button
-    const linkBtn = document.getElementById('open-instagram-chat-btn');
-    if (linkBtn) linkBtn.focus();
+  // ---- AI: generate a draft reply (never sends) ----
+  async function handleGenerateReply(regenerate = false) {
+    if (!selectedConv) return;
+    setGenerating(true);
+    setSendError('');
+    try {
+      const instructions = regenerate ? 'Write a different variation than before.' : undefined;
+      const result = await generateReply(selectedConv, instructions);
+      setDraftText(result.text || '');
+    } catch (err) {
+      setSendError(err.response?.data?.error || 'AI reply generation is unavailable right now. You can still write your own reply below.');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  // ---- Explicit creator action: send the message via Instagram ----
+  async function handleSend() {
+    if (!selectedConv || !draftText.trim() || sending) return;
+    setSending(true);
+    setSendError('');
+    try {
+      const result = await sendReply(selectedConv, draftText.trim());
+      messageIdsRef.current.add(result.message.id);
+      setMessages(prev => [...prev, result.message]);
+      setDraftText('');
+      setConversations(prev => prev.map(c => (c.id === selectedConv ? { ...c, lastMessage: result.message.content, unread: false, needsAttention: false } : c)));
+    } catch (err) {
+      setSendError(err.response?.data?.error || 'Failed to send message.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleBrandDealStatusChange(newStatus) {
+    if (!analysis?.brandDeal) return;
+    try {
+      const updated = await updateBrandDealStatus(analysis.brandDeal.id, newStatus);
+      setAnalysis(prev => ({ ...prev, brandDeal: updated }));
+    } catch (err) {
+      console.error('Failed to update brand deal status:', err);
+    }
   }
 
   if (loading) {
@@ -220,11 +324,21 @@ function InboxPageContent() {
           </div>
           <div className={styles.sidebarActions}>
             <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => router.push('/dashboard')}
-              title="Dashboard"
+              className={`btn btn-secondary btn-sm ${styles.bellButton}`}
+              onClick={() => router.push('/notifications')}
+              title="Notifications"
             >
+              🔔
+              {notifUnreadCount > 0 && <span className={styles.bellBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>}
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/brand-deals')} title="Brand Deals">
+              🔥
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/settings')} title="AI Settings">
               ⚙️
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/dashboard')} title="Dashboard">
+              📊
             </button>
             <button className="btn btn-secondary btn-sm" onClick={handleLogout} title="Log out">
               ↗️
@@ -253,20 +367,17 @@ function InboxPageContent() {
           </div>
         )}
 
-        {/* Smart Category Filter Tabs */}
+        {/* Smart Filter Tabs (extensible \u2014 driven by shared category metadata) */}
         <div className={styles.categoryFilterBar}>
-          {CATEGORIES.map(cat => {
-            const isCatActive = (cat === 'All' && !selectedCategory) || selectedCategory === cat;
-            return (
-              <button
-                key={cat}
-                className={`${styles.categoryFilterBtn} ${isCatActive ? styles.categoryFilterBtnActive : ''}`}
-                onClick={() => handleCategoryChange(cat)}
-              >
-                {cat}
-              </button>
-            );
-          })}
+          {INBOX_FILTERS.map(f => (
+            <button
+              key={f.id}
+              className={`${styles.categoryFilterBtn} ${selectedFilter === f.id ? styles.categoryFilterBtnActive : ''}`}
+              onClick={() => handleFilterChange(f.id)}
+            >
+              {f.icon} {f.label}
+            </button>
+          ))}
         </div>
 
         <div className={styles.convList}>
@@ -276,53 +387,56 @@ function InboxPageContent() {
               <span>DMs will appear here when someone messages your Instagram account</span>
             </div>
           ) : (
-            conversations.map((conv) => (
-              <button
-                key={conv.id}
-                className={`${styles.convItem} ${selectedConv === conv.id ? styles.convItemActive : ''}`}
-                onClick={() => selectConversation(conv.id)}
-                id={`conv-${conv.id}`}
-              >
-                <div className={styles.convAvatar}>
-                  {conv.contact.profilePicUrl ? (
-                    <img src={conv.contact.profilePicUrl} alt={conv.contact.username} />
-                  ) : (
-                    <div className={styles.convAvatarFallback}>
-                      {(conv.contact.username || '?')[0].toUpperCase()}
-                    </div>
-                  )}
-                  {conv.messagingWindow?.status === 'open' && (
-                    <span className={styles.windowDot} title="24h window open" />
-                  )}
-                </div>
-                <div className={styles.convInfo}>
-                  <div className={styles.convTopRow}>
-                    <span className={styles.convUsername}>
-                      {conv.contact.username || conv.contact.name || 'Unknown'}
-                    </span>
-                    <span className={styles.convTime}>
-                      {conv.lastMessageAt ? formatTimeAgo(conv.lastMessageAt) : ''}
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px' }}>
-                    <p className={styles.convPreview} style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {conv.lastMessage || 'No messages'}
-                    </p>
-                    {conv.category && (
-                      <span className={`${styles.categoryBadge} ${
-                        conv.category === 'Brand/Collab' ? styles.badgeBrandCollab :
-                        conv.category === 'Business' ? styles.badgeBusiness :
-                        conv.category === 'Question' ? styles.badgeQuestion :
-                        conv.category === 'Fan' ? styles.badgeFan :
-                        conv.category === 'Spam' ? styles.badgeSpam : styles.badgeOther
-                      }`} style={{ marginLeft: '6px', flexShrink: 0 }}>
-                        {conv.category}
-                      </span>
+            conversations.map((conv) => {
+              const meta = getCategoryMeta(conv.category);
+              const prio = getPriorityMeta(conv.priority);
+              return (
+                <button
+                  key={conv.id}
+                  className={`${styles.convItem} ${selectedConv === conv.id ? styles.convItemActive : ''}`}
+                  onClick={() => selectConversation(conv.id)}
+                  id={`conv-${conv.id}`}
+                >
+                  <div className={styles.convAvatar}>
+                    {conv.contact.profilePicUrl ? (
+                      <img src={conv.contact.profilePicUrl} alt={conv.contact.username} />
+                    ) : (
+                      <div className={styles.convAvatarFallback}>
+                        {(conv.contact.username || '?')[0].toUpperCase()}
+                      </div>
+                    )}
+                    {conv.messagingWindow?.status === 'open' && (
+                      <span className={styles.windowDot} title="24h window open" />
                     )}
                   </div>
-                </div>
-              </button>
-            ))
+                  <div className={styles.convInfo}>
+                    <div className={styles.convTopRow}>
+                      <span
+                        className={styles.convUsername}
+                        style={conv.unread ? { fontWeight: 900 } : undefined}
+                      >
+                        {conv.unread && <span className={styles.unreadDot} style={{ marginRight: '6px' }} />}
+                        {conv.contact.username || conv.contact.name || 'Unknown'}
+                      </span>
+                      <span className={styles.convTime}>
+                        {conv.lastMessageAt ? formatTimeAgo(conv.lastMessageAt) : ''}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px', gap: '6px' }}>
+                      <span className={styles.priorityDot} title={`Priority: ${prio.label}`} style={{ background: prio.dotClass === 'priorityCritical' ? '#ff3b3b' : prio.dotClass === 'priorityHigh' ? '#ffffff' : prio.dotClass === 'priorityNormal' ? '#666666' : '#333333' }} />
+                      <p className={styles.convPreview} style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {conv.lastMessage || 'No messages'}
+                      </p>
+                      {conv.category && (
+                        <span className={`${styles.categoryBadge} ${styles[meta.badgeClass]}`} style={{ marginLeft: '6px', flexShrink: 0 }}>
+                          {meta.icon} {meta.label}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       </aside>
@@ -346,17 +460,10 @@ function InboxPageContent() {
                     <h2 className={styles.chatUsername}>
                       {contactInfo?.username || contactInfo?.name || 'Unknown'}
                     </h2>
-                    {activeCategory && activeCategory !== 'Other' && (
-                      <span className={`${styles.categoryBadge} ${
-                        activeCategory === 'Brand/Collab' ? styles.badgeBrandCollab :
-                        activeCategory === 'Business' ? styles.badgeBusiness :
-                        activeCategory === 'Question' ? styles.badgeQuestion :
-                        activeCategory === 'Fan' ? styles.badgeFan :
-                        activeCategory === 'Spam' ? styles.badgeSpam : styles.badgeOther
-                      }`}>
-                        {activeCategory}
-                      </span>
-                    )}
+                    <span className={`${styles.categoryBadge} ${styles[activeCategoryMeta.badgeClass]}`}>
+                      {activeCategoryMeta.icon} {activeCategoryMeta.label}
+                    </span>
+                    <span className={styles.priorityDot} title={`Priority: ${activePriorityMeta.label}`} style={{ background: activePriorityMeta.dotClass === 'priorityCritical' ? '#ff3b3b' : activePriorityMeta.dotClass === 'priorityHigh' ? '#ffffff' : activePriorityMeta.dotClass === 'priorityNormal' ? '#666666' : '#333333' }} />
                   </div>
                   {contactInfo?.name && contactInfo.name !== contactInfo.username && (
                     <span className={styles.chatRealName}>{contactInfo.name}</span>
@@ -370,12 +477,58 @@ function InboxPageContent() {
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn btn-secondary btn-sm"
+                    id="open-instagram-chat-btn"
                   >
                     ↗ Instagram Profile
                   </a>
                 )}
               </div>
             </div>
+
+            {/* Conversation Summary Panel */}
+            {analysis?.summary?.summary && (
+              <div className={styles.summaryPanel}>
+                <span className={styles.summaryPanelLabel}>✨ AI Conversation Summary</span>
+                {analysis.summary.summary}
+                {analysis.summary.stage && <span className={styles.summaryStage}>{analysis.summary.stage}</span>}
+              </div>
+            )}
+
+            {/* Brand Deal Panel */}
+            {analysis?.brandDeal && (
+              <div className={styles.brandDealPanel}>
+                <div className={styles.brandDealHeader}>
+                  <span className={styles.brandDealTitle}>🔥 Brand Deal</span>
+                  <select
+                    className={styles.brandDealStatusSelect}
+                    value={analysis.brandDeal.status}
+                    onChange={(e) => handleBrandDealStatusChange(e.target.value)}
+                  >
+                    {BRAND_DEAL_STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                  </select>
+                </div>
+                <div className={styles.brandDealGrid}>
+                  <div className={styles.brandDealField}>
+                    <span className={styles.brandDealFieldLabel}>Brand</span>
+                    <span className={styles.brandDealFieldValue}>{analysis.brandDeal.brandName || 'Unknown'}</span>
+                  </div>
+                  <div className={styles.brandDealField}>
+                    <span className={styles.brandDealFieldLabel}>Budget</span>
+                    <span className={styles.brandDealFieldValue}>
+                      {analysis.brandDeal.budgetAmount ? `${analysis.brandDeal.budgetAmount} ${analysis.brandDeal.budgetCurrency || ''}`.trim() : 'Unknown'}
+                    </span>
+                  </div>
+                  <div className={styles.brandDealField}>
+                    <span className={styles.brandDealFieldLabel}>Deliverables</span>
+                    <span className={styles.brandDealFieldValue}>{analysis.brandDeal.deliverables || 'Unknown'}</span>
+                  </div>
+                  <div className={styles.brandDealField}>
+                    <span className={styles.brandDealFieldLabel}>Deadline</span>
+                    <span className={styles.brandDealFieldValue}>{analysis.brandDeal.deadline || 'Unknown'}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Messages */}
             <div className={styles.messagesContainer}>
@@ -412,49 +565,55 @@ function InboxPageContent() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* AI Suggestion Box (Shown for Brand/Collab, Business, Question) */}
-            {activeSuggestedReply && ['Brand/Collab', 'Business', 'Question'].includes(activeCategory) && (
-              <div className={styles.aiSuggestionBox}>
-                <div className={styles.aiSuggestionHeader}>
-                  <span>✨ AI SUGGESTED REPLY ({activeCategory})</span>
-                  <div className={styles.aiSuggestionActions}>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => handleCopyReply(activeSuggestedReply)}
-                    >
-                      {copied ? '✓ Copied' : '📋 Copy'}
-                    </button>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => handleUseReply(activeSuggestedReply)}
-                    >
-                      ↗ Use this reply
-                    </button>
-                  </div>
+            {/* Compose Bar \u2014 Generate Reply (AI, never auto-sends) / Edit / Regenerate / Send */}
+            <div className={styles.composeBar}>
+              {messagingWindow?.status === 'closed' && (
+                <div className={styles.windowClosedWarning}>
+                  ⚠️ Outside the 24-hour messaging window. This contact must message you again before you can reply.
                 </div>
-                <p className={styles.aiSuggestionText}>"{activeSuggestedReply}"</p>
-              </div>
-            )}
+              )}
 
-            {/* Read-Only Banner / Instagram Redirect */}
-            <div className={styles.redirectBanner}>
-              <div className={styles.redirectInfo}>
-                <span className={styles.redirectTitle}>Read-Only Mode</span>
-                <span className={styles.redirectSub}>To send a reply, open this conversation directly on Instagram:</span>
+              <div className={styles.composeToolbar}>
+                <span className={styles.composeHint}>
+                  {copied ? '✓ Copied to clipboard' : 'Write your own reply, or let AI draft one for you.'}
+                </span>
+                <div className={styles.composeToolbarActions}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleGenerateReply(Boolean(draftText))}
+                    disabled={generating}
+                  >
+                    {generating ? 'Generating…' : draftText ? '🔁 Regenerate' : '✨ Generate Reply'}
+                  </button>
+                  {draftText && (
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleCopyReply(draftText)}>
+                      📋 Copy
+                    </button>
+                  )}
+                </div>
               </div>
-              <a
-                href={
-                  contactInfo?.username
-                    ? `https://instagram.com/${contactInfo.username}`
-                    : 'https://www.instagram.com/direct/inbox/'
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-primary btn-sm"
-                id="open-instagram-chat-btn"
-              >
-                ↗ Reply on Instagram ({contactInfo?.username ? `@${contactInfo.username}` : 'Direct'})
-              </a>
+
+              <textarea
+                className={styles.composeTextarea}
+                placeholder="Type a reply…"
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+              />
+
+              <div className={styles.composeFooter}>
+                <span className={styles.composeHint}>
+                  AI only drafts \u2014 nothing is ever sent automatically.
+                </span>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={handleSend}
+                  disabled={!draftText.trim() || sending || !canSend}
+                  id="send-reply-btn"
+                >
+                  {sending ? 'Sending…' : '➤ Send'}
+                </button>
+              </div>
+              {sendError && <div className={styles.sendError}>{sendError}</div>}
             </div>
           </>
         ) : (

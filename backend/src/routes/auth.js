@@ -11,11 +11,11 @@
 
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
 
-const prisma = new PrismaClient();
+const isProduction = process.env.NODE_ENV === 'production';
 
 // ============================================
 // GET /auth/instagram
@@ -82,7 +82,10 @@ router.get('/instagram/callback', async (req, res) => {
     });
 
     if (existingAccount) {
-      // Update existing account with fresh token and associate with current logged-in user if available
+      // Reconnect: update the SAME account row with a fresh token. Because
+      // igUserId is globally unique, this never creates a duplicate account
+      // — all historical contacts/conversations/messages remain attached to
+      // this row and are never touched here.
       const targetUserId = currentUserId || existingAccount.userId;
       await prisma.instagramAccount.update({
         where: { igUserId: igUserId },
@@ -90,13 +93,16 @@ router.get('/instagram/callback', async (req, res) => {
           userId: targetUserId,
           accessToken: encrypt(longTokenData.access_token),
           tokenExpiresAt: tokenExpiresAt,
+          tokenStatus: 'VALID',
+          connectionStatus: 'CONNECTED',
+          disconnectedAt: null,
           igUsername: profile.username || existingAccount.igUsername,
           igName: profile.name || existingAccount.igName,
           igProfilePic: profile.profile_picture_url || existingAccount.igProfilePic,
         },
       });
       user = await prisma.user.findUnique({ where: { id: targetUserId } });
-      console.log('[Auth] Updated existing account for:', profile.username);
+      console.log('[Auth] Reconnected existing account for:', profile.username);
     } else if (currentUserId) {
       // User is logged in and connecting an additional Instagram account
       user = await prisma.user.findUnique({ where: { id: currentUserId } });
@@ -113,7 +119,9 @@ router.get('/instagram/callback', async (req, res) => {
       });
       console.log('[Auth] Linked new account to existing user:', profile.username);
     } else {
-      // Create new user + account
+      // Create new user + account, plus a trial subscription and default AI
+      // preferences so the rest of the product has sane data to read from
+      // the moment the creator signs up.
       user = await prisma.user.create({
         data: {
           name: profile.name || profile.username,
@@ -127,6 +135,14 @@ router.get('/instagram/callback', async (req, res) => {
               tokenExpiresAt: tokenExpiresAt,
             },
           },
+          subscription: {
+            create: {
+              plan: 'free',
+              status: 'trial',
+              trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+            },
+          },
+          preferences: { create: {} },
         },
       });
       console.log('[Auth] Created new user + account for:', profile.username);
@@ -168,11 +184,14 @@ router.get('/instagram/callback', async (req, res) => {
 router.get('/me', async (req, res) => {
   let userId = req.session ? req.session.userId : null;
 
-  if (!userId && req.query && req.query.user_id) {
+  // SECURITY: never trust a client-supplied user_id to authenticate as
+  // another account outside of local development.
+  if (!userId && !isProduction && req.query && req.query.user_id) {
+    console.warn('[Auth] Using query-supplied user_id fallback (non-production only). Never trust this in production.');
     userId = req.query.user_id;
   }
 
-  if (!userId && !req.session && process.env.NODE_ENV !== 'production') {
+  if (!userId && !req.session && !isProduction) {
     try {
       const defaultUser = await prisma.user.findFirst({
         where: { role: 'USER' },
@@ -200,8 +219,11 @@ router.get('/me', async (req, res) => {
             igName: true,
             igProfilePic: true,
             tokenExpiresAt: true,
+            tokenStatus: true,
+            connectionStatus: true,
           },
         },
+        subscription: true,
       },
     });
 
@@ -214,7 +236,9 @@ router.get('/me', async (req, res) => {
       id: user.id,
       name: user.name,
       email: user.email,
+      role: user.role,
       instagramAccounts: user.instagramAccounts,
+      subscription: user.subscription,
     });
   } catch (error) {
     console.error('[Auth] Error fetching user:', error.message);

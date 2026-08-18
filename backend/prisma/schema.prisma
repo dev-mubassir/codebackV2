@@ -1,5 +1,18 @@
-// This is the Prisma schema for Codeback — Instagram DM Inbox SaaS
-// It defines 5 tables: users, instagram_accounts, contacts, conversations, messages
+// This is the Prisma schema for Codeback — AI Instagram DM Assistant SaaS
+//
+// Core tables: users, instagram_accounts, contacts, conversations, messages
+// AI/product tables: ai_analyses, conversation_summaries, brand_deals,
+//                     reply_generations, creator_preferences, notifications,
+//                     usage_events
+// Billing:      subscriptions (provider-agnostic abstraction)
+// Platform ops: admin_logs, webhook_logs
+//
+// NOTE: SQLite does not support native enums, so status/category/priority
+// fields are plain Strings validated at the application layer (see
+// backend/src/lib/constants.js for the canonical allowed values). This
+// mirrors the existing convention already used in this schema and keeps a
+// straightforward path to PostgreSQL later (swap the datasource + optionally
+// promote these Strings to real enums).
 
 generator client {
   provider = "prisma-client-js"
@@ -11,7 +24,10 @@ datasource db {
 }
 
 // ============================================
-// Codeback user — a person using the SaaS
+// Codeback user — a person using the SaaS.
+// A User is the tenant/account boundary: every owned row is scoped by a
+// userId (directly or transitively through instagramAccountId/conversationId)
+// and every server-side query MUST filter by the authenticated user's id.
 // ============================================
 model User {
   id          String   @id @default(uuid())
@@ -19,11 +35,18 @@ model User {
   name        String?
   role        String   @default("USER")             // "USER" or "ADMIN"
   isSuspended Boolean  @default(false) @map("is_suspended")
+  lastSeenAt  DateTime? @map("last_seen_at")          // last time the creator opened the app (drives "While you were away")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   instagramAccounts InstagramAccount[]
   adminLogs         AdminLog[]
+  subscription      Subscription?
+  preferences       CreatorPreference?
+  brandDeals        BrandDeal[]
+  replyGenerations  ReplyGeneration[]
+  notifications     Notification[]
+  usageEvents       UsageEvent[]
 
   @@map("users")
 }
@@ -32,24 +55,32 @@ model User {
 // Connected Instagram Professional account
 // ============================================
 model InstagramAccount {
-  id             String    @id @default(uuid())
-  userId         String    @map("user_id")
-  igUserId       String    @unique @map("ig_user_id")   // Instagram User ID (numeric string)
-  igUsername     String?   @map("ig_username")
-  igName         String?   @map("ig_name")
-  igProfilePic   String?   @map("ig_profile_pic")
-  accessToken    String    @map("access_token")          // Long-lived token (encrypted)
-  tokenExpiresAt DateTime? @map("token_expires_at")
-  tokenStatus    String    @default("VALID") @map("token_status") // "VALID", "EXPIRED", "NEEDS_RECONNECT"
-  lastWebhookAt  DateTime? @map("last_webhook_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  igUserId         String    @unique @map("ig_user_id")   // Instagram User ID (numeric string)
+  igUsername       String?   @map("ig_username")
+  igName           String?   @map("ig_name")
+  igProfilePic     String?   @map("ig_profile_pic")
+  accessToken      String    @map("access_token")          // Long-lived token (encrypted)
+  tokenExpiresAt   DateTime? @map("token_expires_at")
+  tokenStatus      String    @default("VALID") @map("token_status") // "VALID", "EXPIRED", "NEEDS_RECONNECT"
+  // Connection lifecycle is intentionally separate from historical data.
+  // Disconnecting NEVER deletes contacts/conversations/messages — it only
+  // flips this flag. Reconnecting the same IG user id re-activates the same
+  // row (igUserId is globally unique) so history is preserved automatically.
+  connectionStatus String    @default("CONNECTED") @map("connection_status") // "CONNECTED", "DISCONNECTED"
+  disconnectedAt   DateTime? @map("disconnected_at")
+  lastWebhookAt    DateTime? @map("last_webhook_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   contacts      Contact[]
   conversations Conversation[]
   webhookLogs   WebhookLog[]
+  brandDeals    BrandDeal[]
 
+  @@index([userId])
   @@map("instagram_accounts")
 }
 
@@ -57,65 +88,296 @@ model InstagramAccount {
 // A person who has messaged an Instagram account
 // ============================================
 model Contact {
-  id                 String   @id @default(uuid())
-  instagramAccountId String   @map("instagram_account_id")
-  igsid              String   @map("igsid")               // Instagram Scoped ID of the contact
+  id                 String    @id @default(uuid())
+  instagramAccountId String    @map("instagram_account_id")
+  igsid              String    @map("igsid")               // Instagram Scoped ID of the contact
   username           String?
   name               String?
-  profilePicUrl      String?  @map("profile_pic_url")
+  profilePicUrl      String?   @map("profile_pic_url")
   lastFetchedAt      DateTime? @map("last_fetched_at")     // When we last fetched their profile
-  createdAt          DateTime @default(now()) @map("created_at")
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
   conversations    Conversation[]
 
   // Each contact is unique per Instagram account
   @@unique([instagramAccountId, igsid])
+  @@index([instagramAccountId])
   @@map("contacts")
 }
 
 // ============================================
-// A conversation thread between an IG account and a contact
+// A conversation thread between an IG account and a contact.
+//
+// `category`/`priority`/`priorityScore`/`needsAttention`/`unread` are fast,
+// denormalized read fields kept in sync by the AI analysis worker so the
+// inbox can filter/sort without joining ai_analyses on every request. The
+// full historical/audit trail of AI understanding lives in `AIAnalysis`.
 // ============================================
 model Conversation {
   id                 String    @id @default(uuid())
   instagramAccountId String    @map("instagram_account_id")
   contactId          String    @map("contact_id")
-  category           String?   // "Brand/Collab", "Business", "Fan", "Question", "Spam", "Other"
-  lastMessage        String?   @map("last_message")
-  lastMessageAt      DateTime? @map("last_message_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
-  contact          Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  // Legacy + current classification (see backend/src/lib/constants.js for the
+  // canonical, extensible category list: brand_deal, collaboration, fan,
+  // question, customer, business_inquiry, support, spam, other — legacy rows
+  // may still carry the old Title-Case values, which the frontend maps too).
+  category       String?
+  priority       String    @default("normal")   // "critical", "high", "normal", "low"
+  priorityScore  Int       @default(0) @map("priority_score") // 0-100, deterministic + AI blended score
+  needsAttention Boolean   @default(false) @map("needs_attention")
+  unread         Boolean   @default(true)
+
+  lastMessage    String?   @map("last_message")
+  lastMessageAt  DateTime? @map("last_message_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  instagramAccount InstagramAccount      @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  contact          Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
   messages         Message[]
+  analyses         AIAnalysis[]
+  summaryRecord    ConversationSummary?
+  brandDeals       BrandDeal[]
+  replyGenerations ReplyGeneration[]
 
   // One conversation per contact per IG account
   @@unique([instagramAccountId, contactId])
+  @@index([instagramAccountId, lastMessageAt])
+  @@index([priority])
+  @@index([category])
+  @@index([unread])
+  @@index([needsAttention])
   @@map("conversations")
 }
 
 // ============================================
-// A single message in a conversation
+// A single message in a conversation.
+// The original Instagram message content is never overwritten by AI —
+// AI understanding is stored separately in AIAnalysis.
 // ============================================
 model Message {
-  id             String   @id @default(uuid())
-  conversationId String   @map("conversation_id")
-  igMessageId    String?  @unique @map("ig_message_id")   // Instagram's message ID (for deduplication)
-  direction      String   // "inbound" or "outbound"
+  id             String    @id @default(uuid())
+  conversationId String    @map("conversation_id")
+  igMessageId    String?   @unique @map("ig_message_id")   // Instagram's message ID (for deduplication)
+  direction      String    // "inbound" or "outbound"
   content        String?
-  category       String?  // "Brand/Collab", "Business", "Fan", "Question", "Spam", "Other"
-  suggestedReply String?  @map("suggested_reply")
-  messageType    String   @default("text") @map("message_type") // text, image, video, story_mention, etc.
-  attachmentUrl  String?  @map("attachment_url")
-  igTimestamp     DateTime? @map("ig_timestamp")            // Timestamp from Instagram
-  createdAt      DateTime @default(now()) @map("created_at")
+  category       String?   // legacy convenience copy of the conversation's category at the time of this message
+  suggestedReply String?   @map("suggested_reply")          // legacy field; reply drafts are now generated on-demand (see ReplyGeneration)
+  messageType    String    @default("text") @map("message_type") // text, image, video, story_mention, etc.
+  attachmentUrl  String?   @map("attachment_url")
+  igTimestamp    DateTime? @map("ig_timestamp")            // Timestamp from Instagram
+
+  // Async AI processing state — a message is ALWAYS persisted and visible
+  // immediately; AI classification happens afterwards in the background and
+  // must never block or hide the message if it fails.
+  aiStatus   String    @default("pending") @map("ai_status") // "pending", "processing", "completed", "failed", "skipped"
+  attempts   Int       @default(0)
+  analyzedAt DateTime? @map("analyzed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  @@index([conversationId, createdAt])
+  @@index([aiStatus])
   @@map("messages")
+}
+
+// ============================================
+// AI Analysis — append-only, versioned record of AI's understanding of a
+// conversation. Conversation.category/priority/... are denormalized copies
+// of the latest row here, kept for fast inbox queries.
+// ============================================
+model AIAnalysis {
+  id               String   @id @default(uuid())
+  conversationId   String   @map("conversation_id")
+  triggerMessageId String?  @map("trigger_message_id") // the inbound message that triggered this run, if any
+
+  category       String
+  priority       String                                 // "critical", "high", "normal", "low"
+  priorityScore  Int      @default(0) @map("priority_score")
+  confidence     Float    @default(0)
+  needsAttention Boolean  @default(false) @map("needs_attention")
+  summary        String?
+  reason         String?
+
+  model        String?                                   // e.g. "gemini-flash-lite-latest", "keyword-engine"
+  rawResponse  String?  @map("raw_response")              // validated JSON payload returned by the AI, for debugging
+  status       String   @default("completed")             // "pending", "completed", "failed", "retrying"
+  errorMessage String?  @map("error_message")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("ai_analyses")
+}
+
+// ============================================
+// Conversation Summary — one evolving, periodically-updated summary per
+// conversation (not regenerated on every single message).
+// ============================================
+model ConversationSummary {
+  id                      String   @id @default(uuid())
+  conversationId          String   @unique @map("conversation_id")
+  summary                 String
+  stage                   String?                                        // e.g. "Waiting for campaign details"
+  lastSummarizedMessageId String?  @map("last_summarized_message_id")
+  messageCountAtSummary   Int      @default(0) @map("message_count_at_summary")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_summaries")
+}
+
+// ============================================
+// Brand Deal — structured extraction of a commercial collaboration.
+// Missing information is left null/unknown; nothing is invented.
+// ============================================
+model BrandDeal {
+  id                 String   @id @default(uuid())
+  conversationId     String   @map("conversation_id")
+  instagramAccountId String   @map("instagram_account_id")
+  userId             String   @map("user_id")
+
+  brandName      String?  @map("brand_name")
+  campaign       String?
+  budgetAmount   Float?   @map("budget_amount")
+  budgetCurrency String?  @map("budget_currency")
+  deliverables   String?                                    // human-readable text (e.g. "1 Reel + 3 Stories")
+  deadline       String?                                     // free text; AI rarely returns a reliable ISO date
+  contactEmail   String?  @map("contact_email")
+  website        String?
+  usageRights    String?  @map("usage_rights")
+  confidence     Float    @default(0)
+
+  status    String   @default("new") // "new", "contacted", "negotiating", "confirmed", "declined", "expired"
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  conversation     Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([conversationId])
+  @@map("brand_deals")
+}
+
+// ============================================
+// Reply Generation — append-only history of AI-drafted replies.
+// Generating a draft NEVER sends a message; only an explicit creator
+// action against /api/conversations/:id/reply sends via the Instagram API.
+// ============================================
+model ReplyGeneration {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  userId         String   @map("user_id")
+  contextRef     String?  @map("context_ref")   // short description of the context used (summary id / message count / trigger)
+  instructions   String?                          // optional creator-provided instruction for this generation
+  generatedText  String   @map("generated_text")
+  model          String?
+  wasSent        Boolean  @default(false) @map("was_sent") // set true if this exact draft was later sent (best-effort audit trail)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("reply_generations")
+}
+
+// ============================================
+// Creator Preferences — personalizes AI prioritization & reply tone.
+// ============================================
+model CreatorPreference {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique @map("user_id")
+
+  brandDealsPriority      String   @default("high") @map("brand_deals_priority")       // critical/high/normal/low/off
+  collaborationsPriority  String   @default("high") @map("collaborations_priority")
+  customersPriority       String   @default("high") @map("customers_priority")
+  fanPriority             String   @default("normal") @map("fan_priority")
+  questionsPriority       String   @default("normal") @map("questions_priority")
+  spamPriority            String   @default("low") @map("spam_priority")
+
+  tone                    String   @default("friendly") // friendly/professional/casual/custom
+  customInstructions      String?  @map("custom_instructions")
+  autoGenerateSummary     Boolean  @default(true) @map("auto_generate_summary")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("creator_preferences")
+}
+
+// ============================================
+// Notification — creator-facing alerts for important events.
+// ============================================
+model Notification {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  type           String   // new_brand_deal, high_priority_conversation, important_customer, ai_analysis_completed, instagram_connection_problem
+  title          String
+  body           String?
+  conversationId String?  @map("conversation_id")
+  brandDealId    String?  @map("brand_deal_id")
+  isRead         Boolean  @default(false) @map("is_read")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+// ============================================
+// Usage Event — append-only usage ledger for future billing/analytics/abuse
+// prevention (messages processed, AI calls, reply generations, etc).
+// ============================================
+model UsageEvent {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String   // messages_received, messages_analyzed, brand_deals_detected, reply_generations, ai_tokens_used
+  quantity  Int      @default(1)
+  metadata  String?  // JSON string
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, createdAt])
+  @@map("usage_events")
+}
+
+// ============================================
+// Subscription — provider-agnostic billing abstraction. No payment
+// provider is wired up yet; this table exists so plan/status gating can be
+// added without redesigning the schema later.
+// ============================================
+model Subscription {
+  id                      String    @id @default(uuid())
+  userId                  String    @unique @map("user_id")
+  plan                    String    @default("free")   // "free", "pro", "agency" (extensible)
+  status                  String    @default("trial")   // "trial", "active", "past_due", "cancelled", "expired"
+  trialEndsAt             DateTime? @map("trial_ends_at")
+  currentPeriodEnd        DateTime? @map("current_period_end")
+  provider                String?                        // "stripe", "paddle", "manual", null = not configured
+  providerCustomerId      String?   @map("provider_customer_id")
+  providerSubscriptionId  String?   @map("provider_subscription_id")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("subscriptions")
 }
 
 // ============================================
@@ -151,5 +413,7 @@ model WebhookLog {
 
   instagramAccount InstagramAccount? @relation(fields: [instagramAccountId], references: [id], onDelete: SetNull)
 
+  @@index([instagramAccountId])
+  @@index([status, createdAt])
   @@map("webhook_logs")
 }

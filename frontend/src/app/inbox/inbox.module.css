@@ -376,6 +376,29 @@
   color: var(--text-tertiary);
 }
 
+.emptyChatIcon {
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--border-medium);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+/* 24h messaging-window indicator dot on a conversation's avatar */
+.windowDot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #00ff66;
+  border: 2px solid #000000;
+}
+
 .emptyChat h2 {
   font-size: 1.125rem;
   font-weight: 700;
@@ -479,6 +502,212 @@
   background: #0a0a0a;
   color: #a3a3a3;
   border-color: #333333;
+}
+
+/* Priority dot indicators */
+.priorityDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.priorityCritical { background: #ff3b3b; }
+.priorityHigh { background: #ffffff; }
+.priorityNormal { background: #666666; }
+.priorityLow { background: #333333; }
+
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.convUsernameUnread {
+  font-weight: 900;
+}
+
+/* Notification bell */
+.bellButton {
+  position: relative;
+}
+
+.bellBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #ffffff;
+  color: #000000;
+  font-size: 0.5625rem;
+  font-weight: 900;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+
+/* ---- Brand Deal Panel ---- */
+.brandDealPanel {
+  margin: 12px 20px 0;
+  padding: 14px 16px;
+  background: #0d0d0d;
+  border: 1px solid #ffffff;
+}
+
+.brandDealHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.brandDealTitle {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.brandDealGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.brandDealField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brandDealFieldLabel {
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.brandDealFieldValue {
+  font-size: 0.8125rem;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.brandDealStatusSelect {
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid #333333;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+/* ---- Conversation Summary Panel ---- */
+.summaryPanel {
+  margin: 10px 20px 0;
+  padding: 10px 14px;
+  background: #050505;
+  border: 1px solid var(--border-subtle);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.summaryPanelLabel {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.summaryStage {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #000000;
+  background: #ffffff;
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+
+/* ---- Compose Bar ---- */
+.composeBar {
+  border-top: 1px solid var(--border-medium);
+  background: #0a0a0a;
+  padding: 12px 20px 16px;
+  flex-shrink: 0;
+}
+
+.composeToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.composeToolbarActions {
+  display: flex;
+  gap: 8px;
+}
+
+.composeTextarea {
+  width: 100%;
+  min-height: 64px;
+  max-height: 160px;
+  resize: vertical;
+  background: #000000;
+  border: 1px solid #333333;
+  color: #ffffff;
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.composeTextarea:focus {
+  border-color: #ffffff;
+}
+
+.composeFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  gap: 12px;
+}
+
+.composeHint {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.windowClosedWarning {
+  font-size: 0.75rem;
+  color: #ffffff;
+  background: #171717;
+  border: 1px solid #ffffff;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+
+.sendError {
+  font-size: 0.75rem;
+  color: #ff4444;
+  margin-top: 6px;
 }
 
 /* AI Suggestion Box in Chat View */

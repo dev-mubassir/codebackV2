@@ -2,8 +2,7 @@
  * Audit Logger — records all administrative actions for accountability and security.
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('./prisma');
 
 /**
  * Log an administrative action to the database.

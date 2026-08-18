@@ -26,6 +26,14 @@ const webhookRoutes = require('./routes/webhook');
 const apiRoutes = require('./routes/api');
 const accountRoutes = require('./routes/accounts');
 const adminRoutes = require('./routes/admin');
+const dashboardRoutes = require('./routes/dashboard');
+const brandDealRoutes = require('./routes/brandDeals');
+const notificationRoutes = require('./routes/notifications');
+const settingsRoutes = require('./routes/settings');
+const subscriptionRoutes = require('./routes/subscription');
+
+const { setIO } = require('./lib/socket');
+const { startWorkers } = require('./jobs');
 
 // ============================================
 // Express App Setup
@@ -83,6 +91,10 @@ app.set('trust proxy', 1);
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+if (isProduction && !process.env.SESSION_SECRET) {
+  console.error('[Server] WARNING: SESSION_SECRET is not set in production. Set it in your environment before going live.');
+}
+
 // Session middleware — simple cookie-based sessions for testing
 app.use(session({
   name: 'codeback.sid',
@@ -133,8 +145,15 @@ const io = new SocketIO(server, {
   },
 });
 
-// Pass Socket.io instance to webhook routes for real-time message push
-webhookRoutes.setSocketIO(io);
+// Make Socket.io available to every module via lib/socket.js (webhook
+// handler, background AI worker, notification service, etc.)
+setIO(io);
+
+// Start the background AI processing worker (message classification,
+// priority scoring, brand-deal extraction, summaries). Uses Redis/BullMQ
+// when REDIS_URL is configured, otherwise an in-process queue — see
+// lib/queue.js. Either way this runs off the webhook's request/response path.
+startWorkers();
 
 // Handle Socket.io connections
 io.on('connection', (socket) => {
@@ -181,11 +200,26 @@ app.use('/webhooks/instagram', webhookRoutes);
 // Admin panel routes (must be mounted before /api)
 app.use('/api/admin', adminRoutes);
 
-// API routes (conversations, messages, reply)
+// API routes (conversations, messages, AI analysis, reply generation, reply)
 app.use('/api', apiRoutes);
 
 // Account management routes
 app.use('/api/accounts', accountRoutes);
+
+// Creator Home Dashboard + "While You Were Away"
+app.use('/api/dashboard', dashboardRoutes);
+
+// Brand deal pipeline
+app.use('/api/brand-deals', brandDealRoutes);
+
+// Notification center
+app.use('/api/notifications', notificationRoutes);
+
+// Creator AI preferences
+app.use('/api/settings', settingsRoutes);
+
+// Subscription + usage (GET /api/subscription, GET /api/usage)
+app.use('/api', subscriptionRoutes);
 
 // ============================================
 // Start Server

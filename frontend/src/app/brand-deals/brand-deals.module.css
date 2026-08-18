@@ -1,0 +1,187 @@
+/* ============================================
+ * Brand Deals Page — Black & White Box Theme
+ * ============================================ */
+
+.page {
+  min-height: 100vh;
+  background: #000000;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 32px;
+  background: #000000;
+  border-bottom: 1px solid var(--border-medium);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.navBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+.header {
+  margin-bottom: 24px;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  color: #a3a3a3;
+  font-size: 0.875rem;
+}
+
+.statusTabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.statusTab {
+  padding: 6px 14px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: #000000;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.statusTab:hover {
+  border-color: #ffffff;
+  color: #ffffff;
+}
+
+.statusTabActive {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border-color: #ffffff !important;
+}
+
+.dealsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.dealCard {
+  background: #0a0a0a;
+  border: 1px solid var(--border-medium);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dealCard:hover {
+  border-color: #ffffff;
+}
+
+.dealCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dealBrandName {
+  font-size: 1rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.dealContact {
+  font-size: 0.75rem;
+  color: #a3a3a3;
+  margin-top: 2px;
+}
+
+.dealFieldsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.dealField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dealFieldLabel {
+  font-size: 0.625rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dealFieldValue {
+  font-size: 0.8125rem;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.dealFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.statusSelect {
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid #333333;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 64px 24px;
+  border: 1px dashed var(--border-medium);
+  color: #a3a3a3;
+}
+
+.emptyState h2 {
+  color: #ffffff;
+  font-size: 1.125rem;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.loadingScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #000000;
+}

@@ -1,0 +1,130 @@
+/* ============================================
+ * Notifications Page — Black & White Box Theme
+ * ============================================ */
+
+.page {
+  min-height: 100vh;
+  background: #000000;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 32px;
+  background: #000000;
+  border-bottom: 1px solid var(--border-medium);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.navBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.content {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 40px 24px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #0a0a0a;
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  color: #ffffff;
+}
+
+.item:hover {
+  border-color: #ffffff;
+}
+
+.itemUnread {
+  border-color: #ffffff;
+  background: #141414;
+}
+
+.itemDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.itemDotRead {
+  background: transparent;
+}
+
+.itemBody {
+  flex: 1;
+}
+
+.itemTitle {
+  font-weight: 700;
+  font-size: 0.875rem;
+  margin-bottom: 2px;
+}
+
+.itemMessage {
+  font-size: 0.8125rem;
+  color: #a3a3a3;
+}
+
+.itemTime {
+  font-size: 0.6875rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 6px;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 64px 24px;
+  border: 1px dashed var(--border-medium);
+  color: #a3a3a3;
+}
+
+.loadingScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #000000;
+}
