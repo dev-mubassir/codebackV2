@@ -38,12 +38,18 @@
 .topNavLogo {
   width: 32px;
   height: 32px;
-  background: var(--color-primary);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
+  overflow: hidden;
+}
+
+.brandLogoImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .topNavName {

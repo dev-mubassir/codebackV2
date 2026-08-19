@@ -54,9 +54,7 @@ export default function LandingPage() {
       <nav className={styles.topNav}>
         <div className={styles.topNavBrand}>
           <div className={styles.topNavLogo}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+            <img src="/logo.png" alt="Codeback Logo" className={styles.brandLogoImg} />
           </div>
           <span className={styles.topNavName}>Codeback</span>
         </div>
@@ -292,9 +290,7 @@ export default function LandingPage() {
         <div className={styles.footerContent}>
           <div className={styles.footerBrand}>
             <div className={styles.topNavLogo}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
+              <img src="/logo.png" alt="Codeback Logo" className={styles.brandLogoImg} />
             </div>
             <span>Codeback</span>
           </div>
