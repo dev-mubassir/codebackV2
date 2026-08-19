@@ -34,39 +34,43 @@ export default function AdminLoginPage() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#000000',
-      color: '#ffffff',
+      background: 'var(--bg-page)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       padding: '24px'
     }}>
       <div style={{
-        background: '#0a0a0a',
-        border: '1px solid #ffffff',
-        padding: '32px',
-        maxWidth: '420px',
-        width: '100%'
+        background: 'var(--bg-surface)',
+        border: '1px solid var(--border-default)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '36px',
+        maxWidth: '400px',
+        width: '100%',
+        boxShadow: 'var(--shadow-md)'
       }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <span className={styles.brandBadge} style={{ fontSize: '0.875rem', padding: '4px 8px' }}>SUPER ADMIN</span>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Codeback Control Panel
+          <span className="badge badge-primary" style={{ fontSize: '11px', marginBottom: '8px' }}>
+            SUPER ADMIN CONTROL PANEL
+          </span>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '8px', color: 'var(--text-primary)' }}>
+            Codeback Administration
           </h1>
-          <p style={{ fontSize: '0.8125rem', color: '#a3a3a3', marginTop: '6px' }}>
-            Separate System Administrator Authentication
+          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            System Administrator Authentication
           </p>
         </div>
 
         {error && (
           <div style={{
-            background: '#171717',
-            border: '1px solid #ffffff',
-            color: '#ffffff',
+            background: 'var(--color-error-subtle)',
+            border: '1px solid rgba(239, 68, 68, 0.2)',
+            color: 'var(--color-error-text)',
             padding: '10px 14px',
-            fontSize: '0.8125rem',
+            borderRadius: 'var(--radius-md)',
+            fontSize: 'var(--text-xs)',
             marginBottom: '20px',
-            fontWeight: 'bold',
+            fontWeight: 500,
             textAlign: 'center'
           }}>
             ⚠️ {error}
@@ -75,14 +79,13 @@ export default function AdminLoginPage() {
 
         <form onSubmit={handleSubmit} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Admin Username
             </label>
             <input
               type="text"
-              className={styles.searchInput}
-              style={{ width: '100%', padding: '12px' }}
-              placeholder="Username"
+              className="input"
+              placeholder="Enter username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="off"
@@ -91,14 +94,13 @@ export default function AdminLoginPage() {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', marginBottom: '6px' }}>
+            <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
               Admin Password
             </label>
             <input
               type="password"
-              className={styles.searchInput}
-              style={{ width: '100%', padding: '12px' }}
-              placeholder="Password"
+              className="input"
+              placeholder="Enter password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
@@ -112,13 +114,9 @@ export default function AdminLoginPage() {
             style={{ width: '100%', marginTop: '8px' }}
             disabled={submitting}
           >
-            {submitting ? 'Authenticating...' : 'Sign In To Control Panel ↗'}
+            {submitting ? 'Authenticating...' : 'Sign In To Admin →'}
           </button>
         </form>
-
-        <div style={{ marginTop: '24px', textAlign: 'center', fontSize: '0.75rem', color: '#737373', textTransform: 'uppercase' }}>
-          Independent Founder Admin Access
-        </div>
       </div>
     </div>
   );

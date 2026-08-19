@@ -121,12 +121,12 @@ export default function AdminAccountsPage() {
             {loading ? (
               <tr>
                 <td colSpan="6" style={{ textAlign: 'center', padding: '32px' }}>
-                  <div className="spinner" style={{ margin: '0 auto' }} />
+                  <div className="spinner spinner-lg" style={{ margin: '0 auto' }} />
                 </td>
               </tr>
             ) : accounts.length === 0 ? (
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', color: '#737373', padding: '32px' }}>
+                <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '32px' }}>
                   No connected Instagram accounts found.
                 </td>
               </tr>
@@ -141,15 +141,15 @@ export default function AdminAccountsPage() {
                         <div className="avatar">{(acc.igUsername || '?')[0].toUpperCase()}</div>
                       )}
                       <div>
-                        <div style={{ fontWeight: 'bold' }}>@{acc.igUsername || 'unknown'}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#a3a3a3' }}>IG ID: {acc.igUserId}</div>
+                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>@{acc.igUsername || 'unknown'}</div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>IG ID: {acc.igUserId}</div>
                       </div>
                     </div>
                   </td>
 
                   <td>
-                    <div style={{ fontWeight: '600' }}>{acc.user?.name || 'Unnamed User'}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#a3a3a3' }}>{acc.user?.email || acc.userId}</div>
+                    <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{acc.user?.name || 'Unnamed User'}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{acc.user?.email || acc.userId}</div>
                   </td>
 
                   <td>
@@ -160,7 +160,7 @@ export default function AdminAccountsPage() {
                     )}
                   </td>
 
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
                     {acc.lastWebhookAt ? new Date(acc.lastWebhookAt).toLocaleString() : 'Never'}
                   </td>
 

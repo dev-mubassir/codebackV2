@@ -113,12 +113,12 @@ export default function AdminUsersPage() {
             {loading ? (
               <tr>
                 <td colSpan="5" style={{ textAlign: 'center', padding: '32px' }}>
-                  <div className="spinner" style={{ margin: '0 auto' }} />
+                  <div className="spinner spinner-lg" style={{ margin: '0 auto' }} />
                 </td>
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan="5" style={{ textAlign: 'center', color: '#737373', padding: '32px' }}>
+                <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '32px' }}>
                   No users found.
                 </td>
               </tr>
@@ -126,8 +126,8 @@ export default function AdminUsersPage() {
               users.map(u => (
                 <tr key={u.id}>
                   <td>
-                    <div style={{ fontWeight: 'bold' }}>{u.name || 'Unnamed User'}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#a3a3a3' }}>{u.email || u.id}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.name || 'Unnamed User'}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{u.email || u.id}</div>
                   </td>
                   <td>
                     {u.isSuspended ? (
@@ -138,7 +138,7 @@ export default function AdminUsersPage() {
                   </td>
                   <td>
                     {u.instagramAccounts?.length === 0 ? (
-                      <span style={{ color: '#737373', fontSize: '0.75rem' }}>No accounts connected</span>
+                      <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>No accounts connected</span>
                     ) : (
                       <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                         {u.instagramAccounts.map(acc => (
@@ -149,7 +149,7 @@ export default function AdminUsersPage() {
                       </div>
                     )}
                   </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
                     {new Date(u.createdAt).toLocaleDateString()}
                   </td>
                   <td style={{ textAlign: 'right' }}>
@@ -208,7 +208,7 @@ export default function AdminUsersPage() {
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
             <h3 className={styles.modalTitle}>Delete User Account</h3>
-            <p style={{ fontSize: '0.875rem', color: '#a3a3a3', marginBottom: '16px' }}>
+            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '16px' }}>
               Are you sure you want to permanently delete user <strong>{selectedUser.name || selectedUser.id}</strong>?
               This will also disconnect all connected Instagram accounts and remove their conversations.
             </p>

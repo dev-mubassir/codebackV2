@@ -26,7 +26,7 @@ export default function AdminDashboardHome() {
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-        <div className="spinner" />
+        <div className="spinner spinner-lg" />
       </div>
     );
   }
@@ -72,7 +72,7 @@ export default function AdminDashboardHome() {
 
         <div className={styles.metricCard}>
           <div className={styles.metricTitle}>Failed Webhooks (24h)</div>
-          <div className={styles.metricValue} style={{ color: (stats?.failedWebhooks24h || 0) > 0 ? '#ff4444' : '#ffffff' }}>
+          <div className={styles.metricValue} style={{ color: (stats?.failedWebhooks24h || 0) > 0 ? 'var(--color-error)' : 'var(--text-primary)' }}>
             {stats?.failedWebhooks24h || 0}
           </div>
           <div className={styles.metricSub}>Webhook delivery failures</div>
@@ -81,40 +81,40 @@ export default function AdminDashboardHome() {
 
       {/* AI Performance & DM Classification Monitoring */}
       <div className={styles.tableContainer} style={{ marginBottom: '24px' }}>
-        <div style={{ padding: '16px', background: '#141414', borderBottom: '1px solid #262626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '0.9375rem', fontWeight: 800, textTransform: 'uppercase' }}>
+        <div style={{ padding: '14px 20px', background: 'var(--bg-surface-secondary)', borderBottom: '1px solid var(--border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>
             🤖 AI DM Classification & API Performance Monitoring
           </h2>
-          <span style={{ fontSize: '0.75rem', color: '#a3a3a3', fontFamily: 'var(--font-mono)' }}>Provider: Gemini 1.5 Flash</span>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>Provider: Gemini 1.5 Flash</span>
         </div>
 
-        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-          <div style={{ background: '#000000', border: '1px solid #262626', padding: '12px' }}>
-            <div style={{ fontSize: '0.6875rem', color: '#a3a3a3', textTransform: 'uppercase' }}>Fast Keyword Matches</div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ffffff' }}>{stats?.aiStats?.keywordMatches || 0}</div>
-            <div style={{ fontSize: '0.6875rem', color: '#00ff66' }}>⚡ 0ms API Latency (Free)</div>
+        <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '14px' }}>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Fast Keyword Matches</div>
+            <div style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{stats?.aiStats?.keywordMatches || 0}</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-success)', marginTop: '2px' }}>⚡ 0ms API Latency (Free)</div>
           </div>
 
-          <div style={{ background: '#000000', border: '1px solid #262626', padding: '12px' }}>
-            <div style={{ fontSize: '0.6875rem', color: '#a3a3a3', textTransform: 'uppercase' }}>Total AI API Calls</div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{stats?.aiStats?.totalCalls || 0}</div>
-            <div style={{ fontSize: '0.6875rem', color: '#a3a3a3' }}>{stats?.aiStats?.aiSuccess || 0} successful</div>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '14px' }}>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Total AI API Calls</div>
+            <div style={{ fontSize: 'var(--text-xl)', fontWeight: 700, marginTop: '4px' }}>{stats?.aiStats?.totalCalls || 0}</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: '2px' }}>{stats?.aiStats?.aiSuccess || 0} successful</div>
           </div>
 
-          <div style={{ background: '#000000', border: '1px solid #262626', padding: '12px' }}>
-            <div style={{ fontSize: '0.6875rem', color: '#a3a3a3', textTransform: 'uppercase' }}>Failed AI API Calls</div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: (stats?.aiStats?.aiFailures || 0) > 0 ? '#ff4444' : '#ffffff' }}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: '14px' }}>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Failed AI API Calls</div>
+            <div style={{ fontSize: 'var(--text-xl)', fontWeight: 700, color: (stats?.aiStats?.aiFailures || 0) > 0 ? 'var(--color-error)' : 'var(--text-primary)', marginTop: '4px' }}>
               {stats?.aiStats?.aiFailures || 0}
             </div>
-            <div style={{ fontSize: '0.6875rem', color: '#737373' }}>Fallback to "Other"</div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)', marginTop: '2px' }}>Fallback to &quot;Other&quot;</div>
           </div>
         </div>
       </div>
 
       {/* Recent Signups Section */}
-      <div className={styles.tableContainer} style={{ marginTop: '24px' }}>
-        <div style={{ padding: '16px', borderBottom: '1px solid #262626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ fontSize: '0.9375rem', fontWeight: 800, textTransform: 'uppercase' }}>Recent Signups</h2>
+      <div className={styles.tableContainer}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border-default)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>Recent Signups</h2>
           <Link href="/admin/users" className="btn btn-secondary btn-sm">View All Users ↗</Link>
         </div>
 
@@ -130,18 +130,18 @@ export default function AdminDashboardHome() {
           <tbody>
             {!stats?.recentSignups || stats.recentSignups.length === 0 ? (
               <tr>
-                <td colSpan="4" style={{ textAlign: 'center', color: '#737373', padding: '24px' }}>No signups recorded yet.</td>
+                <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>No signups recorded yet.</td>
               </tr>
             ) : (
               stats.recentSignups.map(user => (
                 <tr key={user.id}>
                   <td>
-                    <div style={{ fontWeight: 'bold' }}>{user.name || 'Unnamed User'}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#a3a3a3' }}>{user.email || 'No email set'}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{user.name || 'Unnamed User'}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{user.email || 'No email set'}</div>
                   </td>
                   <td>
                     {user.instagramAccounts?.length === 0 ? (
-                      <span style={{ color: '#737373' }}>None</span>
+                      <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>None</span>
                     ) : (
                       user.instagramAccounts.map(acc => (
                         <span key={acc.id} className={styles.badgeValid} style={{ marginRight: '6px' }}>
@@ -150,7 +150,7 @@ export default function AdminDashboardHome() {
                       ))
                     )}
                   </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
                     {new Date(user.createdAt).toLocaleDateString()}
                   </td>
                   <td>

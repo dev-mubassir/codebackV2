@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getMe, getBrandDeals, updateBrandDealStatus } from '@/lib/api';
+import AppShell from '@/app/components/AppShell';
 import styles from './brand-deals.module.css';
 
 const STATUS_TABS = ['all', 'new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];
@@ -59,95 +60,115 @@ export default function BrandDealsPage() {
   }
 
   return (
-    <div className={styles.page}>
-      <nav className={styles.nav}>
-        <a href="/dashboard" className={styles.navBrand}>Codeback</a>
-        <button className="btn btn-secondary btn-sm" onClick={() => router.push('/dashboard')}>← Dashboard</button>
-      </nav>
-
-      <main className={styles.content}>
-        <div className={styles.header}>
-          <h1>🔥 Brand Deals</h1>
-          <p className={styles.subtitle}>Every commercial collaboration AI has found in your DMs, in one place.</p>
+    <AppShell activeRoute="/brand-deals">
+      {/* Page Header */}
+      <div className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.pageTitle}>🔥 Brand Deals Pipeline</h1>
+          <p className={styles.pageSubtitle}>
+            Commercial sponsorship opportunities extracted from your DMs by AI.
+          </p>
         </div>
+      </div>
 
-        <div className={styles.statusTabs}>
-          {STATUS_TABS.map(s => (
-            <button
-              key={s}
-              className={`${styles.statusTab} ${statusFilter === s ? styles.statusTabActive : ''}`}
-              onClick={() => handleTabChange(s)}
-            >
-              {s}
-            </button>
+      {/* Status Filter Tabs */}
+      <div className={styles.statusTabs}>
+        {STATUS_TABS.map(s => (
+          <button
+            key={s}
+            className={`${styles.statusTab} ${statusFilter === s ? styles.statusTabActive : ''}`}
+            onClick={() => handleTabChange(s)}
+          >
+            {s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Deals Content */}
+      {loading ? (
+        <div className={styles.loadingContainer}>
+          <div className="spinner spinner-lg" />
+        </div>
+      ) : deals.length === 0 ? (
+        <div className={styles.emptyState}>
+          <div className={styles.emptyIcon}>🤝</div>
+          <h3 className={styles.emptyTitle}>No brand deals found</h3>
+          <p className={styles.emptyDesc}>
+            {statusFilter === 'all'
+              ? 'When AI detects sponsorship inquiries in your Instagram DMs, they will automatically appear here.'
+              : `No brand deals currently marked as "${statusFilter}".`}
+          </p>
+        </div>
+      ) : (
+        <div className={styles.dealsGrid}>
+          {deals.map(deal => (
+            <div key={deal.id} className={styles.dealCard}>
+              <div className={styles.dealCardHeader}>
+                <div>
+                  <h3 className={styles.dealBrandName}>{deal.brandName || 'Unknown Brand'}</h3>
+                  <div className={styles.dealContact}>
+                    @{deal.conversation?.contact?.username || 'unknown'}
+                    {deal.instagramAccount?.igUsername ? ` · via @${deal.instagramAccount.igUsername}` : ''}
+                  </div>
+                </div>
+                <span className={`badge ${getStatusBadgeClass(deal.status)}`}>
+                  {deal.status.toUpperCase()}
+                </span>
+              </div>
+
+              <div className={styles.dealFieldsGrid}>
+                <div className={styles.dealField}>
+                  <span className={styles.dealFieldLabel}>Budget</span>
+                  <span className={styles.dealFieldValue}>
+                    {deal.budgetAmount ? `${deal.budgetAmount} ${deal.budgetCurrency || ''}`.trim() : 'Not specified'}
+                  </span>
+                </div>
+                <div className={styles.dealField}>
+                  <span className={styles.dealFieldLabel}>Deadline</span>
+                  <span className={styles.dealFieldValue}>{deal.deadline || 'Not specified'}</span>
+                </div>
+                <div className={`${styles.dealField} ${styles.dealFieldFull}`}>
+                  <span className={styles.dealFieldLabel}>Deliverables</span>
+                  <span className={styles.dealFieldValue}>{deal.deliverables || 'Not specified'}</span>
+                </div>
+                {deal.campaign && (
+                  <div className={`${styles.dealField} ${styles.dealFieldFull}`}>
+                    <span className={styles.dealFieldLabel}>Campaign</span>
+                    <span className={styles.dealFieldValue}>{deal.campaign}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className={styles.dealFooter}>
+                <select
+                  className="select btn-sm"
+                  value={deal.status}
+                  onChange={(e) => handleStatusChange(deal.id, e.target.value)}
+                  style={{ width: 'auto', padding: '4px 28px 4px 10px', fontSize: '12px' }}
+                >
+                  {STATUS_TABS.filter(s => s !== 'all').map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                </select>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => router.push(`/inbox?conversationId=${deal.conversationId}`)}
+                >
+                  Open Chat →
+                </button>
+              </div>
+            </div>
           ))}
         </div>
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '48px' }}>
-            <div className="spinner" style={{ margin: '0 auto' }} />
-          </div>
-        ) : deals.length === 0 ? (
-          <div className={styles.emptyState}>
-            <h2>No brand deals yet</h2>
-            <p>When AI detects a sponsorship or collaboration in your DMs, it will show up here automatically.</p>
-          </div>
-        ) : (
-          <div className={styles.dealsGrid}>
-            {deals.map(deal => (
-              <div key={deal.id} className={styles.dealCard}>
-                <div className={styles.dealCardHeader}>
-                  <div>
-                    <div className={styles.dealBrandName}>{deal.brandName || 'Unknown Brand'}</div>
-                    <div className={styles.dealContact}>
-                      @{deal.conversation?.contact?.username || 'unknown'} · {deal.instagramAccount?.igUsername ? `via @${deal.instagramAccount.igUsername}` : ''}
-                    </div>
-                  </div>
-                </div>
-
-                <div className={styles.dealFieldsGrid}>
-                  <div className={styles.dealField}>
-                    <span className={styles.dealFieldLabel}>Budget</span>
-                    <span className={styles.dealFieldValue}>
-                      {deal.budgetAmount ? `${deal.budgetAmount} ${deal.budgetCurrency || ''}`.trim() : 'Unknown'}
-                    </span>
-                  </div>
-                  <div className={styles.dealField}>
-                    <span className={styles.dealFieldLabel}>Deadline</span>
-                    <span className={styles.dealFieldValue}>{deal.deadline || 'Unknown'}</span>
-                  </div>
-                  <div className={styles.dealField} style={{ gridColumn: '1 / -1' }}>
-                    <span className={styles.dealFieldLabel}>Deliverables</span>
-                    <span className={styles.dealFieldValue}>{deal.deliverables || 'Unknown'}</span>
-                  </div>
-                  {deal.campaign && (
-                    <div className={styles.dealField} style={{ gridColumn: '1 / -1' }}>
-                      <span className={styles.dealFieldLabel}>Campaign</span>
-                      <span className={styles.dealFieldValue}>{deal.campaign}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className={styles.dealFooter}>
-                  <select
-                    className={styles.statusSelect}
-                    value={deal.status}
-                    onChange={(e) => handleStatusChange(deal.id, e.target.value)}
-                  >
-                    {STATUS_TABS.filter(s => s !== 'all').map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
-                  </select>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => router.push(`/inbox?conversationId=${deal.conversationId}`)}
-                  >
-                    Open Conversation →
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </main>
-    </div>
+      )}
+    </AppShell>
   );
+}
+
+function getStatusBadgeClass(status) {
+  switch (status) {
+    case 'confirmed': return 'badge-success';
+    case 'negotiating': return 'badge-ai';
+    case 'contacted': return 'badge-info';
+    case 'declined': case 'expired': return 'badge-error';
+    default: return 'badge-warning';
+  }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getMe, getNotifications, markNotificationRead, markAllNotificationsRead } from '@/lib/api';
+import AppShell from '@/app/components/AppShell';
 import styles from './notifications.module.css';
 
 /**
@@ -49,48 +50,56 @@ export default function NotificationsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className={styles.loadingScreen}>
-        <div className="spinner" />
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.page}>
-      <nav className={styles.nav}>
-        <a href="/dashboard" className={styles.navBrand}>Codeback</a>
-        <button className="btn btn-secondary btn-sm" onClick={() => router.push('/dashboard')}>← Dashboard</button>
-      </nav>
-
-      <main className={styles.content}>
-        <div className={styles.header}>
-          <h1>🔔 Notifications</h1>
-          {notifications.some(n => !n.isRead) && (
-            <button className="btn btn-secondary btn-sm" onClick={handleMarkAllRead}>Mark all read</button>
-          )}
+    <AppShell activeRoute="/notifications">
+      {/* Page Header */}
+      <div className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.pageTitle}>🔔 Notifications</h1>
+          <p className={styles.pageSubtitle}>
+            Important updates regarding brand deals, high priority messages, and connection health.
+          </p>
         </div>
-
-        {notifications.length === 0 ? (
-          <div className={styles.emptyState}>
-            <p>No notifications yet. We&apos;ll let you know about brand deals and important conversations here.</p>
-          </div>
-        ) : (
-          <div className={styles.list}>
-            {notifications.map(n => (
-              <button key={n.id} className={`${styles.item} ${!n.isRead ? styles.itemUnread : ''}`} onClick={() => handleClick(n)}>
-                <span className={`${styles.itemDot} ${n.isRead ? styles.itemDotRead : ''}`} />
-                <div className={styles.itemBody}>
-                  <div className={styles.itemTitle}>{n.title}</div>
-                  {n.body && <div className={styles.itemMessage}>{n.body}</div>}
-                  <div className={styles.itemTime}>{new Date(n.createdAt).toLocaleString()}</div>
-                </div>
-              </button>
-            ))}
-          </div>
+        {notifications.some(n => !n.isRead) && (
+          <button className="btn btn-secondary btn-sm" onClick={handleMarkAllRead}>
+            Mark all as read
+          </button>
         )}
-      </main>
-    </div>
+      </div>
+
+      {loading ? (
+        <div className={styles.loadingContainer}>
+          <div className="spinner spinner-lg" />
+        </div>
+      ) : notifications.length === 0 ? (
+        <div className={styles.emptyState}>
+          <div className={styles.emptyIcon}>🔔</div>
+          <h3 className={styles.emptyTitle}>No notifications yet</h3>
+          <p className={styles.emptyDesc}>
+            We&apos;ll notify you here when AI detects high-priority brand deals or critical conversations.
+          </p>
+        </div>
+      ) : (
+        <div className={styles.list}>
+          {notifications.map(n => (
+            <button
+              key={n.id}
+              className={`${styles.item} ${!n.isRead ? styles.itemUnread : ''}`}
+              onClick={() => handleClick(n)}
+            >
+              <div className={`${styles.itemDot} ${n.isRead ? styles.itemDotRead : ''}`} />
+              <div className={styles.itemBody}>
+                <div className={styles.itemTitle}>{n.title}</div>
+                {n.body && <div className={styles.itemMessage}>{n.body}</div>}
+                <div className={styles.itemTime}>{new Date(n.createdAt).toLocaleString()}</div>
+              </div>
+              {n.conversationId && (
+                <span className={styles.itemArrow}>→</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </AppShell>
   );
 }

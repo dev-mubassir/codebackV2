@@ -37,6 +37,7 @@ function InboxPageContent() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
   const messageIdsRef = useRef(new Set());
@@ -55,6 +56,7 @@ function InboxPageContent() {
 
         if (initialConversationId) {
           await selectConversation(initialConversationId);
+          setMobileShowChat(true);
         }
 
         getNotifications().then((d) => setNotifUnreadCount(d.unreadCount || 0)).catch(() => {});
@@ -212,6 +214,7 @@ function InboxPageContent() {
     setSendError('');
     messageIdsRef.current.clear();
     setCopied(false);
+    setMobileShowChat(true);
 
     try {
       const data = await getMessages(convId);
@@ -304,331 +307,353 @@ function InboxPageContent() {
   if (loading) {
     return (
       <div className={styles.loadingScreen}>
-        <div className="spinner" />
+        <div className="spinner spinner-lg" />
       </div>
     );
   }
 
   return (
-    <div className={styles.inbox}>
-      {/* ---- Left Panel: Conversation List ---- */}
-      <aside className={styles.sidebar}>
-        <div className={styles.sidebarHeader}>
-          <div className={styles.sidebarBrand}>
-            <div className={styles.brandIcon}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <div className={`${styles.inboxLayout} ${mobileShowChat ? styles.showChatMobile : ''}`}>
+      {/* App Nav Bar Header */}
+      <header className={styles.globalNav}>
+        <div className={styles.globalNavLeft}>
+          <button className={styles.navBrand} onClick={() => router.push('/dashboard')}>
+            <div className={styles.navBrandIcon}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
             </div>
-            <span className={styles.brandText}>Inbox</span>
-          </div>
-          <div className={styles.sidebarActions}>
-            <button
-              className={`btn btn-secondary btn-sm ${styles.bellButton}`}
-              onClick={() => router.push('/notifications')}
-              title="Notifications"
-            >
-              🔔
-              {notifUnreadCount > 0 && <span className={styles.bellBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>}
-            </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/brand-deals')} title="Brand Deals">
-              🔥
-            </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/settings')} title="AI Settings">
-              ⚙️
-            </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/dashboard')} title="Dashboard">
-              📊
-            </button>
-            <button className="btn btn-secondary btn-sm" onClick={handleLogout} title="Log out">
-              ↗️
-            </button>
-          </div>
+            <span className={styles.navBrandText}>Codeback</span>
+          </button>
+          <span className={styles.navBreadcrumb}>/</span>
+          <span className={styles.navCurrentPage}>Inbox</span>
         </div>
 
-        {/* Account Selector Tabs */}
-        {accounts.length > 1 && (
-          <div className={styles.accountTabs}>
-            <button
-              className={`${styles.accountTab} ${selectedAccountId === '' ? styles.accountTabActive : ''}`}
-              onClick={() => handleAccountChange('')}
-            >
-              All Accounts
-            </button>
-            {accounts.map(acc => (
+        <div className={styles.globalNavActions}>
+          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/dashboard')}>
+            📊 Dashboard
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/brand-deals')}>
+            🔥 Brand Deals
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/notifications')} style={{ position: 'relative' }}>
+            🔔 Notifications
+            {notifUnreadCount > 0 && <span className={styles.bellBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/settings')}>
+            ⚙️ Settings
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={handleLogout} title="Log out">
+            🚪 Logout
+          </button>
+        </div>
+      </header>
+
+      <div className={styles.inboxBody}>
+        {/* ---- Left Panel: Conversation List ---- */}
+        <aside className={styles.sidebar}>
+          {/* Account Selector Tabs */}
+          {accounts.length > 1 && (
+            <div className={styles.accountTabs}>
               <button
-                key={acc.id}
-                className={`${styles.accountTab} ${selectedAccountId === acc.id ? styles.accountTabActive : ''}`}
-                onClick={() => handleAccountChange(acc.id)}
+                className={`${styles.accountTab} ${selectedAccountId === '' ? styles.accountTabActive : ''}`}
+                onClick={() => handleAccountChange('')}
               >
-                @{acc.igUsername || 'account'}
+                All Accounts
+              </button>
+              {accounts.map(acc => (
+                <button
+                  key={acc.id}
+                  className={`${styles.accountTab} ${selectedAccountId === acc.id ? styles.accountTabActive : ''}`}
+                  onClick={() => handleAccountChange(acc.id)}
+                >
+                  @{acc.igUsername || 'account'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Smart Filter Tabs */}
+          <div className={styles.categoryFilterBar}>
+            {INBOX_FILTERS.map(f => (
+              <button
+                key={f.id}
+                className={`${styles.categoryFilterBtn} ${selectedFilter === f.id ? styles.categoryFilterBtnActive : ''}`}
+                onClick={() => handleFilterChange(f.id)}
+              >
+                <span className={styles.filterIcon}>{f.icon}</span> {f.label}
               </button>
             ))}
           </div>
-        )}
 
-        {/* Smart Filter Tabs (extensible \u2014 driven by shared category metadata) */}
-        <div className={styles.categoryFilterBar}>
-          {INBOX_FILTERS.map(f => (
-            <button
-              key={f.id}
-              className={`${styles.categoryFilterBtn} ${selectedFilter === f.id ? styles.categoryFilterBtnActive : ''}`}
-              onClick={() => handleFilterChange(f.id)}
-            >
-              {f.icon} {f.label}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.convList}>
-          {conversations.length === 0 ? (
-            <div className={styles.emptyConvs}>
-              <p>No conversations found</p>
-              <span>DMs will appear here when someone messages your Instagram account</span>
-            </div>
-          ) : (
-            conversations.map((conv) => {
-              const meta = getCategoryMeta(conv.category);
-              const prio = getPriorityMeta(conv.priority);
-              return (
-                <button
-                  key={conv.id}
-                  className={`${styles.convItem} ${selectedConv === conv.id ? styles.convItemActive : ''}`}
-                  onClick={() => selectConversation(conv.id)}
-                  id={`conv-${conv.id}`}
-                >
-                  <div className={styles.convAvatar}>
-                    {conv.contact.profilePicUrl ? (
-                      <img src={conv.contact.profilePicUrl} alt={conv.contact.username} />
-                    ) : (
-                      <div className={styles.convAvatarFallback}>
-                        {(conv.contact.username || '?')[0].toUpperCase()}
-                      </div>
-                    )}
-                    {conv.messagingWindow?.status === 'open' && (
-                      <span className={styles.windowDot} title="24h window open" />
-                    )}
-                  </div>
-                  <div className={styles.convInfo}>
-                    <div className={styles.convTopRow}>
-                      <span
-                        className={styles.convUsername}
-                        style={conv.unread ? { fontWeight: 900 } : undefined}
-                      >
-                        {conv.unread && <span className={styles.unreadDot} style={{ marginRight: '6px' }} />}
-                        {conv.contact.username || conv.contact.name || 'Unknown'}
-                      </span>
-                      <span className={styles.convTime}>
-                        {conv.lastMessageAt ? formatTimeAgo(conv.lastMessageAt) : ''}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2px', gap: '6px' }}>
-                      <span className={styles.priorityDot} title={`Priority: ${prio.label}`} style={{ background: prio.dotClass === 'priorityCritical' ? '#ff3b3b' : prio.dotClass === 'priorityHigh' ? '#ffffff' : prio.dotClass === 'priorityNormal' ? '#666666' : '#333333' }} />
-                      <p className={styles.convPreview} style={{ margin: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {conv.lastMessage || 'No messages'}
-                      </p>
-                      {conv.category && (
-                        <span className={`${styles.categoryBadge} ${styles[meta.badgeClass]}`} style={{ marginLeft: '6px', flexShrink: 0 }}>
-                          {meta.icon} {meta.label}
-                        </span>
+          <div className={styles.convList}>
+            {conversations.length === 0 ? (
+              <div className={styles.emptyConvs}>
+                <div className={styles.emptyConvsIcon}>📥</div>
+                <h4>No conversations found</h4>
+                <p>Incoming DMs will appear here when someone messages your Instagram account.</p>
+              </div>
+            ) : (
+              conversations.map((conv) => {
+                const meta = getCategoryMeta(conv.category);
+                const prio = getPriorityMeta(conv.priority);
+                return (
+                  <button
+                    key={conv.id}
+                    className={`${styles.convItem} ${selectedConv === conv.id ? styles.convItemActive : ''}`}
+                    onClick={() => selectConversation(conv.id)}
+                    id={`conv-${conv.id}`}
+                  >
+                    <div className={styles.convAvatar}>
+                      {conv.contact.profilePicUrl ? (
+                        <img src={conv.contact.profilePicUrl} alt={conv.contact.username} />
+                      ) : (
+                        <div className={styles.convAvatarFallback}>
+                          {(conv.contact.username || '?')[0].toUpperCase()}
+                        </div>
+                      )}
+                      {conv.messagingWindow?.status === 'open' && (
+                        <span className={styles.windowDot} title="24h window open" />
                       )}
                     </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </aside>
-
-      {/* ---- Right Panel: Chat View ---- */}
-      <main className={styles.chatPanel}>
-        {selectedConv ? (
-          <>
-            {/* Chat header */}
-            <div className={styles.chatHeader}>
-              <div className={styles.chatHeaderLeft}>
-                {contactInfo?.profilePicUrl ? (
-                  <img src={contactInfo.profilePicUrl} alt={contactInfo.username} className="avatar" />
-                ) : (
-                  <div className="avatar">
-                    {(contactInfo?.username || '?')[0].toUpperCase()}
-                  </div>
-                )}
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2 className={styles.chatUsername}>
-                      {contactInfo?.username || contactInfo?.name || 'Unknown'}
-                    </h2>
-                    <span className={`${styles.categoryBadge} ${styles[activeCategoryMeta.badgeClass]}`}>
-                      {activeCategoryMeta.icon} {activeCategoryMeta.label}
-                    </span>
-                    <span className={styles.priorityDot} title={`Priority: ${activePriorityMeta.label}`} style={{ background: activePriorityMeta.dotClass === 'priorityCritical' ? '#ff3b3b' : activePriorityMeta.dotClass === 'priorityHigh' ? '#ffffff' : activePriorityMeta.dotClass === 'priorityNormal' ? '#666666' : '#333333' }} />
-                  </div>
-                  {contactInfo?.name && contactInfo.name !== contactInfo.username && (
-                    <span className={styles.chatRealName}>{contactInfo.name}</span>
-                  )}
-                </div>
-              </div>
-              <div className={styles.chatHeaderRight}>
-                {contactInfo?.username && (
-                  <a
-                    href={`https://instagram.com/${contactInfo.username}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-secondary btn-sm"
-                    id="open-instagram-chat-btn"
-                  >
-                    ↗ Instagram Profile
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Conversation Summary Panel */}
-            {analysis?.summary?.summary && (
-              <div className={styles.summaryPanel}>
-                <span className={styles.summaryPanelLabel}>✨ AI Conversation Summary</span>
-                {analysis.summary.summary}
-                {analysis.summary.stage && <span className={styles.summaryStage}>{analysis.summary.stage}</span>}
-              </div>
-            )}
-
-            {/* Brand Deal Panel */}
-            {analysis?.brandDeal && (
-              <div className={styles.brandDealPanel}>
-                <div className={styles.brandDealHeader}>
-                  <span className={styles.brandDealTitle}>🔥 Brand Deal</span>
-                  <select
-                    className={styles.brandDealStatusSelect}
-                    value={analysis.brandDeal.status}
-                    onChange={(e) => handleBrandDealStatusChange(e.target.value)}
-                  >
-                    {BRAND_DEAL_STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
-                  </select>
-                </div>
-                <div className={styles.brandDealGrid}>
-                  <div className={styles.brandDealField}>
-                    <span className={styles.brandDealFieldLabel}>Brand</span>
-                    <span className={styles.brandDealFieldValue}>{analysis.brandDeal.brandName || 'Unknown'}</span>
-                  </div>
-                  <div className={styles.brandDealField}>
-                    <span className={styles.brandDealFieldLabel}>Budget</span>
-                    <span className={styles.brandDealFieldValue}>
-                      {analysis.brandDeal.budgetAmount ? `${analysis.brandDeal.budgetAmount} ${analysis.brandDeal.budgetCurrency || ''}`.trim() : 'Unknown'}
-                    </span>
-                  </div>
-                  <div className={styles.brandDealField}>
-                    <span className={styles.brandDealFieldLabel}>Deliverables</span>
-                    <span className={styles.brandDealFieldValue}>{analysis.brandDeal.deliverables || 'Unknown'}</span>
-                  </div>
-                  <div className={styles.brandDealField}>
-                    <span className={styles.brandDealFieldLabel}>Deadline</span>
-                    <span className={styles.brandDealFieldValue}>{analysis.brandDeal.deadline || 'Unknown'}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Messages */}
-            <div className={styles.messagesContainer}>
-              {messages.length === 0 ? (
-                <div className={styles.noMessages}>
-                  <p>No messages in this conversation</p>
-                </div>
-              ) : (
-                messages.map((msg, index) => (
-                  <div
-                    key={msg.id}
-                    className={`${styles.messageBubble} ${msg.direction === 'outbound' ? styles.messageOutbound : styles.messageInbound
-                      }`}
-                    style={{ animationDelay: `${Math.min(index * 0.03, 0.5)}s` }}
-                  >
-                    {msg.content && <p className={styles.messageText}>{msg.content}</p>}
-                    {msg.attachmentUrl && (
-                      <div className={styles.messageAttachment}>
-                        {msg.messageType === 'image' ? (
-                          <img src={msg.attachmentUrl} alt="Attachment" />
-                        ) : (
-                          <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                            📎 {msg.messageType} attachment
-                          </a>
+                    <div className={styles.convInfo}>
+                      <div className={styles.convTopRow}>
+                        <span
+                          className={styles.convUsername}
+                          style={conv.unread ? { fontWeight: 700 } : undefined}
+                        >
+                          {conv.unread && <span className={styles.unreadDot} />}
+                          {conv.contact.username || conv.contact.name || 'Unknown'}
+                        </span>
+                        <span className={styles.convTime}>
+                          {conv.lastMessageAt ? formatTimeAgo(conv.lastMessageAt) : ''}
+                        </span>
+                      </div>
+                      <div className={styles.convBottomRow}>
+                        <span
+                          className={`${styles.priorityIndicator} ${styles[prio.dotClass]}`}
+                          title={`Priority: ${prio.label}`}
+                        />
+                        <p className={styles.convPreview}>
+                          {conv.lastMessage || 'No messages'}
+                        </p>
+                        {conv.category && (
+                          <span className={`badge ${styles.categoryBadge}`}>
+                            {meta.icon} {meta.label}
+                          </span>
                         )}
                       </div>
-                    )}
-                    <span className={styles.messageTime}>
-                      {formatMessageTime(msg.igTimestamp || msg.createdAt)}
-                    </span>
-                  </div>
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Compose Bar \u2014 Generate Reply (AI, never auto-sends) / Edit / Regenerate / Send */}
-            <div className={styles.composeBar}>
-              {messagingWindow?.status === 'closed' && (
-                <div className={styles.windowClosedWarning}>
-                  ⚠️ Outside the 24-hour messaging window. This contact must message you again before you can reply.
-                </div>
-              )}
-
-              <div className={styles.composeToolbar}>
-                <span className={styles.composeHint}>
-                  {copied ? '✓ Copied to clipboard' : 'Write your own reply, or let AI draft one for you.'}
-                </span>
-                <div className={styles.composeToolbarActions}>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => handleGenerateReply(Boolean(draftText))}
-                    disabled={generating}
-                  >
-                    {generating ? 'Generating…' : draftText ? '🔁 Regenerate' : '✨ Generate Reply'}
+                    </div>
                   </button>
-                  {draftText && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => handleCopyReply(draftText)}>
-                      📋 Copy
-                    </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+
+        {/* ---- Right Panel: Chat View ---- */}
+        <main className={styles.chatPanel}>
+          {selectedConv ? (
+            <>
+              {/* Chat header */}
+              <div className={styles.chatHeader}>
+                <div className={styles.chatHeaderLeft}>
+                  <button
+                    className={styles.backBtnMobile}
+                    onClick={() => setMobileShowChat(false)}
+                    aria-label="Back to conversations"
+                  >
+                    ←
+                  </button>
+                  {contactInfo?.profilePicUrl ? (
+                    <img src={contactInfo.profilePicUrl} alt={contactInfo.username} className="avatar avatar-md" />
+                  ) : (
+                    <div className="avatar avatar-md">
+                      {(contactInfo?.username || '?')[0].toUpperCase()}
+                    </div>
+                  )}
+                  <div className={styles.chatUserMeta}>
+                    <div className={styles.chatUserTitleRow}>
+                      <h2 className={styles.chatUsername}>
+                        {contactInfo?.username || contactInfo?.name || 'Unknown'}
+                      </h2>
+                      <span className={`badge ${styles.categoryBadge}`}>
+                        {activeCategoryMeta.icon} {activeCategoryMeta.label}
+                      </span>
+                      <span className={`badge ${styles.priorityBadge}`}>
+                        {activePriorityMeta.label}
+                      </span>
+                    </div>
+                    {contactInfo?.name && contactInfo.name !== contactInfo.username && (
+                      <span className={styles.chatRealName}>{contactInfo.name}</span>
+                    )}
+                  </div>
+                </div>
+                <div className={styles.chatHeaderRight}>
+                  {contactInfo?.username && (
+                    <a
+                      href={`https://instagram.com/${contactInfo.username}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-secondary btn-sm"
+                      id="open-instagram-chat-btn"
+                    >
+                      ↗ Instagram Profile
+                    </a>
                   )}
                 </div>
               </div>
 
-              <textarea
-                className={styles.composeTextarea}
-                placeholder="Type a reply…"
-                value={draftText}
-                onChange={(e) => setDraftText(e.target.value)}
-              />
+              {/* Conversation Summary Panel */}
+              {analysis?.summary?.summary && (
+                <div className={styles.summaryCard}>
+                  <div className={styles.summaryHeader}>
+                    <span className={styles.summaryTag}>✨ AI Summary</span>
+                    {analysis.summary.stage && <span className={styles.summaryStage}>{analysis.summary.stage}</span>}
+                  </div>
+                  <p className={styles.summaryText}>{analysis.summary.summary}</p>
+                </div>
+              )}
 
-              <div className={styles.composeFooter}>
-                <span className={styles.composeHint}>
-                  AI only drafts \u2014 nothing is ever sent automatically.
-                </span>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={handleSend}
-                  disabled={!draftText.trim() || sending || !canSend}
-                  id="send-reply-btn"
-                >
-                  {sending ? 'Sending…' : '➤ Send'}
-                </button>
+              {/* Brand Deal Panel */}
+              {analysis?.brandDeal && (
+                <div className={styles.brandDealCard}>
+                  <div className={styles.brandDealHeader}>
+                    <div className={styles.brandDealTitleRow}>
+                      <span className={styles.brandDealIcon}>🔥</span>
+                      <strong>Brand Deal Extraction</strong>
+                    </div>
+                    <select
+                      className="select btn-sm"
+                      value={analysis.brandDeal.status}
+                      onChange={(e) => handleBrandDealStatusChange(e.target.value)}
+                      style={{ width: 'auto', padding: '4px 28px 4px 10px', fontSize: '12px' }}
+                    >
+                      {BRAND_DEAL_STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                    </select>
+                  </div>
+                  <div className={styles.brandDealGrid}>
+                    <div className={styles.brandDealField}>
+                      <span className={styles.brandDealLabel}>Brand</span>
+                      <span className={styles.brandDealValue}>{analysis.brandDeal.brandName || 'Unknown'}</span>
+                    </div>
+                    <div className={styles.brandDealField}>
+                      <span className={styles.brandDealLabel}>Budget</span>
+                      <span className={styles.brandDealValue}>
+                        {analysis.brandDeal.budgetAmount ? `${analysis.brandDeal.budgetAmount} ${analysis.brandDeal.budgetCurrency || ''}`.trim() : 'Unknown'}
+                      </span>
+                    </div>
+                    <div className={styles.brandDealField}>
+                      <span className={styles.brandDealLabel}>Deliverables</span>
+                      <span className={styles.brandDealValue}>{analysis.brandDeal.deliverables || 'Unknown'}</span>
+                    </div>
+                    <div className={styles.brandDealField}>
+                      <span className={styles.brandDealLabel}>Deadline</span>
+                      <span className={styles.brandDealValue}>{analysis.brandDeal.deadline || 'Unknown'}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Messages */}
+              <div className={styles.messagesContainer}>
+                {messages.length === 0 ? (
+                  <div className={styles.noMessages}>
+                    <p>No messages in this conversation</p>
+                  </div>
+                ) : (
+                  messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`${styles.messageBubble} ${msg.direction === 'outbound' ? styles.messageOutbound : styles.messageInbound
+                        }`}
+                    >
+                      {msg.content && <p className={styles.messageText}>{msg.content}</p>}
+                      {msg.attachmentUrl && (
+                        <div className={styles.messageAttachment}>
+                          {msg.messageType === 'image' ? (
+                            <img src={msg.attachmentUrl} alt="Attachment" />
+                          ) : (
+                            <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer">
+                              📎 {msg.messageType} attachment
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      <span className={styles.messageTime}>
+                        {formatMessageTime(msg.igTimestamp || msg.createdAt)}
+                      </span>
+                    </div>
+                  ))
+                )}
+                <div ref={messagesEndRef} />
               </div>
-              {sendError && <div className={styles.sendError}>{sendError}</div>}
+
+              {/* Compose Bar */}
+              <div className={styles.composeBar}>
+                {messagingWindow?.status === 'closed' && (
+                  <div className={styles.windowClosedWarning}>
+                    ⚠️ Outside the 24-hour messaging window. This contact must message you again before you can reply.
+                  </div>
+                )}
+
+                <div className={styles.composeToolbar}>
+                  <span className={styles.composeHint}>
+                    {copied ? '✓ Copied to clipboard' : 'Draft your response or let AI write one for you.'}
+                  </span>
+                  <div className={styles.composeToolbarActions}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleGenerateReply(Boolean(draftText))}
+                      disabled={generating}
+                    >
+                      {generating ? 'Generating…' : draftText ? '🔁 Regenerate' : '✨ Draft Reply with AI'}
+                    </button>
+                    {draftText && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleCopyReply(draftText)}>
+                        📋 Copy
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <textarea
+                  className={styles.composeTextarea}
+                  placeholder="Type a message to reply..."
+                  value={draftText}
+                  onChange={(e) => setDraftText(e.target.value)}
+                />
+
+                <div className={styles.composeFooter}>
+                  <span className={styles.composeHint}>
+                    AI drafts are never sent automatically. You review before sending.
+                  </span>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleSend}
+                    disabled={!draftText.trim() || sending || !canSend}
+                    id="send-reply-btn"
+                  >
+                    {sending ? 'Sending…' : 'Send Message ➤'}
+                  </button>
+                </div>
+                {sendError && <div className={styles.sendError}>{sendError}</div>}
+              </div>
+            </>
+          ) : (
+            /* No conversation selected */
+            <div className={styles.emptyChat}>
+              <div className={styles.emptyChatIcon}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              </div>
+              <h2>Select a conversation</h2>
+              <p>Choose a contact from the inbox list on the left to view message history and send replies.</p>
             </div>
-          </>
-        ) : (
-          /* No conversation selected */
-          <div className={styles.emptyChat}>
-            <div className={styles.emptyChatIcon}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            </div>
-            <h2>Select a conversation</h2>
-            <p>Choose a conversation from the sidebar to view messages</p>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
     </div>
   );
 }
@@ -660,7 +685,7 @@ export default function InboxPage() {
   return (
     <Suspense fallback={
       <div className={styles.loadingScreen}>
-        <div className="spinner" />
+        <div className="spinner spinner-lg" />
       </div>
     }>
       <InboxPageContent />

@@ -67,7 +67,7 @@ export default function AdminLayout({ children }) {
   if (loading || !authenticated) {
     return (
       <div className={styles.adminLayout} style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <div className="spinner" />
+        <div className="spinner spinner-lg" />
       </div>
     );
   }
@@ -76,7 +76,6 @@ export default function AdminLayout({ children }) {
     { label: 'Dashboard', path: '/admin', icon: '📊' },
     { label: 'Users', path: '/admin/users', icon: '👥' },
     { label: 'IG Accounts', path: '/admin/accounts', icon: '📱' },
-    { label: 'Logs & Health', path: '/admin/logs', icon: '🩺' },
     { label: 'Support Desk', path: '/admin/support', icon: '🎧' },
     { label: 'Settings', path: '/admin/settings', icon: '⚙️' },
   ];
@@ -86,7 +85,7 @@ export default function AdminLayout({ children }) {
       {/* Impersonation Warning Banner */}
       {impersonating && (
         <div className={styles.impersonationBanner}>
-          <span>⚠️ IMPERSONATING USER: {user?.name || user?.email} — SUPPORT OVERRIDE ACTIVE</span>
+          <span>⚠️ IMPERSONATING USER — SUPPORT OVERRIDE ACTIVE</span>
           <button onClick={handleExitImpersonation}>EXIT IMPERSONATION</button>
         </div>
       )}
@@ -117,23 +116,13 @@ export default function AdminLayout({ children }) {
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <span>Codeback Admin v1.0</span>
-          <div style={{ marginTop: '4px', color: '#ffffff', fontWeight: 'bold' }}>
+          <div style={{ fontWeight: '600', color: 'white', marginBottom: '8px' }}>
             👤 {adminUsername || 'Mubassir'}
           </div>
           <button
             onClick={handleAdminLogout}
-            style={{
-              marginTop: '10px',
-              width: '100%',
-              background: '#000000',
-              color: '#ffffff',
-              border: '1px solid #333333',
-              padding: '6px',
-              fontSize: '0.75rem',
-              fontWeight: 'bold',
-              cursor: 'pointer'
-            }}
+            className="btn btn-secondary btn-sm"
+            style={{ width: '100%' }}
           >
             🔒 Log Out Admin
           </button>
@@ -148,7 +137,7 @@ export default function AdminLayout({ children }) {
           </h1>
           <div>
             <Link href="/dashboard" className="btn btn-secondary btn-sm" target="_blank">
-              ↗ User App
+              ↗ Open App
             </Link>
           </div>
         </header>

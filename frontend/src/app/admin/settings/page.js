@@ -25,7 +25,7 @@ export default function AdminSettingsPage() {
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '40px' }}>
-        <div className="spinner" style={{ margin: '0 auto' }} />
+        <div className="spinner spinner-lg" style={{ margin: '0 auto' }} />
       </div>
     );
   }
@@ -34,7 +34,7 @@ export default function AdminSettingsPage() {
     <div>
       {/* Super Admin Users List */}
       <div className={styles.tableContainer} style={{ marginBottom: '24px' }}>
-        <div style={{ padding: '16px', background: '#141414', borderBottom: '1px solid #262626', fontWeight: 'bold' }}>
+        <div style={{ padding: '14px 20px', background: 'var(--bg-surface-secondary)', borderBottom: '1px solid var(--border-default)', fontWeight: 600, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
           CONFIGURED SUPER ADMIN USERS
         </div>
         <table className={styles.table}>
@@ -50,13 +50,13 @@ export default function AdminSettingsPage() {
             {settings?.adminUsers?.map(admin => (
               <tr key={admin.id}>
                 <td>
-                  <div style={{ fontWeight: 'bold' }}>{admin.name || 'Super Admin'}</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{admin.name || 'Super Admin'}</div>
                 </td>
-                <td style={{ fontFamily: 'var(--font-mono)' }}>{admin.email || admin.id}</td>
+                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{admin.email || admin.id}</td>
                 <td>
                   <span className={styles.badgeValid}>SUPERADMIN</span>
                 </td>
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
                   {new Date(admin.createdAt).toLocaleDateString()}
                 </td>
               </tr>
@@ -67,25 +67,25 @@ export default function AdminSettingsPage() {
 
       {/* System Environment Config */}
       <div className={styles.tableContainer}>
-        <div style={{ padding: '16px', background: '#141414', borderBottom: '1px solid #262626', fontWeight: 'bold' }}>
+        <div style={{ padding: '14px 20px', background: 'var(--bg-surface-secondary)', borderBottom: '1px solid var(--border-default)', fontWeight: 600, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
           SYSTEM ENVIRONMENT & SECURITY CONFIGURATION
         </div>
         <table className={styles.table}>
           <tbody>
             <tr>
-              <td style={{ fontWeight: 'bold', width: '220px' }}>Backend Port</td>
-              <td style={{ fontFamily: 'var(--font-mono)' }}>{settings?.environment?.port}</td>
+              <td style={{ fontWeight: 600, width: '220px', color: 'var(--text-primary)' }}>Backend Port</td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.port}</td>
             </tr>
             <tr>
-              <td style={{ fontWeight: 'bold' }}>Frontend URL</td>
-              <td style={{ fontFamily: 'var(--font-mono)' }}>{settings?.environment?.frontendUrl}</td>
+              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Frontend URL</td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.frontendUrl}</td>
             </tr>
             <tr>
-              <td style={{ fontWeight: 'bold' }}>Meta Redirect URI</td>
-              <td style={{ fontFamily: 'var(--font-mono)' }}>{settings?.environment?.redirectUri}</td>
+              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Meta Redirect URI</td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.redirectUri}</td>
             </tr>
             <tr>
-              <td style={{ fontWeight: 'bold' }}>Skip Webhook Signature Verification</td>
+              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Skip Webhook Signature Verification</td>
               <td>
                 <span className={settings?.environment?.skipSignatureVerification ? styles.badgeExpired : styles.badgeValid}>
                   {settings?.environment?.skipSignatureVerification ? 'TRUE (TEST MODE)' : 'FALSE (ENFORCED)'}
@@ -93,8 +93,8 @@ export default function AdminSettingsPage() {
               </td>
             </tr>
             <tr>
-              <td style={{ fontWeight: 'bold' }}>Node Environment</td>
-              <td style={{ fontFamily: 'var(--font-mono)' }}>{settings?.environment?.nodeEnv}</td>
+              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Node Environment</td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.nodeEnv}</td>
             </tr>
           </tbody>
         </table>

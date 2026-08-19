@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getMe, getAISettings, updateAISettings } from '@/lib/api';
+import AppShell from '@/app/components/AppShell';
 import styles from './settings.module.css';
 
 const LEVELS = ['critical', 'high', 'normal', 'low', 'off'];
@@ -73,84 +74,116 @@ export default function SettingsPage() {
     }
   }
 
-  if (loading || !prefs) {
-    return (
-      <div className={styles.loadingScreen}>
-        <div className="spinner" />
-      </div>
-    );
-  }
-
   return (
-    <div className={styles.page}>
-      <nav className={styles.nav}>
-        <a href="/dashboard" className={styles.navBrand}>Codeback</a>
-        <button className="btn btn-secondary btn-sm" onClick={() => router.push('/dashboard')}>← Dashboard</button>
-      </nav>
-
-      <main className={styles.content}>
-        <div className={styles.header}>
-          <h1>⚙️ AI Settings</h1>
-          <p className={styles.subtitle}>Tell Codeback what matters most to you. AI uses this to prioritize your inbox and match your voice in drafted replies.</p>
+    <AppShell activeRoute="/settings">
+      {/* Page Header */}
+      <div className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.pageTitle}>⚙️ AI Preferences & Settings</h1>
+          <p className={styles.pageSubtitle}>
+            Customize how Codeback prioritizes your inbox and matches your voice when drafting AI replies.
+          </p>
         </div>
+      </div>
 
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Conversation Priorities</div>
-          {PRIORITY_ROWS.map(row => (
-            <div className={styles.prefRow} key={row.key}>
-              <span className={styles.prefLabel}>{row.label}</span>
-              <select
-                className={styles.prefSelect}
-                value={prefs[row.key]}
-                onChange={(e) => updateField(row.key, e.target.value)}
-              >
-                {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
+      {loading || !prefs ? (
+        <div className={styles.loadingContainer}>
+          <div className="spinner spinner-lg" />
+        </div>
+      ) : (
+        <div className={styles.settingsGrid}>
+          {/* Section: Priority Config */}
+          <div className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Conversation Priorities</h2>
+              <p className={styles.cardDesc}>Set default priority levels for different message categories.</p>
             </div>
-          ))}
-        </div>
+            <div className={styles.prefList}>
+              {PRIORITY_ROWS.map(row => (
+                <div className={styles.prefRow} key={row.key}>
+                  <span className={styles.prefLabel}>{row.label}</span>
+                  <select
+                    className="select btn-sm"
+                    value={prefs[row.key]}
+                    onChange={(e) => updateField(row.key, e.target.value)}
+                    style={{ width: '130px' }}
+                  >
+                    {LEVELS.map(l => (
+                      <option key={l} value={l}>
+                        {l.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
 
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Reply Style</div>
-          <div className={styles.prefRow}>
-            <span className={styles.prefLabel}>Tone</span>
-            <select
-              className={styles.prefSelect}
-              value={prefs.tone}
-              onChange={(e) => updateField('tone', e.target.value)}
-            >
-              {TONES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div className={styles.prefRow} style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
-            <span className={styles.prefLabel}>Personal style notes (optional)</span>
-            <textarea
-              className={styles.textarea}
-              placeholder="e.g. Always mention my manager's email for brand deals over $1000. Keep replies under 3 sentences."
-              value={prefs.customInstructions || ''}
-              onChange={(e) => updateField('customInstructions', e.target.value)}
-            />
-          </div>
-          <div className={styles.prefRow}>
-            <span className={styles.prefLabel}>Auto-generate conversation summaries</span>
-            <select
-              className={styles.prefSelect}
-              value={prefs.autoGenerateSummary ? 'on' : 'off'}
-              onChange={(e) => updateField('autoGenerateSummary', e.target.value === 'on')}
-            >
-              <option value="on">on</option>
-              <option value="off">off</option>
-            </select>
-          </div>
-        </div>
+          {/* Section: Reply Style */}
+          <div className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>AI Reply Tone & Guidelines</h2>
+              <p className={styles.cardDesc}>Configure how AI writes draft responses to your Instagram DMs.</p>
+            </div>
+            <div className={styles.prefList}>
+              <div className={styles.prefRow}>
+                <div className={styles.prefLabelGroup}>
+                  <span className={styles.prefLabel}>Reply Tone</span>
+                  <span className={styles.prefSublabel}>Select the primary voice for AI suggestions</span>
+                </div>
+                <select
+                  className="select btn-sm"
+                  value={prefs.tone}
+                  onChange={(e) => updateField('tone', e.target.value)}
+                  style={{ width: '150px' }}
+                >
+                  {TONES.map(t => (
+                    <option key={t} value={t}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        <div className={styles.saveBar}>
-          {saved && <span className={styles.savedMessage}>✓ Saved</span>}
-          <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Settings'}
-          </button>
+              <div className={styles.prefRowVertical}>
+                <span className={styles.prefLabel}>Custom Instructions</span>
+                <span className={styles.prefSublabel}>Add specific rules (e.g., &quot;Include my booking link for collabs over $500&quot;)</span>
+                <textarea
+                  className="textarea"
+                  placeholder="e.g., Always mention my manager's email for brand deals. Keep replies under 3 sentences."
+                  value={prefs.customInstructions || ''}
+                  onChange={(e) => updateField('customInstructions', e.target.value)}
+                  style={{ marginTop: '8px' }}
+                />
+              </div>
+
+              <div className={styles.prefRow}>
+                <div className={styles.prefLabelGroup}>
+                  <span className={styles.prefLabel}>Auto-Generate Summaries</span>
+                  <span className={styles.prefSublabel}>Create AI summary notes for active conversations</span>
+                </div>
+                <select
+                  className="select btn-sm"
+                  value={prefs.autoGenerateSummary ? 'on' : 'off'}
+                  onChange={(e) => updateField('autoGenerateSummary', e.target.value === 'on')}
+                  style={{ width: '100px' }}
+                >
+                  <option value="on">ENABLED</option>
+                  <option value="off">DISABLED</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Save Bar */}
+          <div className={styles.saveBar}>
+            {saved && <span className={styles.savedMessage}>✓ Settings saved successfully</span>}
+            <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Settings'}
+            </button>
+          </div>
         </div>
-      </main>
-    </div>
+      )}
+    </AppShell>
   );
 }
