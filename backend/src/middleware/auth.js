@@ -20,20 +20,11 @@ async function requireAuth(req, res, next) {
     userId = req.query.user_id;
   }
 
-  // Development fallback: if no session cookie, use latest user
-  if (!userId && !isProduction) {
-    try {
-      const defaultUser = await prisma.user.findFirst({
-        orderBy: { createdAt: 'desc' },
-      });
-      if (defaultUser) {
-        userId = defaultUser.id;
-        if (req.session) {
-          req.session.userId = userId;
-        }
-      }
-    } catch (e) {}
-  }
+  // NOTE: The old dev-mode fallback that auto-picked the latest user has
+  // been removed. It silently authenticated every unauthenticated request
+  // as the most recently created user, which completely broke multi-user
+  // testing and tenant isolation. Use the ?user_id= query param above for
+  // explicit debugging instead.
 
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated. Please log in.' });

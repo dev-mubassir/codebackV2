@@ -22,14 +22,14 @@ const { normalizeCategory } = require('../lib/constants');
 router.use(requireAuth);
 
 async function getOwnedAccountIds(userId) {
-  let accounts = await prisma.instagramAccount.findMany({
+  const accounts = await prisma.instagramAccount.findMany({
     where: { userId },
     select: { id: true },
   });
 
-  if (accounts.length === 0 && process.env.NODE_ENV !== 'production') {
-    accounts = await prisma.instagramAccount.findMany({ select: { id: true } });
-  }
+  // NOTE: The old dev-mode fallback that returned ALL accounts when the
+  // user had none has been removed — it leaked every other user's
+  // conversations/messages/brand-deals into the current user's view.
 
   return accounts.map((a) => a.id);
 }
@@ -162,22 +162,9 @@ router.get('/conversations/:id/messages', async (req, res) => {
       },
     });
 
-    if (!conversation && process.env.NODE_ENV !== 'production') {
-      conversation = await prisma.conversation.findUnique({
-        where: { id: id },
-        include: {
-          contact: {
-            select: {
-              id: true,
-              igsid: true,
-              username: true,
-              name: true,
-              profilePicUrl: true,
-            },
-          },
-        },
-      });
-    }
+    // NOTE: The old dev-mode fallback that fetched any conversation by ID
+    // regardless of ownership has been removed — it allowed any user to
+    // read any other user's messages just by knowing the conversation ID.
 
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
@@ -239,6 +226,54 @@ router.post('/conversations/:id/read', async (req, res) => {
   } catch (error) {
     console.error('[API] Error updating read state:', error.message);
     res.status(500).json({ error: 'Failed to update conversation' });
+  }
+});
+
+// ============================================
+// PATCH /api/conversations/:id/auto-reply
+// Toggle or configure AI Auto-Reply for this specific conversation
+// ============================================
+router.patch('/conversations/:id/auto-reply', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { autoReplyEnabled, autoReplyPrompt } = req.body || {};
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, instagramAccount: { userId: req.userId } },
+      include: { contact: true },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const dataToUpdate = {};
+    if (typeof autoReplyEnabled === 'boolean') {
+      dataToUpdate.autoReplyEnabled = autoReplyEnabled;
+    }
+    if (typeof autoReplyPrompt !== 'undefined') {
+      dataToUpdate.autoReplyPrompt = typeof autoReplyPrompt === 'string' ? autoReplyPrompt.slice(0, 500) : null;
+    }
+
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: dataToUpdate,
+      include: {
+        contact: { select: { id: true, igsid: true, username: true, name: true, profilePicUrl: true } },
+      },
+    });
+
+    console.log(`[API] AI Auto-Reply ${updated.autoReplyEnabled ? 'ENABLED' : 'DISABLED'} for conversation ${id} (@${updated.contact.username || 'user'})`);
+
+    res.json({
+      id: updated.id,
+      autoReplyEnabled: updated.autoReplyEnabled,
+      autoReplyPrompt: updated.autoReplyPrompt,
+      contact: updated.contact,
+      message: `AI Auto-Reply ${updated.autoReplyEnabled ? 'enabled' : 'disabled'} for @${updated.contact.username || 'this chat'}`
+    });
+  } catch (error) {
+    console.error('[API] Error updating auto-reply settings:', error.message);
+    res.status(500).json({ error: 'Failed to update auto-reply settings' });
   }
 });
 

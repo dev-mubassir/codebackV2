@@ -723,3 +723,121 @@
     display: none;
   }
 }
+
+/* ============================================
+ * Auto-Reply UI Styles
+ * ============================================ */
+.autoReplyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.autoReplyBtn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.autoReplyBtnActive {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #10b981 !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+.autoReplyDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: background var(--transition-fast);
+}
+
+.autoReplyBtnActive .autoReplyDot {
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+
+.autoReplyListBadge {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.autoReplyBanner {
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(6, 95, 70, 0.04) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.autoReplyBannerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.autoReplyBannerIcon {
+  font-size: 18px;
+}
+
+.autoReplyBannerText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.autoReplyBannerTitle {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: #10b981;
+}
+
+.autoReplyBannerDesc {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.autoReplyPromptBox {
+  margin: 8px 24px 0;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.autoReplyPromptLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+}
+
+.autoReplyPromptActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+

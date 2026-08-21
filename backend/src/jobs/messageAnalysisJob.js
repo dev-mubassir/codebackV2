@@ -23,6 +23,9 @@ const aiService = require('../services/aiService');
 const { getOrCreatePreferences } = require('../services/preferencesService');
 const { upsertBrandDeal } = require('../services/brandDealService');
 const { notifyBrandDeal, notifyHighPriority, notifyImportantCustomer, emitAnalysisUpdate, emitBrandDealDetected } = require('../lib/notify');
+const instagram = require('../lib/instagram');
+const { decrypt } = require('../lib/crypto');
+const { emitToUser } = require('../lib/socket');
 
 const SUMMARY_MESSAGE_INTERVAL = 5; // regenerate summary every N new messages
 
@@ -227,6 +230,18 @@ async function processMessageAnalysis(job) {
 
     // 7. Periodic conversation summary (not on every message).
     await maybeRegenerateSummary({ conversation, userId });
+
+    // 8. Auto-Reply for this specific conversation if enabled by creator
+    if (conversation.autoReplyEnabled && message.direction === 'inbound') {
+      await maybeAutoReply({
+        conversation,
+        contact: conversation.contact,
+        instagramAccount: conversation.instagramAccount,
+        userId,
+        preferences,
+        brandDeal: brandDealResult?.brandDeal || null,
+      });
+    }
   } catch (err) {
     await prisma.message
       .update({
@@ -238,4 +253,131 @@ async function processMessageAnalysis(job) {
   }
 }
 
-module.exports = { processMessageAnalysis };
+/**
+ * Executes an automated AI reply for a specific conversation that has
+ * auto-reply enabled by the creator.
+ */
+async function maybeAutoReply({ conversation, contact, instagramAccount, userId, preferences, brandDeal }) {
+  try {
+    // 1. Fetch recent messages in conversation
+    const recentMessages = await prisma.message.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    const lastInbound = recentMessages.find((m) => m.direction === 'inbound');
+    if (!lastInbound) return;
+
+    // 2. Check 24-hour messaging window
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const elapsed = Date.now() - new Date(lastInbound.createdAt).getTime();
+    if (elapsed > TWENTY_FOUR_HOURS) {
+      console.log(`[AutoReply] 24-hour window expired for conversation ${conversation.id}, skipping auto-reply.`);
+      return;
+    }
+
+    // 3. Generate AI draft
+    const replyResult = await aiService.generateReply({
+      recentMessages: recentMessages.reverse(),
+      contactUsername: contact.username,
+      brandDeal,
+      preferences,
+      instructions: conversation.autoReplyPrompt || null,
+      category: conversation.category || 'other',
+    });
+
+    if (replyResult.failed || !replyResult.text || !replyResult.text.trim()) {
+      console.warn(`[AutoReply] AI reply generation failed for conversation ${conversation.id}`);
+      return;
+    }
+
+    const replyText = replyResult.text.trim();
+    console.log(`[AutoReply] Sending AI auto-reply to @${contact.username || contact.igsid}: "${replyText}"`);
+
+    // 4. Send via Instagram Graph API
+    const accessToken = decrypt(instagramAccount.accessToken);
+    let igResponse = null;
+    try {
+      igResponse = await instagram.sendMessage(contact.igsid, replyText, accessToken);
+    } catch (apiErr) {
+      console.error(`[AutoReply] Instagram sendMessage failed:`, apiErr.response?.data?.error?.message || apiErr.message);
+      return;
+    }
+
+    // 5. Save outbound message to DB
+    const savedMsg = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        igMessageId: igResponse?.message_id || null,
+        direction: 'outbound',
+        content: replyText,
+        messageType: 'text',
+        aiStatus: 'auto_replied',
+        igTimestamp: new Date(),
+      },
+    });
+
+    // 6. Update conversation
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessage: replyText,
+        lastMessageAt: new Date(),
+        unread: false,
+        needsAttention: false,
+      },
+    });
+
+    // 7. Record reply generation audit trail
+    await prisma.replyGeneration.create({
+      data: {
+        conversationId: conversation.id,
+        userId,
+        contextRef: `auto_reply;category:${conversation.category || 'other'}`,
+        instructions: conversation.autoReplyPrompt || null,
+        generatedText: replyText,
+        model: replyResult.model,
+        wasSent: true,
+      },
+    }).catch(() => {});
+
+    await recordUsage(userId, 'auto_replies_sent', 1, { conversationId: conversation.id });
+
+    // 8. Emit real-time Socket.io event to the creator's frontend
+    emitToUser(userId, 'new_message', {
+      conversationId: conversation.id,
+      accountId: instagramAccount.id,
+      message: {
+        id: savedMsg.id,
+        direction: 'outbound',
+        content: savedMsg.content,
+        messageType: savedMsg.messageType,
+        igTimestamp: savedMsg.igTimestamp,
+        createdAt: savedMsg.createdAt,
+        aiStatus: 'auto_replied',
+      },
+      contact: {
+        id: contact.id,
+        username: contact.username,
+        name: contact.name,
+        profilePicUrl: contact.profilePicUrl,
+      },
+      conversation: {
+        id: conversation.id,
+        lastMessage: replyText,
+        lastMessageAt: new Date(),
+        category: conversation.category,
+        priority: conversation.priority,
+        unread: false,
+        autoReplyEnabled: true,
+      },
+    });
+
+    console.log(`[AutoReply] Auto-reply successfully sent and saved: ${savedMsg.id}`);
+  } catch (err) {
+    console.error(`[AutoReply] Error during auto-reply execution:`, err.message);
+  }
+}
+
+module.exports = { processMessageAnalysis, maybeAutoReply };

@@ -44,4 +44,45 @@ router.put('/ai', async (req, res) => {
   }
 });
 
+// ============================================
+// GET /api/settings/auto-reply-chats
+// List all conversations and their auto-reply status for the Settings page
+// ============================================
+router.get('/auto-reply-chats', async (req, res) => {
+  try {
+    const conversations = await prisma.conversation.findMany({
+      where: { instagramAccount: { userId: req.userId } },
+      select: {
+        id: true,
+        category: true,
+        priority: true,
+        autoReplyEnabled: true,
+        autoReplyPrompt: true,
+        lastMessage: true,
+        lastMessageAt: true,
+        contact: {
+          select: {
+            id: true,
+            username: true,
+            name: true,
+            profilePicUrl: true,
+          },
+        },
+        instagramAccount: {
+          select: {
+            id: true,
+            igUsername: true,
+          },
+        },
+      },
+      orderBy: [{ autoReplyEnabled: 'desc' }, { lastMessageAt: 'desc' }],
+    });
+
+    res.json(conversations);
+  } catch (error) {
+    console.error('[Settings] Error fetching auto-reply chats:', error.message);
+    res.status(500).json({ error: 'Failed to fetch auto-reply chats' });
+  }
+});
+
 module.exports = router;

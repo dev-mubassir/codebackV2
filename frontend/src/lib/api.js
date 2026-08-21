@@ -126,6 +126,21 @@ export async function sendReply(conversationId, text, replyGenerationId) {
   return data;
 }
 
+/** Toggle or configure AI Auto-Reply for a specific conversation */
+export async function toggleAutoReply(conversationId, autoReplyEnabled, autoReplyPrompt) {
+  const { data } = await api.patch(`/api/conversations/${conversationId}/auto-reply`, {
+    autoReplyEnabled,
+    autoReplyPrompt,
+  });
+  return data;
+}
+
+/** List all conversations with their auto-reply status for the Settings page */
+export async function getAutoReplyChats() {
+  const { data } = await api.get('/api/settings/auto-reply-chats');
+  return data;
+}
+
 // ---- Brand Deals ----
 
 export async function getBrandDeals(status) {

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getMe, getAISettings, updateAISettings } from '@/lib/api';
+import Link from 'next/link';
+import { getMe, getAISettings, updateAISettings, getAutoReplyChats, toggleAutoReply } from '@/lib/api';
 import AppShell from '@/app/components/AppShell';
 import styles from './settings.module.css';
 
@@ -20,11 +21,15 @@ const PRIORITY_ROWS = [
 
 /**
  * Creator Preferences — personalizes how AI prioritizes conversations and
- * the tone it uses when drafting replies.
+ * the tone it uses when drafting replies, plus specific-chat auto-reply controls.
  */
 export default function SettingsPage() {
   const router = useRouter();
   const [prefs, setPrefs] = useState(null);
+  const [autoReplyChats, setAutoReplyChats] = useState([]);
+  const [chatSearch, setChatSearch] = useState('');
+  const [expandedChatId, setExpandedChatId] = useState(null);
+  const [customPrompts, setCustomPrompts] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -33,8 +38,17 @@ export default function SettingsPage() {
     async function load() {
       try {
         await getMe();
-        const data = await getAISettings();
-        setPrefs(data);
+        const [settingsData, chatsData] = await Promise.all([
+          getAISettings(),
+          getAutoReplyChats().catch(() => []),
+        ]);
+        setPrefs(settingsData);
+        setAutoReplyChats(chatsData || []);
+        const initialPrompts = {};
+        (chatsData || []).forEach(c => {
+          if (c.autoReplyPrompt) initialPrompts[c.id] = c.autoReplyPrompt;
+        });
+        setCustomPrompts(initialPrompts);
       } catch (err) {
         router.push('/');
       } finally {
@@ -48,6 +62,28 @@ export default function SettingsPage() {
   function updateField(key, value) {
     setPrefs(prev => ({ ...prev, [key]: value }));
     setSaved(false);
+  }
+
+  async function handleToggleChatAutoReply(chatId, currentStatus) {
+    const newStatus = !currentStatus;
+    const prompt = customPrompts[chatId] || null;
+    try {
+      await toggleAutoReply(chatId, newStatus, prompt);
+      setAutoReplyChats(prev => prev.map(c => c.id === chatId ? { ...c, autoReplyEnabled: newStatus, autoReplyPrompt: prompt } : c));
+    } catch (err) {
+      alert('Failed to update chat auto-reply status');
+    }
+  }
+
+  async function handleSaveChatPrompt(chatId) {
+    const prompt = customPrompts[chatId] || null;
+    try {
+      await toggleAutoReply(chatId, true, prompt);
+      setAutoReplyChats(prev => prev.map(c => c.id === chatId ? { ...c, autoReplyEnabled: true, autoReplyPrompt: prompt } : c));
+      setExpandedChatId(null);
+    } catch (err) {
+      alert('Failed to save custom instructions for chat');
+    }
   }
 
   async function handleSave() {
@@ -73,6 +109,17 @@ export default function SettingsPage() {
       setSaving(false);
     }
   }
+
+  const filteredChats = autoReplyChats.filter(c => {
+    if (!chatSearch.trim()) return true;
+    const query = chatSearch.toLowerCase();
+    const username = (c.contact?.username || '').toLowerCase();
+    const name = (c.contact?.name || '').toLowerCase();
+    const lastMsg = (c.lastMessage || '').toLowerCase();
+    return username.includes(query) || name.includes(query) || lastMsg.includes(query);
+  });
+
+  const activeAutoReplyCount = autoReplyChats.filter(c => c.autoReplyEnabled).length;
 
   return (
     <AppShell activeRoute="/settings">
@@ -172,6 +219,150 @@ export default function SettingsPage() {
                   <option value="off">DISABLED</option>
                 </select>
               </div>
+            </div>
+          </div>
+
+          {/* Section: Specific Chat Auto-Replies */}
+          <div className={styles.card}>
+            <div className={styles.cardHeader}>
+              <div className={styles.chatHeaderRow}>
+                <div>
+                  <h2 className={styles.cardTitle}>⚡ Specific Chat AI Auto-Reply</h2>
+                  <p className={styles.cardDesc}>
+                    Turn on automated AI replies for specific chats only. Global auto-reply is disabled by default so you stay in total control.
+                  </p>
+                </div>
+                <span className={styles.chatCountBadge}>
+                  {activeAutoReplyCount} {activeAutoReplyCount === 1 ? 'Chat Active' : 'Chats Active'}
+                </span>
+              </div>
+            </div>
+
+            {/* Search filter for chats */}
+            {autoReplyChats.length > 0 && (
+              <input
+                type="text"
+                className={styles.chatSearchInput}
+                placeholder="Search conversations by username, contact name, or message..."
+                value={chatSearch}
+                onChange={(e) => setChatSearch(e.target.value)}
+              />
+            )}
+
+            <div className={styles.chatList}>
+              {autoReplyChats.length === 0 ? (
+                <div className={styles.emptyChats}>
+                  No conversations found yet. When users message your Instagram account, they will appear here.
+                </div>
+              ) : filteredChats.length === 0 ? (
+                <div className={styles.emptyChats}>
+                  No matching chats found for &quot;{chatSearch}&quot;.
+                </div>
+              ) : (
+                filteredChats.map((chat) => {
+                  const isExpanded = expandedChatId === chat.id;
+                  const promptVal = customPrompts[chat.id] ?? (chat.autoReplyPrompt || '');
+
+                  return (
+                    <div
+                      key={chat.id}
+                      className={`${styles.chatItem} ${chat.autoReplyEnabled ? styles.chatItemActive : ''}`}
+                    >
+                      <div className={styles.chatItemMain}>
+                        <div className={styles.chatItemLeft}>
+                          {chat.contact?.profilePicUrl ? (
+                            <img
+                              src={chat.contact.profilePicUrl}
+                              alt={chat.contact.username}
+                              className={styles.chatAvatar}
+                            />
+                          ) : (
+                            <div className={styles.chatAvatarFallback}>
+                              {(chat.contact?.username || '?')[0].toUpperCase()}
+                            </div>
+                          )}
+                          <div className={styles.chatMeta}>
+                            <div className={styles.chatNameRow}>
+                              <span className={styles.chatUsername}>
+                                @{chat.contact?.username || chat.contact?.name || 'Unknown'}
+                              </span>
+                              {chat.instagramAccount?.igUsername && (
+                                <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
+                                  on @{chat.instagramAccount.igUsername}
+                                </span>
+                              )}
+                            </div>
+                            <span className={styles.chatPreview}>
+                              {chat.lastMessage || '(No messages yet)'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className={styles.chatActions}>
+                          <button
+                            className={`${styles.autoReplyToggleBtn} ${chat.autoReplyEnabled ? styles.autoReplyToggleBtnActive : ''}`}
+                            onClick={() => handleToggleChatAutoReply(chat.id, chat.autoReplyEnabled)}
+                            title={chat.autoReplyEnabled ? 'Auto-Reply is ON (click to turn OFF)' : 'Auto-Reply is OFF (click to turn ON)'}
+                          >
+                            {chat.autoReplyEnabled ? '⚡ Auto-Reply ON' : '🤖 Auto-Reply OFF'}
+                          </button>
+
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                            onClick={() => setExpandedChatId(isExpanded ? null : chat.id)}
+                            title="Edit custom prompt for this contact"
+                          >
+                            {isExpanded ? 'Close' : '✏️ Prompt'}
+                          </button>
+
+                          <Link
+                            href={`/inbox?conversationId=${chat.id}`}
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '4px 8px' }}
+                            title="Open in Inbox"
+                          >
+                            ↗ Chat
+                          </Link>
+                        </div>
+                      </div>
+
+                      {/* Custom Prompt Accordion */}
+                      {isExpanded && (
+                        <div className={styles.chatPromptEditor}>
+                          <label className={styles.chatPromptLabel}>
+                            Custom Auto-Reply Instructions for @{chat.contact?.username || 'this user'}:
+                          </label>
+                          <textarea
+                            className="textarea"
+                            placeholder="e.g. For this customer, offer 15% discount code SAVE15 and ask for their email address."
+                            value={promptVal}
+                            onChange={(e) => setCustomPrompts(prev => ({ ...prev, [chat.id]: e.target.value }))}
+                            rows={2}
+                            style={{ fontSize: '12px' }}
+                          />
+                          <div className={styles.chatPromptActions}>
+                            <button
+                              className="btn btn-primary btn-sm"
+                              style={{ fontSize: '11px' }}
+                              onClick={() => handleSaveChatPrompt(chat.id)}
+                            >
+                              Save & Enable Auto-Reply
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: '11px' }}
+                              onClick={() => setExpandedChatId(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 

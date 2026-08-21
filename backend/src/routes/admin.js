@@ -45,7 +45,9 @@ router.post('/login', async (req, res) => {
     req.session.isAdmin = true;
     req.session.adminUsername = username;
     req.session.adminUserId = adminUser.id;
-    req.session.userId = adminUser.id;
+    // NOTE: We intentionally do NOT set req.session.userId here.
+    // Admin and user sessions share the same cookie. Setting userId
+    // would overwrite a regular user's session in another tab.
 
     return req.session.save((err) => {
       if (err) {
@@ -99,6 +101,13 @@ router.post('/logout', (req, res) => {
     delete req.session.isAdmin;
     delete req.session.adminUsername;
     delete req.session.adminUserId;
+    // Safety net: clean up userId if a stale session had it set by the
+    // old admin-login code (which used to set req.session.userId too).
+    // This prevents a logged-out admin from accidentally staying
+    // authenticated as the admin user on regular-user API routes.
+    if (req.session.userId && !req.session.igUsername) {
+      delete req.session.userId;
+    }
   }
   res.json({ success: true, message: 'Admin logged out' });
 });

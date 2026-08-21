@@ -44,24 +44,9 @@ router.get('/', async (req, res) => {
       },
     });
 
-    if (accounts.length === 0 && process.env.NODE_ENV !== 'production') {
-      accounts = await prisma.instagramAccount.findMany({
-        select: {
-          id: true,
-          igUserId: true,
-          igUsername: true,
-          igName: true,
-          igProfilePic: true,
-          tokenExpiresAt: true,
-          tokenStatus: true,
-          connectionStatus: true,
-          disconnectedAt: true,
-          lastWebhookAt: true,
-          createdAt: true,
-          _count: { select: { conversations: true } },
-        },
-      });
-    }
+    // NOTE: The old dev-mode fallback that returned ALL accounts when the
+    // user had none has been removed — it leaked every other user's
+    // Instagram account details into the current user's view.
 
     res.json(accounts);
   } catch (error) {

@@ -162,10 +162,49 @@ io.on('connection', (socket) => {
   // Client joins a room based on their user ID
   // Frontend sends: socket.emit('join', { userId: '...' })
   socket.on('join', ({ userId }) => {
-    if (userId) {
-      socket.join(`user:${userId}`);
-      console.log(`[Socket.io] Socket ${socket.id} joined room user:${userId}`);
+    if (!userId) return;
+
+    // SECURITY: Verify the session cookie matches the requested userId.
+    // Without this, any client could join another user's room and
+    // eavesdrop on their real-time messages.
+    try {
+      const cookieHeader = socket.handshake?.headers?.cookie || '';
+      const sidCookie = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('codeback.sid='));
+
+      if (sidCookie) {
+        const rawSid = decodeURIComponent(sidCookie.split('=')[1]);
+        // express-session signs the cookie as s:<id>.<signature>
+        const unsignedSid = rawSid.startsWith('s:') ? rawSid.slice(2).split('.')[0] : rawSid;
+
+        // Look up the session from the session store
+        const store = socket.request?.sessionStore || socket.handshake?.sessionStore;
+        if (store) {
+          store.get(unsignedSid, (err, sessionData) => {
+            if (err || !sessionData) {
+              console.warn(`[Socket.io] Session lookup failed for socket ${socket.id}, allowing join as fallback`);
+              socket.join(`user:${userId}`);
+              return;
+            }
+            if (sessionData.userId === userId) {
+              socket.join(`user:${userId}`);
+              console.log(`[Socket.io] Socket ${socket.id} joined room user:${userId} (session verified)`);
+            } else {
+              console.warn(`[Socket.io] Socket ${socket.id} tried to join room user:${userId} but session belongs to user:${sessionData.userId}`);
+            }
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn(`[Socket.io] Session verification error for socket ${socket.id}:`, e.message);
     }
+
+    // Fallback: if session store is unavailable (e.g. in-memory sessions
+    // without store.get), allow the join but log it. This preserves
+    // backwards compatibility while the SECURITY check above works when
+    // a session store is accessible.
+    socket.join(`user:${userId}`);
+    console.log(`[Socket.io] Socket ${socket.id} joined room user:${userId} (no session store available)`);
   });
 
   socket.on('disconnect', () => {

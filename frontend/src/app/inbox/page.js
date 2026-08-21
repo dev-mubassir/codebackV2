@@ -6,7 +6,7 @@ import { io } from 'socket.io-client';
 import {
   getMe, getConversations, getMessages, getAccounts, logout,
   getConversationAnalysis, generateReply, sendReply, setConversationRead,
-  updateBrandDealStatus, getNotifications,
+  updateBrandDealStatus, getNotifications, toggleAutoReply,
 } from '@/lib/api';
 import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
 import styles from './inbox.module.css';
@@ -38,6 +38,8 @@ function InboxPageContent() {
   const [sendError, setSendError] = useState('');
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [editingAutoReply, setEditingAutoReply] = useState(false);
+  const [customPromptText, setCustomPromptText] = useState('');
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
   const messageIdsRef = useRef(new Set());
@@ -225,14 +227,32 @@ function InboxPageContent() {
       });
       setMessages(uniqueMessages);
       setContactInfo(data.conversation.contact);
+      setCustomPromptText(data.conversation.autoReplyPrompt || '');
+      setEditingAutoReply(false);
 
       // The GET above marks it read server-side — reflect that optimistically.
-      setConversations(prev => prev.map(c => (c.id === convId ? { ...c, unread: false } : c)));
+      setConversations(prev => prev.map(c => (c.id === convId ? { ...c, unread: false, autoReplyEnabled: data.conversation.autoReplyEnabled, autoReplyPrompt: data.conversation.autoReplyPrompt } : c)));
 
       const analysisData = await getConversationAnalysis(convId).catch(() => null);
       if (analysisData) setAnalysis(analysisData);
     } catch (err) {
       console.error('Failed to load messages:', err);
+    }
+  }
+
+  // ---- Toggle Auto-Reply for current conversation ----
+  async function handleToggleAutoReply(overrideEnabled, overridePrompt) {
+    if (!selectedConv) return;
+    const currentConv = conversations.find(c => c.id === selectedConv);
+    const targetEnabled = typeof overrideEnabled === 'boolean' ? overrideEnabled : !currentConv?.autoReplyEnabled;
+    const targetPrompt = overridePrompt !== undefined ? overridePrompt : customPromptText;
+
+    try {
+      const res = await toggleAutoReply(selectedConv, targetEnabled, targetPrompt);
+      setConversations(prev => prev.map(c => c.id === selectedConv ? { ...c, autoReplyEnabled: res.autoReplyEnabled, autoReplyPrompt: res.autoReplyPrompt } : c));
+    } catch (err) {
+      console.error('Failed to toggle auto-reply:', err);
+      alert('Failed to update auto-reply status');
     }
   }
 
@@ -435,6 +455,11 @@ function InboxPageContent() {
                         <p className={styles.convPreview}>
                           {conv.lastMessage || 'No messages'}
                         </p>
+                        {conv.autoReplyEnabled && (
+                          <span className={`badge ${styles.autoReplyListBadge}`} title="AI Auto-Reply active for this conversation">
+                            ⚡ Auto
+                          </span>
+                        )}
                         {conv.category && (
                           <span className={`badge ${styles.categoryBadge}`}>
                             {meta.icon} {meta.label}
@@ -488,6 +513,17 @@ function InboxPageContent() {
                   </div>
                 </div>
                 <div className={styles.chatHeaderRight}>
+                  {/* Per-Chat AI Auto-Reply Button */}
+                  <button
+                    className={`${styles.autoReplyBtn} ${activeConvData?.autoReplyEnabled ? styles.autoReplyBtnActive : ''}`}
+                    onClick={() => handleToggleAutoReply()}
+                    title={activeConvData?.autoReplyEnabled ? 'Auto-Reply is ON for this chat (click to turn OFF)' : 'Auto-Reply is OFF for this chat (click to turn ON)'}
+                    id="toggle-chat-auto-reply-btn"
+                  >
+                    <span className={styles.autoReplyDot} />
+                    {activeConvData?.autoReplyEnabled ? '⚡ Auto-Reply ON' : '🤖 Auto-Reply OFF'}
+                  </button>
+
                   {contactInfo?.username && (
                     <a
                       href={`https://instagram.com/${contactInfo.username}`}
@@ -496,11 +532,71 @@ function InboxPageContent() {
                       className="btn btn-secondary btn-sm"
                       id="open-instagram-chat-btn"
                     >
-                      ↗ Instagram Profile
+                      ↗ Instagram
                     </a>
                   )}
                 </div>
               </div>
+
+              {/* Specific Chat Auto-Reply Banner */}
+              {activeConvData?.autoReplyEnabled && (
+                <div className={styles.autoReplyBanner}>
+                  <div className={styles.autoReplyBannerLeft}>
+                    <span className={styles.autoReplyBannerIcon}>⚡</span>
+                    <div className={styles.autoReplyBannerText}>
+                      <div className={styles.autoReplyBannerTitle}>
+                        AI Auto-Reply is active for @{contactInfo?.username || 'this user'}
+                      </div>
+                      <div className={styles.autoReplyBannerDesc}>
+                        {activeConvData.autoReplyPrompt
+                          ? `Custom instructions: "${activeConvData.autoReplyPrompt}"`
+                          : 'AI will automatically draft & send responses to incoming DMs from this contact based on your tone.'}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setEditingAutoReply(!editingAutoReply)}
+                    style={{ fontSize: '11px', padding: '4px 10px' }}
+                  >
+                    {editingAutoReply ? 'Close' : '✏️ Edit Prompt'}
+                  </button>
+                </div>
+              )}
+
+              {/* Custom Auto-Reply Prompt Editor */}
+              {editingAutoReply && (
+                <div className={styles.autoReplyPromptBox}>
+                  <label className={styles.autoReplyPromptLabel}>
+                    Custom Auto-Reply Instructions for @{contactInfo?.username || 'this contact'}:
+                  </label>
+                  <textarea
+                    className="textarea"
+                    placeholder="e.g. Always share pricing sheet link https://example.com/rates and ask for deliverables/budget."
+                    value={customPromptText}
+                    onChange={(e) => setCustomPromptText(e.target.value)}
+                    rows={2}
+                    style={{ marginTop: '6px', marginBottom: '8px' }}
+                  />
+                  <div className={styles.autoReplyPromptActions}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        handleToggleAutoReply(true, customPromptText);
+                        setEditingAutoReply(false);
+                      }}
+                    >
+                      Save Custom Instructions
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setEditingAutoReply(false)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Conversation Summary Panel */}
               {analysis?.summary?.summary && (

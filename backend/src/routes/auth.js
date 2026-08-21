@@ -191,17 +191,8 @@ router.get('/me', async (req, res) => {
     userId = req.query.user_id;
   }
 
-  if (!userId && !req.session && !isProduction) {
-    try {
-      const defaultUser = await prisma.user.findFirst({
-        where: { role: 'USER' },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (defaultUser) {
-        userId = defaultUser.id;
-      }
-    } catch (e) {}
-  }
+  // NOTE: The old dev-mode fallback that auto-picked a USER-role user has
+  // been removed. Unauthenticated requests should return 401 consistently.
 
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' });

@@ -43,11 +43,13 @@ const aiStats = {
   keywordMatches: 0,
   aiSuccess: 0,
   aiFailures: 0,
+  providerFailovers: 0,
   messagesAnalyzed: 0,
   brandDealsDetected: 0,
   summariesGenerated: 0,
   replyGenerations: 0,
   categoryCounts: Object.fromEntries(CATEGORIES.map((c) => [c, 0])),
+  lastSuccessfulProvider: null,
 };
 
 function getAIStats() {
@@ -91,6 +93,35 @@ function clamp(n, min, max) {
 function truncate(str, max) {
   if (!str || typeof str !== 'string') return null;
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
+}
+
+function extractJSON(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+
+  // 1. Try direct parse
+  try {
+    return JSON.parse(trimmed);
+  } catch (e) {}
+
+  // 2. Try extracting from markdown code block
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (codeBlockMatch && codeBlockMatch[1]) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch (e) {}
+  }
+
+  // 3. Try finding outermost { ... }
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
+    } catch (e) {}
+  }
+
+  return null;
 }
 
 function sanitizeBrandDeal(raw) {
@@ -156,68 +187,281 @@ function buildContextBlock(recentMessages = [], creatorUsername = 'the creator')
 }
 
 // ============================================
-// Provider calls — Gemini (default) with OpenAI as an alternative
+// AI Provider Implementations
 // ============================================
-async function callGeminiJSON(prompt, { timeout = 12000 } = {}) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || !apiKey.trim()) {
-    throw new Error('GEMINI_API_KEY is missing in backend/.env');
-  }
 
-  const models = ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.0-flash-lite', 'gemini-2.0-flash'];
+/**
+ * 1. Google Gemini Provider
+ */
+async function callGemini(apiKey, { prompt, isJson, timeout = 15000 }) {
+  if (!apiKey || !apiKey.trim()) throw new Error('GEMINI_API_KEY is not configured');
+
+  const models = [
+    'gemini-flash-lite-latest',
+    'gemini-flash-latest',
+    'gemini-3-flash-preview',
+    'gemini-3.1-flash-lite-preview',
+    'gemma-4-26b-a4b-it',
+  ];
+
   let lastError = null;
 
   for (const model of models) {
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
-      const response = await axios.post(
-        url,
-        {
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json' },
-        },
-        { timeout }
-      );
+      const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+      };
+      if (isJson) {
+        payload.generationConfig = { responseMimeType: 'application/json' };
+      }
 
-      const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) return { json: JSON.parse(text), model };
+      const response = await axios.post(url, payload, { timeout });
+      const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) continue;
+
+      if (isJson) {
+        const parsed = extractJSON(rawText);
+        if (!parsed) continue;
+        return { json: parsed, text: rawText, model, provider: 'gemini' };
+      }
+
+      return { text: rawText.trim(), model, provider: 'gemini' };
     } catch (err) {
       lastError = err;
       const status = err.response?.status;
-      if (status === 404 || status === 429) continue;
-      throw err;
+      // If invalid API key (400 with API_KEY_INVALID), immediately stop this provider so failover happens quickly
+      if (status === 400 && (err.response?.data?.error?.message?.includes('API key not valid') || err.response?.data?.error?.message?.includes('API_KEY_INVALID'))) {
+        throw err;
+      }
+      // On transient issues (503, 500, 429, 404, timeouts), try next Gemini model
+      continue;
     }
   }
 
-  throw lastError || new Error('Failed to generate content with Gemini API');
+  throw lastError || new Error('All Gemini models failed');
 }
 
-async function callOpenAIJSON(prompt, { timeout = 12000 } = {}) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
+/**
+ * 2. xAI (Grok) Provider
+ */
+async function callXAI(apiKey, { prompt, isJson, timeout = 15000 }) {
+  if (!apiKey || !apiKey.trim()) throw new Error('GROK/xAI API key is not configured');
 
-  const response = await axios.post(
-    'https://api.openai.com/v1/chat/completions',
-    {
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-    },
-    { headers: { Authorization: `Bearer ${apiKey}` }, timeout }
-  );
+  const models = ['grok-3-mini', 'grok-2-latest', 'grok-beta'];
+  let lastError = null;
 
-  const content = response.data?.choices?.[0]?.message?.content;
-  return { json: JSON.parse(content), model: 'gpt-4o-mini' };
+  for (const model of models) {
+    try {
+      const payload = {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+      };
+      if (isJson) {
+        payload.response_format = { type: 'json_object' };
+      }
+
+      const response = await axios.post('https://api.x.ai/v1/chat/completions', payload, {
+        headers: {
+          Authorization: `Bearer ${apiKey.trim()}`,
+          'Content-Type': 'application/json',
+        },
+        timeout,
+      });
+
+      const rawText = response.data?.choices?.[0]?.message?.content;
+      if (!rawText) continue;
+
+      if (isJson) {
+        const parsed = extractJSON(rawText);
+        if (!parsed) continue;
+        return { json: parsed, text: rawText, model, provider: 'xai' };
+      }
+
+      return { text: rawText.trim(), model, provider: 'xai' };
+    } catch (err) {
+      lastError = err;
+      const status = err.response?.status;
+      // If bad API key (400/401 with Incorrect API key), immediately stop this provider
+      if (status === 400 && err.response?.data?.error?.includes('Incorrect API key provided')) {
+        throw err;
+      }
+      if (status === 401) {
+        throw err;
+      }
+      // Otherwise try next xAI model
+      continue;
+    }
+  }
+
+  throw lastError || new Error('All xAI Grok models failed');
 }
 
-async function callAIProvider(prompt, opts) {
-  const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
-  return provider === 'openai' ? callOpenAIJSON(prompt, opts) : callGeminiJSON(prompt, opts);
+/**
+ * 3. OpenAI Provider
+ */
+async function callOpenAI(apiKey, { prompt, isJson, timeout = 15000 }) {
+  if (!apiKey || !apiKey.trim()) throw new Error('OPENAI_API_KEY is not configured');
+
+  const models = ['gpt-4o-mini', 'gpt-4o'];
+  let lastError = null;
+
+  for (const model of models) {
+    try {
+      const payload = {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+      };
+      if (isJson) {
+        payload.response_format = { type: 'json_object' };
+      }
+
+      const response = await axios.post('https://api.openai.com/v1/chat/completions', payload, {
+        headers: {
+          Authorization: `Bearer ${apiKey.trim()}`,
+          'Content-Type': 'application/json',
+        },
+        timeout,
+      });
+
+      const rawText = response.data?.choices?.[0]?.message?.content;
+      if (!rawText) continue;
+
+      if (isJson) {
+        const parsed = extractJSON(rawText);
+        if (!parsed) continue;
+        return { json: parsed, text: rawText, model, provider: 'openai' };
+      }
+
+      return { text: rawText.trim(), model, provider: 'openai' };
+    } catch (err) {
+      lastError = err;
+      const status = err.response?.status;
+      if (status === 401) throw err;
+      continue;
+    }
+  }
+
+  throw lastError || new Error('All OpenAI models failed');
+}
+
+// ============================================
+// Multi-Provider Auto-Failover Orchestrator
+// If primary AI key fails -> immediately & seamlessly shifts to next provider!
+// ============================================
+function getProviderChain() {
+  const primaryPref = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
+
+  const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  const grokKey = (process.env.GROK_API_KEY || process.env.XAI_API_KEY || (process.env.OPENAI_API_KEY?.startsWith('xai-') ? process.env.OPENAI_API_KEY : null))?.trim();
+  const rawOpenAIKey = process.env.OPENAI_API_KEY?.trim();
+  const standardOpenAIKey = (rawOpenAIKey && !rawOpenAIKey.startsWith('xai-') ? rawOpenAIKey : null);
+
+  const available = {};
+
+  if (geminiKey) {
+    available.gemini = {
+      name: 'Google Gemini',
+      id: 'gemini',
+      call: (opts) => callGemini(geminiKey, opts),
+    };
+  }
+
+  if (grokKey) {
+    available.xai = {
+      name: 'xAI (Grok)',
+      id: 'xai',
+      call: (opts) => callXAI(grokKey, opts),
+    };
+  }
+
+  if (standardOpenAIKey) {
+    available.openai = {
+      name: 'OpenAI',
+      id: 'openai',
+      call: (opts) => callOpenAI(standardOpenAIKey, opts),
+    };
+  }
+
+  // Handle generic OPENAI_API_KEY if not already parsed as standard key
+  if (rawOpenAIKey && !available.openai && !available.xai) {
+    available.openai_or_grok = {
+      name: 'xAI Grok / OpenAI Key',
+      id: 'openai_or_grok',
+      call: async (opts) => {
+        try {
+          return await callXAI(rawOpenAIKey, opts);
+        } catch (xaiErr) {
+          return await callOpenAI(rawOpenAIKey, opts);
+        }
+      },
+    };
+  }
+
+  // Determine fallback order based on primary preference
+  let order;
+  if (primaryPref === 'grok' || primaryPref === 'xai') {
+    order = ['xai', 'openai_or_grok', 'gemini', 'openai'];
+  } else if (primaryPref === 'openai') {
+    order = ['openai', 'openai_or_grok', 'gemini', 'xai'];
+  } else {
+    // Default: Gemini first, then Grok, then OpenAI
+    order = ['gemini', 'xai', 'openai_or_grok', 'openai'];
+  }
+
+  const chain = [];
+  const seen = new Set();
+  for (const key of order) {
+    if (available[key] && !seen.has(available[key].name)) {
+      chain.push(available[key]);
+      seen.add(available[key].name);
+    }
+  }
+
+  return chain;
+}
+
+async function callAIWithFailover({ prompt, isJson = true, timeout = 12000 }) {
+  const chain = getProviderChain();
+
+  if (chain.length === 0) {
+    throw new Error('No AI provider keys configured in backend/.env (set GEMINI_API_KEY, GROK_API_KEY, or OPENAI_API_KEY)');
+  }
+
+  let lastError = null;
+  const attempted = [];
+
+  for (let i = 0; i < chain.length; i++) {
+    const provider = chain[i];
+    attempted.push(provider.name);
+
+    try {
+      const result = await provider.call({ prompt, isJson, timeout });
+      if (result) {
+        aiStats.lastSuccessfulProvider = provider.id;
+        if (i > 0) {
+          console.log(`[AIService] 🔄 Auto-failover successful! Recovered using "${provider.name}" (Model: ${result.model})`);
+        }
+        return result;
+      }
+    } catch (err) {
+      lastError = err;
+      aiStats.providerFailovers++;
+      const nextProvider = chain[i + 1];
+      if (nextProvider) {
+        console.warn(`[AIService] ⚠️ Provider "${provider.name}" failed: ${err.message}. Auto-shifting to next provider "${nextProvider.name}"...`);
+      } else {
+        console.warn(`[AIService] ⚠️ Provider "${provider.name}" failed: ${err.message}.`);
+      }
+    }
+  }
+
+  throw new Error(`All configured AI providers failed [${attempted.join(' ➔ ')}]. Last error: ${lastError?.message}`);
 }
 
 // ============================================
 // 1. Conversation analysis — classification + priority signal + brand deal
-//    extraction, all in a single AI call to keep cost/latency down.
+//    extraction, all in a single AI call with automatic failover.
 // ============================================
 async function analyzeConversation({ messageText, contactUsername, recentMessages = [], preferences = null }) {
   if (!messageText || typeof messageText !== 'string') {
@@ -284,7 +528,7 @@ Return ONLY valid JSON in exactly this shape:
 }`;
 
   try {
-    const { json, model } = await callAIProvider(prompt);
+    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true });
     const validated = validateAnalysisResult(json);
     const scored = computePriorityScore(validated, preferences);
 
@@ -292,10 +536,10 @@ Return ONLY valid JSON in exactly this shape:
     aiStats.categoryCounts[validated.category] = (aiStats.categoryCounts[validated.category] || 0) + 1;
     if (validated.brandDeal) aiStats.brandDealsDetected++;
 
-    return { ...validated, model, priorityScore: scored.score, priority: scored.priority, failed: false, rawResponse: json };
+    return { ...validated, model, provider, priorityScore: scored.score, priority: scored.priority, failed: false, rawResponse: json };
   } catch (error) {
     aiStats.aiFailures++;
-    console.warn(`[AIService] Analysis failed (${error.message}). Message stays visible; category falls back to "other".`);
+    console.warn(`[AIService] Analysis degraded to fallback (${error.message}). Message stays visible; category falls back to "other".`);
     const scored = computePriorityScore({ category: 'other', confidence: 0 }, preferences);
     return {
       category: 'other',
@@ -305,6 +549,7 @@ Return ONLY valid JSON in exactly this shape:
       reason: null,
       brandDeal: null,
       model: null,
+      provider: null,
       priorityScore: scored.score,
       priority: scored.priority,
       failed: true,
@@ -340,15 +585,17 @@ Return ONLY valid JSON:
 }`;
 
   try {
-    const { json } = await callAIProvider(prompt);
+    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true });
     aiStats.summariesGenerated++;
     return {
       summary: truncate(json?.summary, 600) || previousSummary || null,
       stage: truncate(json?.stage, 150),
+      model,
+      provider,
       failed: false,
     };
   } catch (error) {
-    console.warn(`[AIService] Summary generation failed: ${error.message}`);
+    console.warn(`[AIService] Summary generation degraded to fallback: ${error.message}`);
     return { summary: previousSummary || null, stage: null, failed: true, errorMessage: error.message };
   }
 }
@@ -380,44 +627,9 @@ ${instructions ? `\nSpecific instruction from the creator for this reply: "${ins
 Write only the reply text — short, natural, human, no explanations, no quotation marks around it.`;
 
   try {
-    const provider = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
-    let text;
-    let model;
-
-    if (provider === 'openai') {
-      const apiKey = process.env.OPENAI_API_KEY;
-      if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
-      const response = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        { model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }] },
-        { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 15000 }
-      );
-      text = response.data?.choices?.[0]?.message?.content?.trim();
-      model = 'gpt-4o-mini';
-    } else {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || !apiKey.trim()) throw new Error('GEMINI_API_KEY is missing in backend/.env');
-      const models = ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.0-flash-lite', 'gemini-2.0-flash'];
-      let lastError = null;
-      for (const m of models) {
-        try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey.trim()}`;
-          const response = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 15000 });
-          text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          model = m;
-          if (text) break;
-        } catch (err) {
-          lastError = err;
-          const status = err.response?.status;
-          if (status === 404 || status === 429) continue;
-          throw err;
-        }
-      }
-      if (!text) throw lastError || new Error('Failed to generate a reply with Gemini API');
-    }
-
+    const { text, model, provider } = await callAIWithFailover({ prompt, isJson: false, timeout: 15000 });
     aiStats.replyGenerations++;
-    return { text: text?.replace(/^"|"$/g, '') || null, model, failed: false };
+    return { text: text?.replace(/^"|"$/g, '') || null, model, provider, failed: false };
   } catch (error) {
     console.warn(`[AIService] Reply generation failed: ${error.message}`);
     return { text: null, model: null, failed: true, errorMessage: error.message };
@@ -432,4 +644,6 @@ module.exports = {
   classifyByKeywords,
   validateAnalysisResult,
   getAIStats,
+  callAIWithFailover,
 };
+

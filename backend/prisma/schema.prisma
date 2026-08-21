@@ -129,6 +129,8 @@ model Conversation {
   priorityScore  Int       @default(0) @map("priority_score") // 0-100, deterministic + AI blended score
   needsAttention Boolean   @default(false) @map("needs_attention")
   unread         Boolean   @default(true)
+  autoReplyEnabled Boolean @default(false) @map("auto_reply_enabled") // per-conversation AI auto-reply toggle
+  autoReplyPrompt  String? @map("auto_reply_prompt")                  // custom prompt/rules for this specific chat
 
   lastMessage    String?   @map("last_message")
   lastMessageAt  DateTime? @map("last_message_at")
@@ -150,6 +152,7 @@ model Conversation {
   @@index([category])
   @@index([unread])
   @@index([needsAttention])
+  @@index([autoReplyEnabled])
   @@map("conversations")
 }
 
