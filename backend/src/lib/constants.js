@@ -1,36 +1,65 @@
 /**
- * Canonical, extensible constants for Codeback's AI classification system.
+ * Canonical, extensible constants for Codeback's Generalized AI DM Intelligence & CRM.
  *
- * The frontend must never hard-code around only this list — it renders
- * unknown/future categories with a generic fallback style (see
- * frontend/src/lib/categories.js). Adding a new category here is enough to
- * extend the system end-to-end.
- *
- * Legacy note: earlier versions of Codeback stored Title-Case categories
- * directly on Message/Conversation (e.g. "Brand/Collab", "Business"). Old
- * rows keep those values for history; LEGACY_CATEGORY_MAP translates them to
- * the new canonical ids so priority logic and the UI treat them the same.
+ * Supports Creators, Video/Photo Editors, Product Sellers, Freelancers, Local Businesses,
+ * Coaches, E-Commerce, Agencies, and more.
  */
 
 const CATEGORIES = [
-  'brand_deal',
-  'collaboration',
-  'fan',
-  'question',
-  'customer',
-  'business_inquiry',
-  'support',
-  'spam',
+  // Commercial & Sales inquiries
+  'product_inquiry',       // Product specs, price, stock, condition, warranty
+  'service_inquiry',       // Service scope, portfolio, turnaround, custom work
+  'pricing_inquiry',       // Price check, rates, quotes, package cost
+  'availability_inquiry',  // In-stock, calendar booking, appointment slot
+  'delivery_inquiry',      // Shipping options, delivery timeframe, location coverage
+  'hot_lead',              // Ready to buy/book immediately with high commercial intent
+  'lead',                  // General qualified commercial prospect
+
+  // Relationship & Support
+  'customer',              // Existing client, recurring buyer
+  'support_request',       // Post-purchase questions, troubleshooting, order tracking
+  'general_question',      // General FAQ, business hours, contact info
+
+  // Creator & Partnerships
+  'brand_deal',            // Paid brand sponsorship, media campaign
+  'collaboration',         // Creative collab, UGC, barter, affiliate
+
+  // Social & Non-commercial
+  'fan',                   // Casual compliment, praise, emoji, friendly chat
+
+  // Security & Negative
+  'spam',                  // Unsolicited promotion, crypto, buy followers
+  'scam',                  // Fraud, OTP requests, fake payment proof, phishing
+  'abusive',               // Harassment, toxic language, insults
+
+  // Catch-all
   'other',
 ];
 
+const CUSTOMER_TYPES = [
+  'potential_buyer',
+  'hot_lead',
+  'lead',
+  'existing_customer',
+  'collaborator',
+  'casual_fan',
+  'spammer',
+  'scammer',
+  'unknown',
+];
+
+const RISK_LEVELS = ['low', 'medium', 'high', 'critical'];
+
 const LEGACY_CATEGORY_MAP = {
   'Brand/Collab': 'brand_deal',
-  Business: 'business_inquiry',
-  Question: 'question',
+  Business: 'service_inquiry',
+  Question: 'general_question',
+  question: 'general_question',
+  business_inquiry: 'service_inquiry',
   Fan: 'fan',
   Spam: 'spam',
   Other: 'other',
+  support: 'support_request',
 };
 
 function normalizeCategory(category) {
@@ -42,35 +71,47 @@ function normalizeCategory(category) {
 
 const PRIORITIES = ['critical', 'high', 'normal', 'low'];
 
-// Base priority weight per category before creator preferences / signals are
-// applied. Higher number = more important. Used as the starting point for
-// computePriorityScore() in services/aiService.js.
+// Base priority weight per category before user preferences / signals are applied.
 const CATEGORY_BASE_SCORE = {
-  brand_deal: 85,
-  collaboration: 70,
+  hot_lead: 95,
+  brand_deal: 90,
+  product_inquiry: 80,
+  service_inquiry: 80,
+  pricing_inquiry: 75,
+  availability_inquiry: 70,
+  collaboration: 68,
   customer: 65,
-  business_inquiry: 55,
-  question: 40,
+  support_request: 65,
+  delivery_inquiry: 60,
+  lead: 60,
+  general_question: 45,
   fan: 25,
-  support: 50,
-  spam: 0,
   other: 20,
+  spam: 0,
+  scam: 5,
+  abusive: 5,
 };
 
 const PREFERENCE_WEIGHT_KEY_BY_CATEGORY = {
+  hot_lead: 'customersPriority',
+  product_inquiry: 'customersPriority',
+  service_inquiry: 'customersPriority',
+  pricing_inquiry: 'customersPriority',
+  availability_inquiry: 'customersPriority',
+  delivery_inquiry: 'customersPriority',
+  customer: 'customersPriority',
+  support_request: 'customersPriority',
+  lead: 'customersPriority',
   brand_deal: 'brandDealsPriority',
   collaboration: 'collaborationsPriority',
-  customer: 'customersPriority',
-  business_inquiry: 'customersPriority',
-  support: 'customersPriority',
+  general_question: 'questionsPriority',
   fan: 'fanPriority',
-  question: 'questionsPriority',
   spam: 'spamPriority',
+  scam: 'spamPriority',
+  abusive: 'spamPriority',
   other: 'questionsPriority',
 };
 
-// Multiplier applied to the base score depending on how important the
-// creator says this type of conversation is to them.
 const PREFERENCE_MULTIPLIER = {
   critical: 1.4,
   high: 1.15,
@@ -87,10 +128,13 @@ function scoreToPriorityBucket(score) {
 }
 
 const NOTIFICATION_TYPES = [
+  'new_lead',
   'new_brand_deal',
   'high_priority_conversation',
   'important_customer',
   'ai_analysis_completed',
+  'scam_alert',
+  'needs_human_escalation',
   'instagram_connection_problem',
 ];
 
@@ -102,6 +146,8 @@ const AI_MESSAGE_STATUSES = ['pending', 'processing', 'completed', 'failed', 'sk
 
 module.exports = {
   CATEGORIES,
+  CUSTOMER_TYPES,
+  RISK_LEVELS,
   LEGACY_CATEGORY_MAP,
   normalizeCategory,
   PRIORITIES,

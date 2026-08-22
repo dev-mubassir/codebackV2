@@ -254,8 +254,9 @@ app.use('/api/brand-deals', brandDealRoutes);
 // Notification center
 app.use('/api/notifications', notificationRoutes);
 
-// Creator AI preferences
+// Creator AI preferences and business profile / onboarding
 app.use('/api/settings', settingsRoutes);
+app.use('/api', settingsRoutes);
 
 // Subscription + usage (GET /api/subscription, GET /api/usage)
 app.use('/api', subscriptionRoutes);

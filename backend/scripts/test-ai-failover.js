@@ -88,7 +88,7 @@ async function main() {
   });
 
   check('Auto-failover recovered successfully', failoverRes.failed === false && failoverRes.provider === 'gemini', failoverRes);
-  check('Categorized as customer or questions or other', ['customer', 'question', 'other', 'support'].includes(failoverRes.category), failoverRes.category);
+  check('Categorized as customer, product_inquiry, questions or other', ['customer', 'question', 'other', 'support', 'product_inquiry', 'service_inquiry', 'general_question'].includes(failoverRes.category), failoverRes.category);
 
   // Restore env
   process.env.AI_PROVIDER = oldProvider;

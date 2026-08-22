@@ -114,14 +114,24 @@ export default function AppShell({ children, activeRoute }) {
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <div className={styles.userInfo}>
+          <button
+            className={styles.userInfo}
+            onClick={() => {
+              router.push('/profile');
+              setSidebarOpen(false);
+            }}
+            title="View Profile & Account Settings"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+            id="appshell-profile-sidebar-btn"
+          >
             <div className="avatar avatar-sm">
-              {(user?.name || 'U')[0].toUpperCase()}
+              {(user?.name || user?.email || 'U')[0].toUpperCase()}
             </div>
             <div className={styles.userMeta}>
-              <span className={styles.userName}>{user?.name || 'User'}</span>
+              <span className={styles.userName}>{user?.name || 'My Profile'}</span>
+              <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>Profile & Account</span>
             </div>
-          </div>
+          </button>
           <button className={styles.logoutBtn} onClick={handleLogout} title="Log out">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -163,11 +173,20 @@ export default function AppShell({ children, activeRoute }) {
                 <span className={styles.headerBadge}>{notifCount > 9 ? '9+' : notifCount}</span>
               )}
             </button>
-            <div className={styles.headerUser}>
+            <button
+              className={styles.headerUser}
+              onClick={() => router.push('/profile')}
+              title="Account & Profile"
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderRadius: 'var(--radius-full)' }}
+              id="appshell-profile-header-btn"
+            >
               <div className="avatar avatar-sm">
-                {(user?.name || 'U')[0].toUpperCase()}
+                {(user?.name || user?.email || 'U')[0].toUpperCase()}
               </div>
-            </div>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {user?.name?.split(' ')[0] || 'Profile'}
+              </span>
+            </button>
           </div>
         </header>
 

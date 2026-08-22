@@ -19,6 +19,38 @@
   color: var(--text-secondary);
 }
 
+.tabNav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: 8px;
+}
+
+.tabBtn {
+  padding: 8px 14px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tabBtn:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-secondary);
+}
+
+.tabBtnActive {
+  color: var(--color-primary) !important;
+  background: var(--color-primary-subtle) !important;
+  border-color: rgba(124, 58, 237, 0.2) !important;
+}
+
 .loadingContainer {
   display: flex;
   align-items: center;

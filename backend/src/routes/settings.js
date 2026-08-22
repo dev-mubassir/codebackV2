@@ -1,15 +1,106 @@
-/**
- * Settings routes — creator preferences that personalize AI prioritization
- * and reply tone (spec: "Creator Preferences").
- */
-
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { getOrCreatePreferences, sanitizePreferenceUpdate } = require('../services/preferencesService');
+const { getOrCreateBusinessProfile, sanitizeBusinessProfileUpdate } = require('../services/businessProfileService');
 const prisma = require('../lib/prisma');
 
 router.use(requireAuth);
+
+// ============================================
+// GET /api/settings/business-profile (or /api/business-profile)
+// ============================================
+router.get('/business-profile', async (req, res) => {
+  try {
+    const profile = await getOrCreateBusinessProfile(req.userId);
+    res.json(profile);
+  } catch (error) {
+    console.error('[Settings] Error fetching business profile:', error.message);
+    res.status(500).json({ error: 'Failed to fetch business profile' });
+  }
+});
+
+// ============================================
+// PUT /api/settings/business-profile (or /api/business-profile)
+// ============================================
+router.put('/business-profile', async (req, res) => {
+  try {
+    await getOrCreateBusinessProfile(req.userId);
+    const update = sanitizeBusinessProfileUpdate(req.body || {});
+
+    const updated = await prisma.businessProfile.update({
+      where: { userId: req.userId },
+      data: update,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('[Settings] Error updating business profile:', error.message);
+    res.status(500).json({ error: 'Failed to update business profile' });
+  }
+});
+
+// ============================================
+// GET /api/onboarding
+// Fetch onboarding state and business profile
+// ============================================
+router.get('/onboarding', async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { id: true, name: true, email: true, onboardingCompleted: true },
+    });
+    const profile = await getOrCreateBusinessProfile(req.userId);
+
+    res.json({
+      user,
+      onboardingCompleted: user?.onboardingCompleted || false,
+      businessProfile: profile,
+    });
+  } catch (error) {
+    console.error('[Onboarding] Error fetching onboarding state:', error.message);
+    res.status(500).json({ error: 'Failed to fetch onboarding state' });
+  }
+});
+
+// ============================================
+// PUT /api/onboarding
+// Save onboarding data and mark completed
+// ============================================
+router.put('/onboarding', async (req, res) => {
+  try {
+    const { displayName, ...profileData } = req.body || {};
+
+    if (displayName && typeof displayName === 'string') {
+      await prisma.user.update({
+        where: { id: req.userId },
+        data: { name: displayName.trim(), onboardingCompleted: true },
+      }).catch(() => {});
+    } else {
+      await prisma.user.update({
+        where: { id: req.userId },
+        data: { onboardingCompleted: true },
+      }).catch(() => {});
+    }
+
+    await getOrCreateBusinessProfile(req.userId);
+    const sanitized = sanitizeBusinessProfileUpdate(profileData);
+
+    const updatedProfile = await prisma.businessProfile.update({
+      where: { userId: req.userId },
+      data: sanitized,
+    });
+
+    res.json({
+      message: 'Onboarding completed successfully',
+      onboardingCompleted: true,
+      businessProfile: updatedProfile,
+    });
+  } catch (error) {
+    console.error('[Onboarding] Error saving onboarding data:', error.message);
+    res.status(500).json({ error: 'Failed to save onboarding data' });
+  }
+});
 
 // ============================================
 // GET /api/settings/ai

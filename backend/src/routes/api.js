@@ -16,7 +16,9 @@ const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
 const aiService = require('../services/aiService');
 const { getOrCreatePreferences } = require('../services/preferencesService');
+const { getOrCreateBusinessProfile } = require('../services/businessProfileService');
 const { normalizeCategory } = require('../lib/constants');
+const { emitToUser } = require('../lib/socket');
 
 // All API routes require authentication
 router.use(requireAuth);
@@ -278,6 +280,95 @@ router.patch('/conversations/:id/auto-reply', async (req, res) => {
 });
 
 // ============================================
+// DELETE /api/conversations/:id/messages
+// Clear all messages in a conversation (keeps the conversation & contact)
+// ============================================
+router.delete('/conversations/:id/messages', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, instagramAccount: { userId: req.userId } },
+      include: { contact: true },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Delete all messages in the conversation
+    const deleteResult = await prisma.message.deleteMany({
+      where: { conversationId: id },
+    });
+
+    // Reset conversation preview fields
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: {
+        lastMessage: null,
+        lastMessageAt: null,
+        unread: false,
+        needsAttention: false,
+        needsHuman: false,
+      },
+    });
+
+    emitToUser(req.userId, 'chat_cleared', {
+      conversationId: id,
+      deletedCount: deleteResult.count,
+    });
+
+    console.log(`[API] Cleared ${deleteResult.count} messages for conversation ${id} (@${conversation.contact?.username || 'user'})`);
+
+    res.json({
+      message: 'Chat cleared successfully',
+      conversationId: id,
+      deletedCount: deleteResult.count,
+      conversation: updated,
+    });
+  } catch (error) {
+    console.error('[API] Error clearing chat messages:', error.message);
+    res.status(500).json({ error: 'Failed to clear chat messages' });
+  }
+});
+
+// ============================================
+// DELETE /api/conversations/:id
+// Fully delete a conversation thread and all related records
+// ============================================
+router.delete('/conversations/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, instagramAccount: { userId: req.userId } },
+      include: { contact: true },
+    });
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Delete the conversation (Prisma schema cascades messages, AI analyses, summaries, etc.)
+    await prisma.conversation.delete({
+      where: { id },
+    });
+
+    emitToUser(req.userId, 'conversation_deleted', {
+      conversationId: id,
+    });
+
+    console.log(`[API] Fully deleted conversation ${id} (@${conversation.contact?.username || 'user'})`);
+
+    res.json({
+      message: 'Conversation deleted successfully',
+      conversationId: id,
+    });
+  } catch (error) {
+    console.error('[API] Error deleting conversation:', error.message);
+    res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+});
+
+// ============================================
 // GET /api/conversations/:id/ai-analysis
 // Latest AI understanding of a conversation: analysis, summary, brand deal.
 // ============================================
@@ -333,9 +424,10 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
-    const [recentMessages, preferences, brandDeal] = await Promise.all([
+    const [recentMessages, preferences, businessProfile, brandDeal] = await Promise.all([
       prisma.message.findMany({ where: { conversationId: id }, orderBy: { createdAt: 'desc' }, take: 10 }),
       getOrCreatePreferences(req.userId),
+      getOrCreateBusinessProfile(req.userId),
       prisma.brandDeal.findFirst({ where: { conversationId: id }, orderBy: { createdAt: 'desc' } }),
     ]);
 
@@ -343,6 +435,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
       recentMessages: recentMessages.reverse(),
       contactUsername: conversation.contact.username,
       brandDeal,
+      businessProfile,
       preferences,
       instructions: typeof instructions === 'string' ? instructions.slice(0, 500) : null,
       category: conversation.category || 'other',

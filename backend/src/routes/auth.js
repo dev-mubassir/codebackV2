@@ -11,11 +11,174 @@
 
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
 
 const isProduction = process.env.NODE_ENV === 'production';
+
+// Helper to sanitize user object
+function sanitizeUser(user) {
+  if (!user) return null;
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+
+// ============================================
+// POST /auth/register
+// Email + Password Registration for Codeback SaaS
+// ============================================
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password, confirmPassword } = req.body || {};
+
+    if (!name || typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({ error: 'Please enter a valid full name (at least 2 characters)' });
+    }
+
+    if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({ error: 'Please enter a valid email address' });
+    }
+
+    if (!password || typeof password !== 'string' || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    if (password !== confirmPassword) {
+      return res.status(400).json({ error: 'Passwords do not match' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Check if user already exists
+    const existing = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (existing) {
+      return res.status(409).json({ error: 'An account with this email already exists. Please log in.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const user = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: normalizedEmail,
+        passwordHash,
+        onboardingCompleted: false,
+        businessProfile: {
+          create: {
+            businessName: name.trim(),
+            tone: 'friendly',
+            autoReplyMode: 'smart',
+          },
+        },
+        preferences: { create: {} },
+        subscription: {
+          create: {
+            plan: 'free',
+            status: 'trial',
+            trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+          },
+        },
+      },
+      include: {
+        businessProfile: true,
+        subscription: true,
+      },
+    });
+
+    // Set session
+    req.session.userId = user.id;
+    req.session.userEmail = user.email;
+
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => (err ? reject(err) : resolve()));
+    });
+
+    console.log(`[Auth] New user registered: ${user.email} (${user.id})`);
+
+    res.status(201).json({
+      message: 'Account created successfully',
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    console.error('[Auth] Registration error:', error.message);
+    res.status(500).json({ error: 'Failed to create account. Please try again.' });
+  }
+});
+
+// ============================================
+// POST /auth/login
+// Email + Password Login
+// ============================================
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      include: {
+        businessProfile: true,
+        instagramAccounts: {
+          select: {
+            id: true,
+            igUserId: true,
+            igUsername: true,
+            igName: true,
+            connectionStatus: true,
+          },
+        },
+        subscription: true,
+      },
+    });
+
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const isMatch = await bcrypt.compare(String(password), user.passwordHash);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (user.isSuspended) {
+      return res.status(403).json({ error: 'Your account has been suspended. Please contact support.' });
+    }
+
+    // Update last seen
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastSeenAt: new Date() },
+    }).catch(() => {});
+
+    // Set session
+    req.session.userId = user.id;
+    req.session.userEmail = user.email;
+
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => (err ? reject(err) : resolve()));
+    });
+
+    console.log(`[Auth] User logged in: ${user.email} (${user.id})`);
+
+    res.json({
+      message: 'Logged in successfully',
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    console.error('[Auth] Login error:', error.message);
+    res.status(500).json({ error: 'Failed to log in. Please try again.' });
+  }
+});
 
 // ============================================
 // GET /auth/instagram
@@ -202,6 +365,7 @@ router.get('/me', async (req, res) => {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
+        businessProfile: true,
         instagramAccounts: {
           select: {
             id: true,
@@ -228,8 +392,11 @@ router.get('/me', async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      onboardingCompleted: user.onboardingCompleted,
+      businessProfile: user.businessProfile,
       instagramAccounts: user.instagramAccounts,
       subscription: user.subscription,
+      createdAt: user.createdAt,
     });
   } catch (error) {
     console.error('[Auth] Error fetching user:', error.message);
@@ -238,18 +405,116 @@ router.get('/me', async (req, res) => {
 });
 
 // ============================================
-// POST /auth/logout
-// Destroy session and log out
+// PUT /auth/profile
+// Update profile information (name, current/new password)
 // ============================================
-router.post('/logout', (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error('[Auth] Logout error:', err);
-      return res.status(500).json({ error: 'Logout failed' });
+router.put('/profile', async (req, res) => {
+  let userId = req.session ? req.session.userId : null;
+
+  if (!userId && !isProduction && req.query && req.query.user_id) {
+    userId = req.query.user_id;
+  }
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    const { name, currentPassword, newPassword } = req.body || {};
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
     }
-    res.clearCookie('codeback.sid');
-    res.json({ message: 'Logged out successfully' });
-  });
+
+    const updateData = {};
+
+    if (name && typeof name === 'string' && name.trim().length >= 2) {
+      updateData.name = name.trim();
+    }
+
+    // Password change
+    if (newPassword) {
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+      }
+
+      if (user.passwordHash) {
+        if (!currentPassword) {
+          return res.status(400).json({ error: 'Please enter your current password' });
+        }
+        const match = await bcrypt.compare(currentPassword, user.passwordHash);
+        if (!match) {
+          return res.status(400).json({ error: 'Incorrect current password' });
+        }
+      }
+
+      updateData.passwordHash = await bcrypt.hash(newPassword, 10);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+      include: {
+        businessProfile: true,
+        instagramAccounts: true,
+        subscription: true,
+      },
+    });
+
+    res.json({
+      message: 'Profile updated successfully',
+      user: sanitizeUser(updatedUser),
+    });
+  } catch (error) {
+    console.error('[Auth] Error updating profile:', error.message);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// ============================================
+// DELETE /auth/account
+// Permanently delete user account and all data
+// ============================================
+router.delete('/account', async (req, res) => {
+  let userId = req.session ? req.session.userId : null;
+
+  if (!userId && !isProduction && req.query && req.query.user_id) {
+    userId = req.query.user_id;
+  }
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Delete user from database (cascades to all user data)
+    await prisma.user.delete({
+      where: { id: userId },
+    });
+
+    console.log(`[Auth] Permanently deleted user account ${userId} (${user.email})`);
+
+    req.session.destroy((err) => {
+      if (err) console.error('[Auth] Error destroying session on account delete:', err);
+      res.clearCookie('codeback.sid');
+      res.json({ message: 'Account permanently deleted' });
+    });
+  } catch (error) {
+    console.error('[Auth] Error deleting account:', error.message);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
 });
 
 module.exports = router;

@@ -22,6 +22,10 @@ export default function DashboardPage() {
     async function loadData() {
       try {
         const userData = await getMe();
+        if (!userData?.onboardingCompleted) {
+          router.push('/onboarding');
+          return;
+        }
         setUser(userData);
 
         const accountsData = await getAccounts();
@@ -29,7 +33,7 @@ export default function DashboardPage() {
 
         getDashboardSummary().then(setSummary).catch((e) => console.error('Failed to load dashboard summary:', e));
       } catch (err) {
-        router.push('/');
+        router.push('/login');
       } finally {
         setLoading(false);
       }

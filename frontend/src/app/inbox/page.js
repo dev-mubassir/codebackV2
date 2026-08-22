@@ -7,6 +7,7 @@ import {
   getMe, getConversations, getMessages, getAccounts, logout,
   getConversationAnalysis, generateReply, sendReply, setConversationRead,
   updateBrandDealStatus, getNotifications, toggleAutoReply,
+  clearChat, deleteConversation,
 } from '@/lib/api';
 import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
 import styles from './inbox.module.css';
@@ -40,6 +41,10 @@ function InboxPageContent() {
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [editingAutoReply, setEditingAutoReply] = useState(false);
   const [customPromptText, setCustomPromptText] = useState('');
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [convToDelete, setConvToDelete] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
   const messageIdsRef = useRef(new Set());
@@ -87,12 +92,47 @@ function InboxPageContent() {
     socket.on('analysis_completed', handleAnalysisCompleted);
     socket.on('brand_deal_detected', handleBrandDealDetected);
     socket.on('notification', () => setNotifUnreadCount((c) => c + 1));
+    socket.on('chat_cleared', handleChatCleared);
+    socket.on('conversation_deleted', handleConversationDeleted);
 
     return () => {
       socket.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // ---- Handle real-time chat cleared ----
+  const handleChatCleared = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations(prev => prev.map(c =>
+      c.id === data.conversationId
+        ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false }
+        : c
+    ));
+    setSelectedConv(current => {
+      if (current === data.conversationId) {
+        setMessages([]);
+        messageIdsRef.current.clear();
+      }
+      return current;
+    });
+  }, []);
+
+  // ---- Handle real-time conversation deleted ----
+  const handleConversationDeleted = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations(prev => prev.filter(c => c.id !== data.conversationId));
+    setSelectedConv(current => {
+      if (current === data.conversationId) {
+        setMessages([]);
+        setAnalysis(null);
+        setContactInfo(null);
+        setMobileShowChat(false);
+        return null;
+      }
+      return current;
+    });
+  }, []);
 
   // ---- Auto-scroll to bottom on new messages ----
   useEffect(() => {
@@ -177,6 +217,14 @@ function InboxPageContent() {
     if (filterId === 'all' || !filterId) return {};
     if (filterId === 'unread') return { unread: true };
     if (filterId === 'important') return { important: true };
+    if (filterId === 'hot_leads') return { category: 'hot_lead' };
+    if (filterId === 'leads') return { category: 'service_inquiry' };
+    if (filterId === 'customers') return { category: 'customer' };
+    if (filterId === 'questions') return { category: 'general_question' };
+    if (filterId === 'support') return { category: 'support_request' };
+    if (filterId === 'brand_deal') return { category: 'brand_deal' };
+    if (filterId === 'needs_human') return { needsHuman: true };
+    if (filterId === 'spam') return { category: 'spam' };
     return { category: filterId };
   }
 
@@ -324,6 +372,47 @@ function InboxPageContent() {
     }
   }
 
+  // ---- Clear all messages in current conversation ----
+  async function handleClearChatSubmit() {
+    if (!selectedConv || actionLoading) return;
+    setActionLoading(true);
+    try {
+      await clearChat(selectedConv);
+      messageIdsRef.current.clear();
+      setMessages([]);
+      setConversations(prev => prev.map(c => (c.id === selectedConv ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false } : c)));
+      setShowClearModal(false);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to clear chat messages');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // ---- Fully delete conversation ----
+  async function handleDeleteChatSubmit() {
+    const targetId = convToDelete?.id || selectedConv;
+    if (!targetId || actionLoading) return;
+    setActionLoading(true);
+    try {
+      await deleteConversation(targetId);
+      setConversations(prev => prev.filter(c => c.id !== targetId));
+      if (selectedConv === targetId) {
+        setSelectedConv(null);
+        setMessages([]);
+        setAnalysis(null);
+        setContactInfo(null);
+        setMobileShowChat(false);
+      }
+      setShowDeleteModal(false);
+      setConvToDelete(null);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete conversation');
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className={styles.loadingScreen}>
@@ -361,6 +450,9 @@ function InboxPageContent() {
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/settings')}>
             ⚙️ Settings
           </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/profile')} id="inbox-profile-header-btn">
+            👤 Profile
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={handleLogout} title="Log out">
             🚪 Logout
           </button>
@@ -368,40 +460,95 @@ function InboxPageContent() {
       </header>
 
       <div className={styles.inboxBody}>
-        {/* ---- Left Panel: Conversation List ---- */}
-        <aside className={styles.sidebar}>
-          {/* Account Selector Tabs */}
-          {accounts.length > 1 && (
-            <div className={styles.accountTabs}>
+        {/* ========================================================= */}
+        {/* Column 1: Dedicated Vertical Filter Sidebar               */}
+        {/* ========================================================= */}
+        <aside className={styles.filterSidebar}>
+          {/* Account Filter Section */}
+          <div className={styles.filterSection}>
+            <span className={styles.filterSectionTitle}>Accounts</span>
+            <div className={styles.filterItemList}>
               <button
-                className={`${styles.accountTab} ${selectedAccountId === '' ? styles.accountTabActive : ''}`}
+                className={`${styles.filterItemBtn} ${selectedAccountId === '' ? styles.filterItemBtnActive : ''}`}
                 onClick={() => handleAccountChange('')}
+                id="filter-account-all"
               >
-                All Accounts
+                <div className={styles.filterItemLeft}>
+                  <span className={styles.filterItemIcon}>🌐</span>
+                  <span className={styles.filterItemLabel}>All Accounts</span>
+                </div>
+                <span className={styles.filterItemCount}>{conversations.length}</span>
               </button>
               {accounts.map(acc => (
                 <button
                   key={acc.id}
-                  className={`${styles.accountTab} ${selectedAccountId === acc.id ? styles.accountTabActive : ''}`}
+                  className={`${styles.filterItemBtn} ${selectedAccountId === acc.id ? styles.filterItemBtnActive : ''}`}
                   onClick={() => handleAccountChange(acc.id)}
+                  id={`filter-account-${acc.id}`}
                 >
-                  @{acc.igUsername || 'account'}
+                  <div className={styles.filterItemLeft}>
+                    <span className={styles.filterItemIcon}>📸</span>
+                    <span className={styles.filterItemLabel}>@{acc.igUsername || 'account'}</span>
+                  </div>
                 </button>
               ))}
             </div>
-          )}
+          </div>
 
-          {/* Smart Filter Tabs */}
-          <div className={styles.categoryFilterBar}>
-            {INBOX_FILTERS.map(f => (
-              <button
-                key={f.id}
-                className={`${styles.categoryFilterBtn} ${selectedFilter === f.id ? styles.categoryFilterBtnActive : ''}`}
-                onClick={() => handleFilterChange(f.id)}
-              >
-                <span className={styles.filterIcon}>{f.icon}</span> {f.label}
-              </button>
-            ))}
+          {/* Smart Filter Folders / Categories */}
+          <div className={styles.filterSection}>
+            <span className={styles.filterSectionTitle}>Inbox Folders</span>
+            <div className={styles.filterItemList}>
+              {INBOX_FILTERS.map(f => {
+                const isActive = selectedFilter === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    className={`${styles.filterItemBtn} ${isActive ? styles.filterItemBtnActive : ''}`}
+                    onClick={() => handleFilterChange(f.id)}
+                    id={`filter-tab-${f.id}`}
+                  >
+                    <div className={styles.filterItemLeft}>
+                      <span className={styles.filterItemIcon}>{f.icon}</span>
+                      <span className={styles.filterItemLabel}>{f.label}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Bottom Left Corner: Profile Card Link */}
+          <div className={styles.filterSidebarFooter}>
+            <button
+              className={styles.sidebarProfileBtn}
+              onClick={() => router.push('/profile')}
+              title="Manage Profile & Account"
+              id="inbox-sidebar-profile-btn"
+            >
+              <div className={styles.sidebarProfileAvatar}>
+                {(user?.name || user?.email || 'U')[0].toUpperCase()}
+              </div>
+              <div className={styles.sidebarProfileMeta}>
+                <span className={styles.sidebarProfileName}>{user?.name || 'My Profile'}</span>
+                <span className={styles.sidebarProfileSub}>Profile & Account</span>
+              </div>
+              <span className={styles.sidebarProfileArrow}>⚙️</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* ========================================================= */}
+        {/* Column 2: Squeezed Conversation List Panel                */}
+        {/* ========================================================= */}
+        <section className={styles.convPanel}>
+          <div className={styles.convPanelHeader}>
+            <h3 className={styles.convPanelTitle}>
+              Conversations
+            </h3>
+            <span className={styles.convPanelBadge}>
+              {conversations.length}
+            </span>
           </div>
 
           <div className={styles.convList}>
@@ -443,18 +590,47 @@ function InboxPageContent() {
                           {conv.unread && <span className={styles.unreadDot} />}
                           {conv.contact.username || conv.contact.name || 'Unknown'}
                         </span>
-                        <span className={styles.convTime}>
-                          {conv.lastMessageAt ? formatTimeAgo(conv.lastMessageAt) : ''}
-                        </span>
+                        <div className={styles.convTopRight}>
+                          <span className={styles.convTime}>
+                            {conv.lastMessageAt ? formatTimeAgo(conv.lastMessageAt) : ''}
+                          </span>
+                          <button
+                            className={styles.quickDeleteBtn}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConvToDelete(conv);
+                              setShowDeleteModal(true);
+                            }}
+                            title="Delete conversation"
+                          >
+                            🗑️
+                          </button>
+                        </div>
                       </div>
-                      <div className={styles.convBottomRow}>
+
+                      {/* Single-Line Message Preview Row */}
+                      <div className={styles.convPreviewRow}>
                         <span
                           className={`${styles.priorityIndicator} ${styles[prio.dotClass]}`}
-                          title={`Priority: ${prio.label}`}
+                          title={`Priority: ${prio.label} (${conv.priorityScore || 0}/100)`}
                         />
                         <p className={styles.convPreview}>
                           {conv.lastMessage || 'No messages'}
                         </p>
+                      </div>
+
+                      {/* Wrapped Badges / Tags Row */}
+                      <div className={styles.convBadgesRow}>
+                        {conv.riskLevel && conv.riskLevel !== 'LOW' && (
+                          <span className={`badge ${styles.riskBadge} ${conv.riskLevel === 'CRITICAL' ? styles.riskBadgeCrit : styles.riskBadgeHigh}`}>
+                            {conv.riskLevel === 'CRITICAL' ? '🚨 SCAM' : '⚠️ RISK'}
+                          </span>
+                        )}
+                        {conv.customerType && conv.customerType !== 'unknown' && (
+                          <span className={`badge ${styles.customerBadge}`}>
+                            {conv.customerType.replace('_', ' ')}
+                          </span>
+                        )}
                         {conv.autoReplyEnabled && (
                           <span className={`badge ${styles.autoReplyListBadge}`} title="AI Auto-Reply active for this conversation">
                             ⚡ Auto
@@ -472,7 +648,7 @@ function InboxPageContent() {
               })
             )}
           </div>
-        </aside>
+        </section>
 
         {/* ---- Right Panel: Chat View ---- */}
         <main className={styles.chatPanel}>
@@ -504,8 +680,13 @@ function InboxPageContent() {
                         {activeCategoryMeta.icon} {activeCategoryMeta.label}
                       </span>
                       <span className={`badge ${styles.priorityBadge}`}>
-                        {activePriorityMeta.label}
+                        {activePriorityMeta.label} ({activeConvData?.priorityScore || 0})
                       </span>
+                      {activeConvData?.customerType && (
+                        <span className="badge" style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--color-primary)' }}>
+                          {activeConvData.customerType.replace('_', ' ')}
+                        </span>
+                      )}
                     </div>
                     {contactInfo?.name && contactInfo.name !== contactInfo.username && (
                       <span className={styles.chatRealName}>{contactInfo.name}</span>
@@ -524,6 +705,29 @@ function InboxPageContent() {
                     {activeConvData?.autoReplyEnabled ? '⚡ Auto-Reply ON' : '🤖 Auto-Reply OFF'}
                   </button>
 
+                  {/* Clear & Delete Action Buttons */}
+                  <div className={styles.chatHeaderActionGroup}>
+                    <button
+                      className={styles.actionBtn}
+                      onClick={() => setShowClearModal(true)}
+                      title="Clear all messages in this chat"
+                      id="clear-chat-btn"
+                    >
+                      🧹 Clear Chat
+                    </button>
+                    <button
+                      className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                      onClick={() => {
+                        setConvToDelete(activeConvData);
+                        setShowDeleteModal(true);
+                      }}
+                      title="Delete this entire conversation"
+                      id="delete-chat-btn"
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+
                   {contactInfo?.username && (
                     <a
                       href={`https://instagram.com/${contactInfo.username}`}
@@ -537,6 +741,16 @@ function InboxPageContent() {
                   )}
                 </div>
               </div>
+
+              {/* Needs Human Attention Alert */}
+              {(activeConvData?.needsHuman || activeConvData?.riskLevel === 'HIGH' || activeConvData?.riskLevel === 'CRITICAL') && (
+                <div className={styles.humanAttentionBanner}>
+                  <span>⚠️</span>
+                  <div>
+                    <strong>Needs Human Attention:</strong> {activeConvData?.aiExplanation || 'High risk inquiry or customer requested direct assistance.'}
+                  </div>
+                </div>
+              )}
 
               {/* Specific Chat Auto-Reply Banner */}
               {activeConvData?.autoReplyEnabled && (
@@ -598,14 +812,57 @@ function InboxPageContent() {
                 </div>
               )}
 
-              {/* Conversation Summary Panel */}
-              {analysis?.summary?.summary && (
-                <div className={styles.summaryCard}>
-                  <div className={styles.summaryHeader}>
-                    <span className={styles.summaryTag}>✨ AI Summary</span>
-                    {analysis.summary.stage && <span className={styles.summaryStage}>{analysis.summary.stage}</span>}
+              {/* AI Customer Intelligence & Risk Box */}
+              {(analysis?.latestAnalysis || activeConvData?.aiExplanation || activeConvData?.summary || analysis?.summary?.summary) && (
+                <div className={styles.intelligenceCard}>
+                  <div className={styles.intelligenceHeader}>
+                    <div className={styles.intelligenceTitleRow}>
+                      <span className={styles.intelligenceBadge}>⚡ AI DM Intelligence</span>
+                      {activeConvData?.intent && (
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          Intent: <strong>{activeConvData.intent}</strong>
+                        </span>
+                      )}
+                      {activeConvData?.customerType && activeConvData.customerType !== 'unknown' && (
+                        <span className="badge" style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(124, 58, 237, 0.08)', color: 'var(--color-primary)' }}>
+                          {activeConvData.customerType.replace('_', ' ')}
+                        </span>
+                      )}
+                    </div>
+                    {activeConvData?.riskLevel && (
+                      <span className={activeConvData.riskLevel === 'CRITICAL' ? styles.riskBadgeCrit : activeConvData.riskLevel === 'HIGH' ? styles.riskBadgeHigh : styles.riskBadgeLow}>
+                        🛡️ Risk: {activeConvData.riskLevel}
+                      </span>
+                    )}
                   </div>
-                  <p className={styles.summaryText}>{analysis.summary.summary}</p>
+
+                  <div className={styles.intelligenceMetrics}>
+                    <div className={styles.metricItem}>
+                      <span className={styles.metricLabel}>Lead Quality</span>
+                      <span className={styles.metricValue}>{activeConvData?.leadQuality ?? analysis?.latestAnalysis?.leadQuality ?? 0}/100</span>
+                    </div>
+                    <div className={styles.metricItem}>
+                      <span className={styles.metricLabel}>Purchase Intent</span>
+                      <span className={styles.metricValue}>{activeConvData?.purchaseIntent ?? analysis?.latestAnalysis?.purchaseIntent ?? 0}/100</span>
+                    </div>
+                    <div className={styles.metricItem}>
+                      <span className={styles.metricLabel}>Scam Probability</span>
+                      <span className={styles.metricValue}>{activeConvData?.scamProbability ?? analysis?.latestAnalysis?.scamProbability ?? 0}%</span>
+                    </div>
+                    <div className={styles.metricItem}>
+                      <span className={styles.metricLabel}>Recommended Action</span>
+                      <span className={styles.metricValue} style={{ color: 'var(--color-primary)' }}>
+                        {activeConvData?.recommendedAction ?? analysis?.latestAnalysis?.recommendedAction ?? 'REVIEW'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {(analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason) && (
+                    <div className={styles.recommendationBanner}>
+                      <span>✨</span>
+                      <span><strong>AI Summary:</strong> {analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -748,6 +1005,77 @@ function InboxPageContent() {
           )}
         </main>
       </div>
+
+      {/* Modal: Clear Chat Messages */}
+      {showClearModal && (
+        <div className={styles.modalOverlay} onClick={() => !actionLoading && setShowClearModal(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalIcon}>🧹</span>
+              <h3 className={styles.modalTitle}>Clear Chat Messages?</h3>
+            </div>
+            <p className={styles.modalBody}>
+              Are you sure you want to clear all message history with <strong>@{contactInfo?.username || contactInfo?.name || 'this contact'}</strong>?
+              <br /><br />
+              All previous messages will be removed from Codeback. The contact, lead profile, and auto-reply rules will be kept.
+            </p>
+            <div className={styles.modalActions}>
+              <button
+                className="btn btn-secondary btn-md"
+                onClick={() => setShowClearModal(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary btn-md"
+                onClick={handleClearChatSubmit}
+                disabled={actionLoading}
+                id="confirm-clear-chat-btn"
+              >
+                {actionLoading ? 'Clearing…' : 'Clear Messages'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Delete Full Conversation */}
+      {showDeleteModal && (
+        <div className={styles.modalOverlay} onClick={() => !actionLoading && setShowDeleteModal(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalIcon}>🗑️</span>
+              <h3 className={styles.modalTitle}>Delete Full Conversation?</h3>
+            </div>
+            <p className={styles.modalBody}>
+              Are you sure you want to permanently delete the conversation with <strong>@{convToDelete?.contact?.username || convToDelete?.contact?.name || contactInfo?.username || 'this contact'}</strong>?
+              <br /><br />
+              This will permanently remove the conversation thread, message history, AI analysis, and extracted deal details from your inbox.
+            </p>
+            <div className={styles.modalActions}>
+              <button
+                className="btn btn-secondary btn-md"
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setConvToDelete(null);
+                }}
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button
+                className={`btn btn-md ${styles.btnDanger}`}
+                onClick={handleDeleteChatSubmit}
+                disabled={actionLoading}
+                id="confirm-delete-conv-btn"
+              >
+                {actionLoading ? 'Deleting…' : 'Delete Entire Chat'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,7 @@
 const prisma = require('../lib/prisma');
 const aiService = require('../services/aiService');
 const { getOrCreatePreferences } = require('../services/preferencesService');
+const { getOrCreateBusinessProfile } = require('../services/businessProfileService');
 const { upsertBrandDeal } = require('../services/brandDealService');
 const { notifyBrandDeal, notifyHighPriority, notifyImportantCustomer, emitAnalysisUpdate, emitBrandDealDetected } = require('../lib/notify');
 const instagram = require('../lib/instagram');
@@ -121,6 +122,7 @@ async function processMessageAnalysis(job) {
 
   try {
     const preferences = await getOrCreatePreferences(userId);
+    const businessProfile = await getOrCreateBusinessProfile(userId);
 
     const recentMessages = await prisma.message.findMany({
       where: { conversationId: conversation.id },
@@ -132,18 +134,27 @@ async function processMessageAnalysis(job) {
       messageText: message.content,
       contactUsername: conversation.contact.username,
       recentMessages: recentMessages.reverse(),
+      businessProfile,
       preferences,
     });
 
     const previousPriority = conversation.priority;
     const previousCategory = conversation.category;
 
-    // 1. Persist the append-only analysis record.
+    // 1. Persist the append-only analysis record with generalized fields.
     await prisma.aIAnalysis.create({
       data: {
         conversationId: conversation.id,
         triggerMessageId: message.id,
         category: analysis.category,
+        intent: analysis.intent,
+        customerType: analysis.customerType,
+        leadQuality: analysis.leadQuality,
+        purchaseIntent: analysis.purchaseIntent,
+        riskLevel: analysis.riskLevel,
+        scamProbability: analysis.scamProbability,
+        shouldAutoReply: analysis.shouldAutoReply,
+        recommendedAction: analysis.recommendedAction,
         priority: analysis.priority,
         priorityScore: analysis.priorityScore,
         confidence: analysis.confidence,
@@ -162,6 +173,15 @@ async function processMessageAnalysis(job) {
       where: { id: conversation.id },
       data: {
         category: analysis.category,
+        intent: analysis.intent,
+        customerType: analysis.customerType,
+        leadQuality: analysis.leadQuality,
+        purchaseIntent: analysis.purchaseIntent,
+        riskLevel: analysis.riskLevel,
+        scamProbability: analysis.scamProbability,
+        aiExplanation: analysis.reason,
+        recommendedAction: analysis.recommendedAction,
+        needsHuman: analysis.needsCreatorAttention,
         priority: analysis.priority,
         priorityScore: analysis.priorityScore,
         needsAttention: analysis.needsCreatorAttention,
@@ -180,7 +200,7 @@ async function processMessageAnalysis(job) {
 
     await recordUsage(userId, 'messages_analyzed', 1, { conversationId: conversation.id, category: analysis.category });
 
-    // 4. Brand deal extraction + upsert.
+    // 4. Brand deal extraction + upsert (if relevant to profile/message).
     let brandDealResult = null;
     if (analysis.brandDeal) {
       brandDealResult = await upsertBrandDeal({
@@ -202,7 +222,7 @@ async function processMessageAnalysis(job) {
       }
     }
 
-    // 5. Notify on meaningful state transitions only (never per fan message).
+    // 5. Notify on meaningful state transitions only.
     if (analysis.priority === 'critical' && previousPriority !== 'critical') {
       await notifyHighPriority(userId, {
         conversationId: conversation.id,
@@ -221,6 +241,15 @@ async function processMessageAnalysis(job) {
     emitAnalysisUpdate(userId, {
       conversationId: conversation.id,
       category: analysis.category,
+      intent: analysis.intent,
+      customerType: analysis.customerType,
+      leadQuality: analysis.leadQuality,
+      purchaseIntent: analysis.purchaseIntent,
+      riskLevel: analysis.riskLevel,
+      scamProbability: analysis.scamProbability,
+      aiExplanation: analysis.reason,
+      recommendedAction: analysis.recommendedAction,
+      needsHuman: analysis.needsCreatorAttention,
       priority: analysis.priority,
       priorityScore: analysis.priorityScore,
       needsAttention: analysis.needsCreatorAttention,
@@ -228,18 +257,20 @@ async function processMessageAnalysis(job) {
       aiFailed: analysis.failed,
     });
 
-    // 7. Periodic conversation summary (not on every message).
+    // 7. Periodic conversation summary.
     await maybeRegenerateSummary({ conversation, userId });
 
-    // 8. Auto-Reply for this specific conversation if enabled by creator
+    // 8. Multi-Stage Intelligent Auto-Reply Safety Gate
     if (conversation.autoReplyEnabled && message.direction === 'inbound') {
       await maybeAutoReply({
         conversation,
         contact: conversation.contact,
         instagramAccount: conversation.instagramAccount,
         userId,
+        businessProfile,
         preferences,
         brandDeal: brandDealResult?.brandDeal || null,
+        analysis,
       });
     }
   } catch (err) {
@@ -255,11 +286,50 @@ async function processMessageAnalysis(job) {
 
 /**
  * Executes an automated AI reply for a specific conversation that has
- * auto-reply enabled by the creator.
+ * auto-reply enabled by the user, applying strict multi-stage safety checks.
  */
-async function maybeAutoReply({ conversation, contact, instagramAccount, userId, preferences, brandDeal }) {
+async function maybeAutoReply({
+  conversation,
+  contact,
+  instagramAccount,
+  userId,
+  businessProfile,
+  preferences,
+  brandDeal,
+  analysis,
+}) {
   try {
-    // 1. Fetch recent messages in conversation
+    // Stage 1: Check Mode Setting
+    if (businessProfile?.autoReplyMode === 'human_only') {
+      console.log(`[AutoReply] Mode is 'human_only' for user ${userId}, skipping auto-reply.`);
+      return;
+    }
+
+    // Stage 2: Risk & Scam Safety Check
+    if (analysis) {
+      if (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'CRITICAL') {
+        console.log(`[AutoReply] Blocked auto-reply: Risk level is ${analysis.riskLevel}.`);
+        return;
+      }
+      if (analysis.scamProbability >= 30) {
+        console.log(`[AutoReply] Blocked auto-reply: Scam probability is ${analysis.scamProbability}%.`);
+        return;
+      }
+      if (analysis.category === 'spam' || analysis.category === 'scam' || analysis.category === 'abusive') {
+        console.log(`[AutoReply] Blocked auto-reply: Category is ${analysis.category}.`);
+        return;
+      }
+      if (analysis.category === 'fan') {
+        console.log(`[AutoReply] Casual fan/social message — skipping auto-reply.`);
+        return;
+      }
+      if (analysis.shouldAutoReply === false) {
+        console.log(`[AutoReply] AI safety classifier determined shouldAutoReply=false for conversation ${conversation.id}.`);
+        return;
+      }
+    }
+
+    // Stage 3: Fetch recent messages in conversation
     const recentMessages = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: 'desc' },
@@ -269,7 +339,7 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
     const lastInbound = recentMessages.find((m) => m.direction === 'inbound');
     if (!lastInbound) return;
 
-    // 2. Check 24-hour messaging window
+    // Stage 4: Check 24-hour Meta messaging window
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
     const elapsed = Date.now() - new Date(lastInbound.createdAt).getTime();
     if (elapsed > TWENTY_FOUR_HOURS) {
@@ -277,14 +347,16 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
       return;
     }
 
-    // 3. Generate AI draft
+    // Stage 5: Generate AI reply with Business Profile facts
     const replyResult = await aiService.generateReply({
       recentMessages: recentMessages.reverse(),
       contactUsername: contact.username,
-      brandDeal,
+      businessProfile,
       preferences,
       instructions: conversation.autoReplyPrompt || null,
       category: conversation.category || 'other',
+      brandDeal,
+      analysis,
     });
 
     if (replyResult.failed || !replyResult.text || !replyResult.text.trim()) {
@@ -295,7 +367,7 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
     const replyText = replyResult.text.trim();
     console.log(`[AutoReply] Sending AI auto-reply to @${contact.username || contact.igsid}: "${replyText}"`);
 
-    // 4. Send via Instagram Graph API
+    // Stage 6: Send via Instagram Graph API
     const accessToken = decrypt(instagramAccount.accessToken);
     let igResponse = null;
     try {
@@ -305,7 +377,7 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
       return;
     }
 
-    // 5. Save outbound message to DB
+    // Stage 7: Save outbound message to DB
     const savedMsg = await prisma.message.create({
       data: {
         conversationId: conversation.id,
@@ -318,7 +390,7 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
       },
     });
 
-    // 6. Update conversation
+    // Stage 8: Update conversation state
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
@@ -329,12 +401,12 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
       },
     });
 
-    // 7. Record reply generation audit trail
+    // Stage 9: Record reply generation audit trail
     await prisma.replyGeneration.create({
       data: {
         conversationId: conversation.id,
         userId,
-        contextRef: `auto_reply;category:${conversation.category || 'other'}`,
+        contextRef: `auto_reply;category:${conversation.category || 'other'};intent:${analysis?.intent || 'general'}`,
         instructions: conversation.autoReplyPrompt || null,
         generatedText: replyText,
         model: replyResult.model,
@@ -344,7 +416,7 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
 
     await recordUsage(userId, 'auto_replies_sent', 1, { conversationId: conversation.id });
 
-    // 8. Emit real-time Socket.io event to the creator's frontend
+    // Stage 10: Emit real-time Socket.io event to the user's frontend
     emitToUser(userId, 'new_message', {
       conversationId: conversation.id,
       accountId: instagramAccount.id,
@@ -368,6 +440,12 @@ async function maybeAutoReply({ conversation, contact, instagramAccount, userId,
         lastMessage: replyText,
         lastMessageAt: new Date(),
         category: conversation.category,
+        intent: conversation.intent,
+        customerType: conversation.customerType,
+        leadQuality: conversation.leadQuality,
+        purchaseIntent: conversation.purchaseIntent,
+        riskLevel: conversation.riskLevel,
+        scamProbability: conversation.scamProbability,
         priority: conversation.priority,
         unread: false,
         autoReplyEnabled: true,

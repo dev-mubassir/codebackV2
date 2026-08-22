@@ -33,6 +33,18 @@ api.interceptors.response.use(
 
 // ---- Auth ----
 
+/** Register a new account with email & password */
+export async function register({ name, email, password, confirmPassword }) {
+  const { data } = await api.post('/auth/register', { name, email, password, confirmPassword });
+  return data;
+}
+
+/** Log in with email & password */
+export async function login({ email, password }) {
+  const { data } = await api.post('/auth/login', { email, password });
+  return data;
+}
+
 /** Get the currently logged-in user's info */
 export async function getMe(userId) {
   const url = userId ? `/auth/me?user_id=${encodeURIComponent(userId)}` : '/auth/me';
@@ -43,6 +55,44 @@ export async function getMe(userId) {
 /** Log out the current user */
 export async function logout() {
   const { data } = await api.post('/auth/logout');
+  return data;
+}
+
+/** Permanently delete user account */
+export async function deleteAccount() {
+  const { data } = await api.delete('/auth/account');
+  return data;
+}
+
+/** Update user profile */
+export async function updateProfile(profileData) {
+  const { data } = await api.put('/auth/profile', profileData);
+  return data;
+}
+
+// ---- Onboarding & Business Profile ----
+
+/** Fetch onboarding status and profile */
+export async function getOnboarding() {
+  const { data } = await api.get('/api/onboarding');
+  return data;
+}
+
+/** Save onboarding wizard data */
+export async function saveOnboarding(onboardingData) {
+  const { data } = await api.put('/api/onboarding', onboardingData);
+  return data;
+}
+
+/** Get Business Profile */
+export async function getBusinessProfile() {
+  const { data } = await api.get('/api/settings/business-profile');
+  return data;
+}
+
+/** Update Business Profile */
+export async function updateBusinessProfile(profileData) {
+  const { data } = await api.put('/api/settings/business-profile', profileData);
   return data;
 }
 
@@ -132,6 +182,18 @@ export async function toggleAutoReply(conversationId, autoReplyEnabled, autoRepl
     autoReplyEnabled,
     autoReplyPrompt,
   });
+  return data;
+}
+
+/** Clear all message history in a conversation (keeps conversation thread & contact) */
+export async function clearChat(conversationId) {
+  const { data } = await api.delete(`/api/conversations/${conversationId}/messages`);
+  return data;
+}
+
+/** Fully delete a conversation thread and all related records */
+export async function deleteConversation(conversationId) {
+  const { data } = await api.delete(`/api/conversations/${conversationId}`);
   return data;
 }
 

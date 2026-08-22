@@ -30,15 +30,18 @@ datasource db {
 // and every server-side query MUST filter by the authenticated user's id.
 // ============================================
 model User {
-  id          String   @id @default(uuid())
-  email       String?  @unique
-  name        String?
-  role        String   @default("USER")             // "USER" or "ADMIN"
-  isSuspended Boolean  @default(false) @map("is_suspended")
-  lastSeenAt  DateTime? @map("last_seen_at")          // last time the creator opened the app (drives "While you were away")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                  String   @id @default(uuid())
+  email               String?  @unique
+  passwordHash        String?  @map("password_hash")
+  name                String?
+  role                String   @default("USER")             // "USER" or "ADMIN"
+  isSuspended         Boolean  @default(false) @map("is_suspended")
+  onboardingCompleted Boolean  @default(false) @map("onboarding_completed")
+  lastSeenAt          DateTime? @map("last_seen_at")          // last time the user opened the app
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
+  businessProfile   BusinessProfile?
   instagramAccounts InstagramAccount[]
   adminLogs         AdminLog[]
   subscription      Subscription?
@@ -49,6 +52,41 @@ model User {
   usageEvents       UsageEvent[]
 
   @@map("users")
+}
+
+// ============================================
+// Business Profile — persistent context for AI DM understanding & auto-reply.
+// Allows Codeback to serve Creators, Video Editors, Product Sellers, Freelancers,
+// E-commerce, Agencies, Local Businesses, and Coaches.
+// ============================================
+model BusinessProfile {
+  id                 String   @id @default(uuid())
+  userId             String   @unique @map("user_id")
+
+  businessName       String?  @map("business_name")
+  businessTypes      String?  @map("business_types")      // JSON array of types e.g. ["video_editor", "freelancer"]
+  primaryCategory    String?  @map("primary_category")   // e.g. "video_editor", "product_seller", "creator"
+  description        String?                             // Core description of what the user does
+  productsServices   String?  @map("products_services")  // Details of products/services offered
+  pricingInfo        String?  @map("pricing_info")       // Starting price, price range, packages
+  targetAudience     String?  @map("target_audience")    // Target customers
+  locationDelivery   String?  @map("location_delivery")  // Service area, shipping availability
+  paymentMethods     String?  @map("payment_methods")    // Accepted payment modes
+  faqData            String?  @map("faq_data")           // FAQs and answers
+  policies           String?                             // Turnaround times, warranty, refund/revision terms
+  contactPreferences String?  @map("contact_preferences")// Preferred contact methods
+  aiInstructions     String?  @map("ai_instructions")    // Custom rules for AI
+  prohibitedTopics   String?  @map("prohibited_topics")  // Things AI must never promise or answer
+  tone               String   @default("friendly")       // friendly, professional, casual, concise, warm, custom
+  autoReplyMode      String   @default("smart") @map("auto_reply_mode") // "smart", "suggest_only", "human_only"
+  minConfidenceScore Int      @default(75) @map("min_confidence_score")
+
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("business_profiles")
 }
 
 // ============================================
@@ -112,30 +150,35 @@ model Contact {
 //
 // `category`/`priority`/`priorityScore`/`needsAttention`/`unread` are fast,
 // denormalized read fields kept in sync by the AI analysis worker so the
-// inbox can filter/sort without joining ai_analyses on every request. The
-// full historical/audit trail of AI understanding lives in `AIAnalysis`.
+// inbox can filter/sort without joining ai_analyses on every request.
 // ============================================
 model Conversation {
   id                 String    @id @default(uuid())
   instagramAccountId String    @map("instagram_account_id")
   contactId          String    @map("contact_id")
 
-  // Legacy + current classification (see backend/src/lib/constants.js for the
-  // canonical, extensible category list: brand_deal, collaboration, fan,
-  // question, customer, business_inquiry, support, spam, other — legacy rows
-  // may still carry the old Title-Case values, which the frontend maps too).
-  category       String?
-  priority       String    @default("normal")   // "critical", "high", "normal", "low"
-  priorityScore  Int       @default(0) @map("priority_score") // 0-100, deterministic + AI blended score
-  needsAttention Boolean   @default(false) @map("needs_attention")
-  unread         Boolean   @default(true)
-  autoReplyEnabled Boolean @default(false) @map("auto_reply_enabled") // per-conversation AI auto-reply toggle
-  autoReplyPrompt  String? @map("auto_reply_prompt")                  // custom prompt/rules for this specific chat
+  category           String?
+  intent             String?                             // e.g. "pricing_inquiry", "product_details", "service_inquiry", "support", "collab", "spam", "scam"
+  customerType       String?   @map("customer_type")     // "potential_buyer", "existing_customer", "lead", "hot_lead", "casual_fan", "partner", "spammer", "unknown"
+  leadQuality        Int?      @map("lead_quality")      // 0-100 score
+  purchaseIntent     Int?      @map("purchase_intent")   // 0-100 score
+  riskLevel          String    @default("low") @map("risk_level") // "low", "medium", "high", "critical"
+  scamProbability    Int       @default(0) @map("scam_probability") // 0-100
+  aiExplanation      String?   @map("ai_explanation")    // Explainable reasoning for human
+  recommendedAction  String?   @map("recommended_action")// e.g. "ANSWER_PRICE", "SEND_PORTFOLIO", "ESCALATE_HUMAN", "BLOCK_SPAM"
+  needsHuman         Boolean   @default(false) @map("needs_human") // Explicit human escalation flag
 
-  lastMessage    String?   @map("last_message")
-  lastMessageAt  DateTime? @map("last_message_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  priority           String    @default("normal")        // "critical", "high", "normal", "low"
+  priorityScore      Int       @default(0) @map("priority_score") // 0-100, deterministic + AI blended score
+  needsAttention     Boolean   @default(false) @map("needs_attention")
+  unread             Boolean   @default(true)
+  autoReplyEnabled   Boolean   @default(false) @map("auto_reply_enabled") // per-conversation AI auto-reply toggle
+  autoReplyPrompt    String?   @map("auto_reply_prompt")                  // custom prompt/rules for this specific chat
+
+  lastMessage        String?   @map("last_message")
+  lastMessageAt      DateTime? @map("last_message_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   instagramAccount InstagramAccount      @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
   contact          Contact               @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -150,16 +193,18 @@ model Conversation {
   @@index([instagramAccountId, lastMessageAt])
   @@index([priority])
   @@index([category])
+  @@index([customerType])
+  @@index([intent])
+  @@index([riskLevel])
   @@index([unread])
   @@index([needsAttention])
+  @@index([needsHuman])
   @@index([autoReplyEnabled])
   @@map("conversations")
 }
 
 // ============================================
 // A single message in a conversation.
-// The original Instagram message content is never overwritten by AI —
-// AI understanding is stored separately in AIAnalysis.
 // ============================================
 model Message {
   id             String    @id @default(uuid())
@@ -168,14 +213,11 @@ model Message {
   direction      String    // "inbound" or "outbound"
   content        String?
   category       String?   // legacy convenience copy of the conversation's category at the time of this message
-  suggestedReply String?   @map("suggested_reply")          // legacy field; reply drafts are now generated on-demand (see ReplyGeneration)
+  suggestedReply String?   @map("suggested_reply")
   messageType    String    @default("text") @map("message_type") // text, image, video, story_mention, etc.
   attachmentUrl  String?   @map("attachment_url")
   igTimestamp    DateTime? @map("ig_timestamp")            // Timestamp from Instagram
 
-  // Async AI processing state — a message is ALWAYS persisted and visible
-  // immediately; AI classification happens afterwards in the background and
-  // must never block or hide the message if it fails.
   aiStatus   String    @default("pending") @map("ai_status") // "pending", "processing", "completed", "failed", "skipped"
   attempts   Int       @default(0)
   analyzedAt DateTime? @map("analyzed_at")
@@ -191,25 +233,33 @@ model Message {
 
 // ============================================
 // AI Analysis — append-only, versioned record of AI's understanding of a
-// conversation. Conversation.category/priority/... are denormalized copies
-// of the latest row here, kept for fast inbox queries.
+// conversation.
 // ============================================
 model AIAnalysis {
   id               String   @id @default(uuid())
   conversationId   String   @map("conversation_id")
-  triggerMessageId String?  @map("trigger_message_id") // the inbound message that triggered this run, if any
+  triggerMessageId String?  @map("trigger_message_id")
 
-  category       String
-  priority       String                                 // "critical", "high", "normal", "low"
-  priorityScore  Int      @default(0) @map("priority_score")
-  confidence     Float    @default(0)
-  needsAttention Boolean  @default(false) @map("needs_attention")
-  summary        String?
-  reason         String?
+  category          String
+  intent            String?
+  customerType      String?  @map("customer_type")
+  leadQuality       Int?     @map("lead_quality")
+  purchaseIntent    Int?     @map("purchase_intent")
+  riskLevel         String?  @map("risk_level")
+  scamProbability   Int?     @map("scam_probability")
+  shouldAutoReply   Boolean  @default(false) @map("should_auto_reply")
+  recommendedAction String?  @map("recommended_action")
 
-  model        String?                                   // e.g. "gemini-flash-lite-latest", "keyword-engine"
-  rawResponse  String?  @map("raw_response")              // validated JSON payload returned by the AI, for debugging
-  status       String   @default("completed")             // "pending", "completed", "failed", "retrying"
+  priority          String                                 // "critical", "high", "normal", "low"
+  priorityScore     Int      @default(0) @map("priority_score")
+  confidence        Float    @default(0)
+  needsAttention    Boolean  @default(false) @map("needs_attention")
+  summary           String?
+  reason            String?
+
+  model        String?
+  rawResponse  String?  @map("raw_response")
+  status       String   @default("completed")
   errorMessage String?  @map("error_message")
 
   createdAt DateTime @default(now()) @map("created_at")

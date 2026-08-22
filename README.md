@@ -1,4 +1,4 @@
-# Codeback — AI-Powered Instagram DM Assistant & Creator Inbox SaaS
+# Codeback — Generalized AI Instagram DM Customer Intelligence & Sales SaaS
 
 [![Next.js](https://img.shields.io/badge/Next.js-16.2-black?logo=nextdotjs)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19.0-61DAFB?logo=react)](https://react.dev/)
@@ -7,80 +7,80 @@
 [![Multi-Provider AI](https://img.shields.io/badge/AI-Gemini%20%7C%20xAI%20Grok%20%7C%20OpenAI-8E7CC3)](https://ai.google.dev/)
 [![Security](https://img.shields.io/badge/Security-AES--256--GCM-success)](https://nodejs.org/api/crypto.html)
 
-**Codeback** is a modern, high-performance Instagram DM Assistant and Creator CRM SaaS. It automatically syncs incoming Direct Messages via signature-verified Meta webhooks, categorizes and prioritizes conversations with resilient AI, extracts commercial brand deals into an actionable pipeline, drafts personalized responses matching the creator's tone, and provides an optional **per-conversation automated reply mode** — keeping creators in complete control of their account.
+**Codeback** is a generalized, high-performance Instagram DM Customer Intelligence, Lead Qualification, Sales & Support SaaS. Built for **Video & Photo Editors, Product Sellers, Used Phone/Laptop Sellers, Clothing & Fashion Boutiques, Agencies, Freelancers, Coaches, E-commerce, and Content Creators**.
 
-Built with a sleek, Cloudflare-inspired SaaS interface for maximum speed, clarity, and tenant-safe multi-account management.
-
-> *"AI reads your Instagram DMs so you don't have to read all of them. You stay in total control of every outgoing message."*
+Codeback syncs incoming Direct Messages via signature-verified Meta webhooks, qualifies hot commercial leads, detects security threats and scams, extracts sponsorship deals, and provides an **intelligent multi-stage auto-reply engine grounded in your real Business Knowledge Base** — with zero hallucination.
 
 ---
 
 ## 🏛️ System Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            Next.js 16 App Router                            │
-│                 (Cloudflare-Inspired SaaS Light Interface)                  │
-│                                                                             │
-│ ┌──────────────┐ ┌───────────┐ ┌─────────────┐ ┌──────────────┐ ┌─────────┐ │
-│ │  AppShell    │ │ Dashboard │ │ Inbox & Chat│ │ Brand Deals  │ │ Settings│ │
-│ └──────────────┘ └───────────┘ └─────────────┘ └──────────────┘ └─────────┘ │
-└──────────────────────────────────────┬──────────────────────────────────────┘
-                                       │ REST API + Socket.io Real-time
-┌──────────────────────────────────────▼──────────────────────────────────────┐
-│                            Node.js Express Backend                          │
-│                                                                             │
-│ ┌────────────────────────┐ ┌───────────────────────┐ ┌────────────────────┐ │
-│ │ Instagram OAuth (Form) │ │ Webhook Handler (HMAC)│ │ Socket.io Server   │ │
-│ └────────────────────────┘ └───────────────────────┘ └────────────────────┘ │
-└───────────────────┬──────────────────────────────────────┬──────────────────┘
-                    │                                      │
-┌───────────────────▼──────────────────┐ ┌─────────────────▼──────────────────┐
-│ SQLite / Postgres (Prisma ORM)       │ │ Resilient Multi-Provider AI Engine │
-│ • AES-256-GCM Encrypted IG Tokens    │ │ • Keyword Pre-filter (0ms)         │
-│ • Strict Tenant & Session Isolation  │ │ • Gemini ⟷ xAI Grok ⟷ OpenAI       │
-│ • Soft-Disconnect History Retention  │ │ • Automatic Zero-Downtime Failover │
-└──────────────────────────────────────┘ └────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       Next.js 16 App Router                                      │
+│                             (Cloudflare-Inspired SaaS Light Interface)                           │
+│                                                                                                  │
+│ ┌──────────────┐ ┌───────────┐ ┌───────────────┐ ┌──────────────┐ ┌─────────────┐ ┌────────────┐ │
+│ │  AppShell    │ │ Dashboard │ │ 3-Column Inbox│ │ Onboarding   │ │ Settings KB │ │ Profile    │ │
+│ └──────────────┘ └───────────┘ └───────────────┘ └──────────────┘ └─────────────┘ └────────────┘ │
+└───────────────────────────────────────────────┬──────────────────────────────────────────────────┘
+                                                │ REST API + Socket.io Real-time
+┌───────────────────────────────────────────────▼──────────────────────────────────────────────────┐
+│                                    Node.js Express Backend                                       │
+│                                                                                                  │
+│ ┌────────────────────────┐ ┌───────────────────────┐ ┌─────────────────────┐ ┌─────────────────┐ │
+│ │ Email/Pass Auth & OAuth│ │ Webhook Handler (HMAC)│ │ Socket.io Server    │ │ Account Deletion│ │
+│ └────────────────────────┘ └───────────────────────┘ └─────────────────────┘ └─────────────────┘ │
+└───────────────────────────┬─────────────────────────────────────────┬────────────────────────────┘
+                            │                                         │
+┌───────────────────────────▼──────────┐ ┌────────────────────────────▼────────────────────────────┐
+│ SQLite / Postgres (Prisma ORM)       │ │ Resilient Multi-Provider AI Engine                      │
+│ • Persistent Business Profile Context│ │ • Keyword Pre-filter (0ms)                              │
+│ • AES-256-GCM Encrypted IG Tokens    │ │ • Gemini ⟷ xAI Grok ⟷ OpenAI                            │
+│ • Strict Tenant & Session Isolation  │ │ • Multi-Stage Auto-Reply Gate                           │
+│ • Cascading Message/Account Deletion │ │ • Anti-Hallucination Grounding (BusinessProfile)        │
+└──────────────────────────────────────┘ └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## ✨ Core SaaS Features
 
-### 1. 📥 Real-Time Smart Inbox & Chat
-- **Instant DM Syncing**: Incoming messages arrive via HMAC SHA-256 signature-verified Meta webhooks and stream instantly to the client via Socket.io.
-- **Intelligent Classification**: Automatic categorization into `Brand Deals`, `Collaborations`, `Customers`, `Fans`, `General Questions`, `Support`, and `Spam`.
-- **Deterministic Priority Scoring (0-100)**: Blends AI confidence with creator preferences for transparent, explainable inbox ordering.
-- **24-Hour Messaging Window Radar**: Live countdown badge indicating Meta Graph API messaging eligibility.
+### 1. 🔐 Email & Password Authentication + Dynamic Onboarding
+- **Independent Application Auth**: Standard signup and login with `bcryptjs` password hashing and secure session cookies (`codeback.sid`).
+- **Interactive Onboarding Wizard (`/onboarding`)**: 3-step setup with pre-filled, production-ready knowledge templates for 12 business categories (Video Editor, Used Devices, Clothing Boutique, Freelancer, Agency, Coach, Creator, Photo Editor, Graphic Designer, Product Seller, Local Business, E-commerce), plus a clean custom template for `other`.
+- **Persistent Business Profile (`BusinessProfile`)**: Ground-truth context storing business name, categories, products/services, pricing rates, turnaround times, shipping coverage, payment methods, FAQs, and tone.
 
-### 2. ⚡ Per-Chat AI Auto-Reply (Granular Control)
-- **Specific Chat Activation Only**: Global auto-reply is disabled by default to prevent unintentional messaging. Creators toggle auto-reply ON for specific conversations only.
-- **Custom Chat-Level Prompts**: Define custom instructions for specific contacts (e.g., *"Provide my media kit link https://example.com/kit and ask for their campaign budget"*).
-- **Settings Manager**: Dedicated settings dashboard to search, review, and toggle auto-reply across all conversation threads.
-- **24h Window & Policy Guard**: Strictly adheres to Meta's 24-hour messaging policy and encrypts access tokens during automated dispatch.
+### 2. 🎯 Generalized AI DM Intelligence & Lead Qualification
+- **Broad Intent Classification**: Accurately classifies `product_inquiry`, `service_inquiry`, `pricing_inquiry`, `availability_inquiry`, `delivery_inquiry`, `hot_lead`, `lead`, `customer`, `support_request`, `general_question`, `brand_deal`, `collaboration`, `fan`, `spam`, `scam`, and `abusive`.
+- **Commercial Lead Scoring (0-100)**: Evaluates `purchaseIntent` and `leadQuality` to automatically prioritize paying customers at the top of the inbox.
+- **Scam & Risk Gatekeeper**: Evaluates `riskLevel` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) and `scamProbability` (0-100%) for phishing links, OTP requests, and fake payment receipts.
 
-### 3. 🔄 Multi-Provider AI Auto-Failover Chain
+### 3. ⚡ Intelligent Multi-Stage Auto-Reply Safety Gate
+- **Granular Per-Conversation Control**: Auto-reply is toggled on a per-chat basis so you stay in total control.
+- **Multi-Stage Decision Model**:
+  - *Stage 1*: Check business profile automation mode (`smart`, `suggest_only`, `human_only`).
+  - *Stage 2*: Check 24-hour Meta messaging window.
+  - *Stage 3*: Multi-risk safety checks (blocks scams, spam, abusive messages, angry disputes, and missing business facts).
+  - *Stage 4*: Confidence threshold gating (`confidence >= 75%`).
+- **Strict Anti-Hallucination Grounding**: AI replies strictly quote prices, turnaround times, and policies defined in your `BusinessProfile` — never inventing arbitrary discounts or fake dates.
+
+### 4. 📥 3-Column Structured Inbox & Smart CRM (`/inbox`)
+- **Column 1 (Dedicated Filter Sidebar)**: Vertically stacks Connected Accounts and Smart Inbox Folders (`All`, `Unread`, `Important`, `Hot Leads`, `Leads & Inquiries`, `Customers`, `Questions`, `Support`, `Brand Deals / Collabs`, `Needs Human`, `Spam & Scams`) plus a bottom-left user Profile link.
+- **Column 2 (Squeezed Conversation List Panel)**: 300px min-width list showing contact avatar, 24h window radar dot, name & timestamp pushed to opposite ends, single-line ellipsis message preview (`white-space: nowrap`), and wrapped compact badges.
+- **Column 3 (Main Chat Workspace)**: Full-width workspace with AI DM Intelligence card & ✨ AI Summary banner, 24h window countdown, conversation message stream, and grounded AI reply composer.
+- **🧹 Clear Chat**: Clears message history for a conversation thread (`DELETE /api/conversations/:id/messages`) while keeping contact profile and automation rules.
+- **🗑️ Full Chat Delete**: Permanently removes the conversation and cascades related messages, analyses, and brand deal extractions (`DELETE /api/conversations/:id`).
+
+### 5. 👤 Profile Management & Account Deletion (`/profile`)
+- **Profile Navigation**: Instant access from the bottom-left corner of sidebars and top-right corner of header navigation bars.
+- **User & Security Management**: Edit user display name and securely change account password.
+- **Connected Accounts & Knowledge Base Snapshot**: Real-time view of connected Instagram accounts and AI business profile.
+- **⚠️ Danger Zone (Account Deletion)**: Full permanent account wipe (`DELETE /auth/account`) with confirmation modal requiring the user to type `DELETE`.
+
+### 6. 🔄 Multi-Provider AI Auto-Failover Chain
 - **Zero-Downtime AI Resilience**: Seamless failover chain across **Google Gemini**, **xAI Grok**, and **OpenAI**.
-- **Instant Shift on Errors**: If your primary AI provider hits a rate limit (HTTP 429), quota exhaustion, outage (HTTP 500/503), or invalid key, Codeback instantly shifts to the next configured provider.
-- **Graceful Keyword Degradation**: If all external AI providers are unavailable, the system degrades to zero-latency keyword heuristics without dropping messages or breaking webhooks.
-
-### 4. 🔥 Structured Brand Deal CRM Pipeline
-- **Automatic Deal Extraction**: Parses brand name, campaign scope, budget amount, deliverables, and deadlines from conversational text.
-- **Pipeline Stage Tracker**: Manage deals through `new`, `contacted`, `negotiating`, `confirmed`, `declined`, and `expired` stages.
-
-### 5. 🛡️ Enterprise-Grade Security & Tenant Isolation
-- **AES-256-GCM Encryption**: Instagram long-lived tokens are encrypted before disk storage.
-- **Independent Session Namespaces**: Dedicated admin session isolation prevents cookie collision between admin panel and regular user accounts.
-- **Socket.io Handshake Verification**: Socket room subscription validates session cookies to prevent unauthorized eavesdropping.
-- **Soft-Disconnect History Protection**: Disconnecting an Instagram account preserves historical messages and contacts. Reconnecting the same Instagram User ID seamlessly restores access.
-
-### 6. 📱 Mobile-Safe OAuth Flow
-- Uses a client-side hidden form submission mechanism (`navigateToInstagramAuth()`) to prevent iOS/Android Universal Link hijacking and keep OAuth consent inside the browser.
-
-### 7. 🎧 Superadmin Operations Hub (`/admin`)
-- Real-time KPI monitoring (active accounts, message throughput, AI stats, failover counts).
-- User management with instant account suspension and support inspection.
-- Direct account operations: Force token refresh with Meta Graph API and re-subscribe webhooks.
+- **Instant Shift on Errors**: Automatically routes requests to the next active provider if rate limits, quota limits, or network errors occur.
 
 ---
 
@@ -88,194 +88,34 @@ Built with a sleek, Cloudflare-inspired SaaS interface for maximum speed, clarit
 
 | Layer | Technologies |
 |---|---|
-| **Frontend** | Next.js 16 (App Router), React 19, Vanilla CSS Tokens, Axios, Socket.io-client |
-| **Backend API** | Node.js v24, Express v4.21, Socket.io v4.8, Cookie-Parser, Express-Session |
+| **Frontend** | Next.js 16 (App Router), React 19, Vanilla CSS Modules & Tokens, Axios, Socket.io-client |
+| **Backend API** | Node.js v24, Express v4.21, Socket.io v4.8, Bcryptjs, Cookie-Parser, Express-Session |
 | **Database & ORM** | SQLite (Local Dev) / PostgreSQL (Production), Prisma ORM v6.19 |
-| **AI Providers** | Google Gemini (`gemini-flash-latest`, `gemini-flash-lite-latest`), xAI Grok (`grok-3-mini`, `grok-2-latest`), OpenAI (`gpt-4o-mini`, `gpt-4o`) |
-| **Queue Engine** | In-Process Async Job Queue (Zero-Config) with BullMQ + Redis upgrade path |
+| **AI Providers** | Google Gemini (`gemini-flash-latest`), xAI Grok (`grok-3-mini`, `grok-2-latest`), OpenAI (`gpt-4o-mini`, `gpt-4o`) |
 | **Cryptography** | Node.js Crypto (AES-256-GCM, HMAC-SHA256) |
 
 ---
 
-## 🚀 Quick Start Guide
+## 🧪 Verification & Test Suites
 
-### Prerequisites
-- **Node.js** v18+ (Node.js v24 recommended)
-- **Meta Developer Account** with an Instagram Professional App configured
-- **ngrok** or Cloudflare Tunnel (for local webhook forwarding)
-
----
-
-### 1. Environment Setup
-
-Configure your environment files:
-
-#### `backend/.env`
-```env
-# Meta / Instagram App
-INSTAGRAM_APP_ID=your_meta_app_id
-INSTAGRAM_APP_SECRET=your_meta_app_secret
-WEBHOOK_VERIFY_TOKEN=your_webhook_verify_token
-
-# Database & Encryption
-DATABASE_URL="file:./codeback.db"
-SESSION_SECRET=your_64_char_session_secret
-TOKEN_ENCRYPTION_KEY=your_64_char_hex_encryption_key
-
-# URLs & Ports
-PORT=5000
-BACKEND_URL=http://localhost:5000
-FRONTEND_URL=http://localhost:3000
-REDIRECT_URI=http://localhost:5000/auth/instagram/callback
-
-# AI Provider Configuration (Auto-Failover Chain)
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_api_key
-GROK_API_KEY=your_xai_grok_api_key          # Optional: xai-...
-OPENAI_API_KEY=your_openai_api_key          # Optional: sk-...
-
-# Admin Credentials
-ADMIN_USERNAME=Admin
-ADMIN_PASSWORD=YourSecurePassword
-```
-
-#### `frontend/.env.local`
-```env
-NEXT_PUBLIC_BACKEND_URL=http://localhost:5000
-NEXT_PUBLIC_INSTAGRAM_APP_ID=your_meta_app_id
-NEXT_PUBLIC_REDIRECT_URI=http://localhost:5000/auth/instagram/callback
-```
-
----
-
-### 2. Database Initialization & Backend Launch
+The codebase includes automated test suites covering all critical functions:
 
 ```bash
-cd backend
-npm install
-npx prisma db push    # Sync database schema with SQLite
-npm run dev            # Start Express API server (Port 5000)
+# 1. Generalized SaaS Verification (Auth, Onboarding, 10-category intelligence, auto-reply gate, anti-hallucination)
+node scripts/test-general-saas.js    # 28/28 tests passed
+
+# 2. Clear Chat & Full Conversation Delete Verification
+node scripts/test-chat-delete.js     # 11/11 tests passed
+
+# 3. Session Isolation & Tenant Safety
+node scripts/test-isolation.js       # 29/29 tests passed
+
+# 4. AI Multi-Provider & Auto-Failover
+node scripts/test-ai-failover.js     # 10/10 tests passed
+
+# 5. Per-Conversation AI Auto-Reply Engine
+node scripts/test-auto-reply.js      # 11/11 tests passed
+
+# 6. Next.js Frontend Production Compilation
+cd ../frontend && npm run build     # 20/20 static pages compiled in 6.4s (0 errors)
 ```
-
----
-
-### 3. Frontend Launch
-
-```bash
-cd frontend
-npm install
-npm run dev            # Start Next.js App Router (Port 3000)
-```
-
-Visit `http://localhost:3000` to open the app.
-
----
-
-### 4. Webhook Setup (Development)
-
-Forward incoming Instagram webhooks to your local server:
-```bash
-ngrok http 5000
-```
-Set your Meta App's Instagram Webhook Callback URL to:
-`https://<your-ngrok-subdomain>.ngrok-free.app/webhooks/instagram` with your `WEBHOOK_VERIFY_TOKEN`.
-
----
-
-## 🧪 Comprehensive Automated Test Suites
-
-Codeback includes comprehensive standalone verification test suites:
-
-### 1. Tenant & Session Isolation Test Suite (29 Checks)
-```bash
-cd backend
-node scripts/test-isolation.js
-```
-*Validates auth boundaries (401s), admin/user session separation, multi-tenant account isolation, conversation ownership protection, and Socket.io room security.*
-
-### 2. Multi-Provider AI Auto-Failover Test Suite (10 Checks)
-```bash
-cd backend
-node scripts/test-ai-failover.js
-```
-*Validates DM classification, brand deal extraction, summary generation, reply drafting, real-time provider failover simulation (Grok ➔ Gemini), and graceful degradation.*
-
-### 3. Per-Conversation Auto-Reply Test Suite (11 Checks)
-```bash
-cd backend
-node scripts/test-auto-reply.js
-```
-*Validates chat-level auto-reply toggle, settings list queries, background execution, Instagram Graph API message dispatch, and database audit logging.*
-
-### 4. Full End-to-End System Test Suite
-```bash
-cd backend
-node scripts/e2e-test.js
-```
-
----
-
-## 📡 REST API Reference
-
-### Authentication & Accounts
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/auth/instagram` | Initiates Instagram OAuth flow |
-| `GET` | `/auth/instagram/callback` | Exchanges code for token & subscribes webhooks |
-| `GET` | `/auth/me` | Returns current authenticated user and accounts |
-| `POST` | `/auth/logout` | Clears user session cookie |
-| `GET` | `/api/accounts` | Lists connected Instagram accounts for user |
-| `DELETE` | `/api/accounts/:id` | Soft-disconnects IG account (`?purge=true` for permanent delete) |
-
-### Conversations, Messages & Auto-Reply
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/conversations` | Lists conversations with filters (`category`, `priority`, `unread`, `important`) |
-| `GET` | `/api/conversations/:id/messages` | Gets messages for a thread and marks conversation as read |
-| `PATCH` | `/api/conversations/:id/auto-reply` | **Toggles AI Auto-Reply & custom prompt for a specific chat** |
-| `GET` | `/api/conversations/:id/ai-analysis` | Fetches AI analysis, summary, and brand deal data |
-| `POST` | `/api/conversations/:id/generate-reply` | Generates AI reply draft on-demand |
-| `POST` | `/api/conversations/:id/reply` | Sends message via official Instagram Graph API |
-
-### Settings & Automation
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/settings/ai` | Returns creator AI preferences and tone |
-| `PUT` | `/api/settings/ai` | Updates creator priorities, tone, and global instructions |
-| `GET` | `/api/settings/auto-reply-chats` | **Lists all conversations with per-chat auto-reply statuses** |
-
-### Brand Deals & Notifications
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/brand-deals` | Lists extracted brand deals |
-| `PATCH` | `/api/brand-deals/:id` | Updates brand deal pipeline status |
-| `GET` | `/api/notifications` | Lists notifications and unread alert count |
-| `POST` | `/api/notifications/:id/read` | Marks a notification as read |
-
-### Superadmin Portal (`/api/admin`)
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/admin/login` | Superadmin authentication |
-| `GET` | `/api/admin/me` | Validates admin session status |
-| `GET` | `/api/admin/stats` | Returns platform KPIs and AI health stats |
-| `GET` | `/api/admin/users` | Paginated user management list |
-| `POST` | `/api/admin/users/:id/suspend` | Toggles account suspension |
-| `POST` | `/api/admin/accounts/:id/refresh-token`| Forces long-lived token refresh with Meta API |
-| `POST` | `/api/admin/accounts/:id/resubscribe-webhook` | Re-subscribes webhooks for account |
-| `POST` | `/api/admin/logout` | Clears admin session |
-
----
-
-## 🔒 Security Principles
-
-1. **Strict Human-In-The-Loop Default**: Global auto-reply is off by default; outgoing replies require explicit creator action unless selectively enabled per chat.
-2. **AES-256-GCM Token Encryption**: Long-lived Meta access tokens are encrypted with authenticated cipher integrity.
-3. **HMAC-SHA256 Signature Verification**: Every incoming webhook payload is verified against `INSTAGRAM_APP_SECRET`.
-4. **Tenant-Scoped Data Access**: Every database query verifies `instagramAccount: { userId: req.userId }`.
-5. **Separated Admin Session State**: Admin authentication uses dedicated session fields to prevent user session hijacking.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.

@@ -1,0 +1,215 @@
+/* Onboarding Wizard Styles */
+.onboardingLayout {
+  min-height: 100vh;
+  background: var(--bg-surface-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+}
+
+.wizardContainer {
+  width: 100%;
+  max-width: 760px;
+}
+
+.wizardHeader {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.logoBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.wizardTitle {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+
+.wizardSubtitle {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+/* Step Progress Indicator */
+.stepProgress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 24px 0 32px;
+}
+
+.stepDot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.stepNumber {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+}
+
+.stepActive {
+  color: var(--color-primary);
+}
+
+.stepActive .stepNumber {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 10px rgba(124, 58, 237, 0.3);
+}
+
+.stepCompleted {
+  color: #10b981;
+}
+
+.stepCompleted .stepNumber {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border-color: #10b981;
+}
+
+.stepDivider {
+  width: 36px;
+  height: 2px;
+  background: var(--border-default);
+}
+
+/* Wizard Card */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  box-shadow: var(--shadow-sm);
+}
+
+.stepTitle {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.stepDesc {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+/* Category Selection Grid */
+.categoryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.categoryCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 16px 12px;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.categoryCard:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+.categoryCardActive {
+  background: rgba(124, 58, 237, 0.08) !important;
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.categoryIcon {
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.categoryLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.formGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.formRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.formLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.formHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: -2px;
+}
+
+/* Actions */
+.wizardActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.errorBanner {
+  padding: 10px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-md);
+  color: var(--color-error);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  margin-bottom: 16px;
+}

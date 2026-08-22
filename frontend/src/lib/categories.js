@@ -1,36 +1,51 @@
 /**
  * Shared, extensible category + priority metadata for the inbox UI.
  *
- * The backend can introduce new categories at any time (see
- * backend/src/lib/constants.js) — this module never assumes the list is
- * fixed. getCategoryMeta() always returns a safe, generic fallback for any
- * category id it doesn't recognize instead of breaking the UI.
- *
- * Legacy note: conversations created before the AI rewrite may still carry
- * old Title-Case category values (e.g. "Brand/Collab"). LEGACY_ALIASES maps
- * them onto the same visual treatment as their canonical replacement so old
- * and new data both render correctly.
+ * Supports Creators, Video/Photo Editors, Product Sellers, Freelancers, Local Businesses,
+ * Coaches, E-Commerce, Agencies, and more.
  */
 
 export const CATEGORY_META = {
+  // Sales & Leads
+  hot_lead: { label: 'Hot Lead', icon: '🔥', badgeClass: 'badgeBrandCollab' },
+  lead: { label: 'Lead', icon: '🎯', badgeClass: 'badgeBusiness' },
+  product_inquiry: { label: 'Product Inquiry', icon: '📦', badgeClass: 'badgeBusiness' },
+  service_inquiry: { label: 'Service Inquiry', icon: '💼', badgeClass: 'badgeBusiness' },
+  pricing_inquiry: { label: 'Pricing Question', icon: '🏷️', badgeClass: 'badgeBusiness' },
+  availability_inquiry: { label: 'Availability', icon: '📅', badgeClass: 'badgeQuestion' },
+  delivery_inquiry: { label: 'Shipping / Delivery', icon: '🚚', badgeClass: 'badgeQuestion' },
+
+  // Relationship & Support
+  customer: { label: 'Customer', icon: '💰', badgeClass: 'badgeBusiness' },
+  support_request: { label: 'Support', icon: '🎧', badgeClass: 'badgeQuestion' },
+  general_question: { label: 'Question', icon: '❓', badgeClass: 'badgeQuestion' },
+
+  // Creator & Partnerships
   brand_deal: { label: 'Brand Deal', icon: '🔥', badgeClass: 'badgeBrandCollab' },
   collaboration: { label: 'Collaboration', icon: '🤝', badgeClass: 'badgeBusiness' },
-  customer: { label: 'Customer', icon: '💰', badgeClass: 'badgeBusiness' },
-  business_inquiry: { label: 'Business', icon: '💼', badgeClass: 'badgeBusiness' },
-  question: { label: 'Question', icon: '❓', badgeClass: 'badgeQuestion' },
-  fan: { label: 'Fan', icon: '❤️', badgeClass: 'badgeFan' },
-  support: { label: 'Support', icon: '🎧', badgeClass: 'badgeQuestion' },
+
+  // Social & Non-commercial
+  fan: { label: 'Fan / Social', icon: '❤️', badgeClass: 'badgeFan' },
+
+  // Security & Negative
   spam: { label: 'Spam', icon: '🚫', badgeClass: 'badgeSpam' },
+  scam: { label: '🚨 Potential Scam', icon: '🚨', badgeClass: 'badgeSpam' },
+  abusive: { label: 'Abusive', icon: '⚠️', badgeClass: 'badgeSpam' },
+
+  // Fallback
   other: { label: 'Other', icon: '💬', badgeClass: 'badgeOther' },
 };
 
 const LEGACY_ALIASES = {
   'Brand/Collab': 'brand_deal',
-  Business: 'business_inquiry',
-  Question: 'question',
+  Business: 'service_inquiry',
+  business_inquiry: 'service_inquiry',
+  Question: 'general_question',
+  question: 'general_question',
   Fan: 'fan',
   Spam: 'spam',
   Other: 'other',
+  support: 'support_request',
 };
 
 const DEFAULT_META = { label: 'Other', icon: '💬', badgeClass: 'badgeOther' };
@@ -48,18 +63,19 @@ export function getCategoryMeta(category) {
   return CATEGORY_META[id] || DEFAULT_META;
 }
 
-// Filter tabs shown in the inbox sidebar. "All"/"Unread"/"Important" are
-// pseudo-filters handled separately from real categories.
+// Filter tabs shown in the inbox sidebar
 export const INBOX_FILTERS = [
   { id: 'all', label: 'All', icon: '📥' },
   { id: 'unread', label: 'Unread', icon: '●' },
   { id: 'important', label: 'Important', icon: '🔥' },
-  { id: 'brand_deal', label: 'Brand Deals', icon: '🔥' },
-  { id: 'collaboration', label: 'Collabs', icon: '🤝' },
-  { id: 'customer', label: 'Customers', icon: '💰' },
-  { id: 'fan', label: 'Fans', icon: '❤️' },
-  { id: 'question', label: 'Questions', icon: '❓' },
-  { id: 'spam', label: 'Spam', icon: '🚫' },
+  { id: 'hot_leads', label: 'Hot Leads', icon: '🔥' },
+  { id: 'leads', label: 'Leads & Inquiries', icon: '🎯' },
+  { id: 'customers', label: 'Customers', icon: '💰' },
+  { id: 'questions', label: 'Questions', icon: '❓' },
+  { id: 'support', label: 'Support', icon: '🎧' },
+  { id: 'brand_deal', label: 'Brand Deals / Collabs', icon: '🤝' },
+  { id: 'needs_human', label: 'Needs Human', icon: '👤' },
+  { id: 'spam', label: 'Spam & Scams', icon: '🚫' },
 ];
 
 export const PRIORITY_META = {
@@ -71,4 +87,16 @@ export const PRIORITY_META = {
 
 export function getPriorityMeta(priority) {
   return PRIORITY_META[priority] || PRIORITY_META.normal;
+}
+
+export const RISK_META = {
+  LOW: { label: 'Low Risk', badgeClass: 'riskLow', color: '#10b981' },
+  MEDIUM: { label: 'Medium Risk', badgeClass: 'riskMedium', color: '#f59e0b' },
+  HIGH: { label: 'High Risk', badgeClass: 'riskHigh', color: '#ef4444' },
+  CRITICAL: { label: 'Critical Risk', badgeClass: 'riskCritical', color: '#b91c1c' },
+};
+
+export function getRiskMeta(riskLevel) {
+  const upper = String(riskLevel || 'LOW').toUpperCase();
+  return RISK_META[upper] || RISK_META.LOW;
 }
