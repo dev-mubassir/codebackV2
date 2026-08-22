@@ -362,11 +362,39 @@
 }
 
 @media (max-width: 480px) {
+  .pageTitle {
+    font-size: var(--text-xl);
+  }
+
   .metricsGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .metricCard {
+    padding: 14px 12px;
+    gap: 6px;
+  }
+
+  .metricValue {
+    font-size: var(--text-xl);
+  }
+
+  .metricLabel {
+    font-size: 11px;
   }
 
   .skeletonCards {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .awayCard {
+    padding: 16px;
+  }
+
+  .card {
+    padding: 16px;
   }
 }

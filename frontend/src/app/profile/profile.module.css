@@ -415,8 +415,46 @@
 }
 
 @media (max-width: 640px) {
+  .container {
+    padding: 16px 12px 48px;
+    gap: 20px;
+  }
+
   .profileHero {
     flex-direction: column;
     align-items: flex-start;
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .dangerCard {
+    padding: 16px;
+  }
+
+  .modalCard {
+    padding: 20px 16px;
+    max-width: 100%;
+  }
+
+  .accountCard {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .accountCard button {
+    width: 100%;
+  }
+
+  .formActions button {
+    width: 100%;
+  }
+
+  .dangerActions button {
+    width: 100%;
   }
 }

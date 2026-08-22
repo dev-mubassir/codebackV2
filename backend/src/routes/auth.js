@@ -181,6 +181,25 @@ router.post('/login', async (req, res) => {
 });
 
 // ============================================
+// POST /auth/logout
+// End session & clear cookie
+// ============================================
+router.post('/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('[Auth] Error destroying session on logout:', err);
+      }
+      res.clearCookie('codeback.sid');
+      return res.json({ message: 'Logged out successfully' });
+    });
+  } else {
+    res.clearCookie('codeback.sid');
+    return res.json({ message: 'Logged out successfully' });
+  }
+});
+
+// ============================================
 // GET /auth/instagram
 // Redirect user to Instagram OAuth consent screen
 // ============================================

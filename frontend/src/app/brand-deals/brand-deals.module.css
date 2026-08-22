@@ -173,4 +173,22 @@
   .dealsGrid {
     grid-template-columns: 1fr;
   }
+
+  .dealCard {
+    padding: 16px;
+  }
+
+  .dealFieldsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .dealFooter {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .dealFooter select {
+    width: 100%;
+  }
 }

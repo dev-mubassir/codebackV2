@@ -107,3 +107,14 @@
 .authLink:hover {
   text-decoration: underline;
 }
+
+@media (max-width: 480px) {
+  .authContainer {
+    padding: 16px 12px;
+  }
+
+  .authCard {
+    padding: 24px 16px;
+    box-shadow: none;
+  }
+}

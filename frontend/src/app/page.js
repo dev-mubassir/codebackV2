@@ -38,17 +38,16 @@ export default function LandingPage() {
       <nav className={styles.topNav}>
         <div className={styles.topNavBrand}>
           <div className={styles.topNavLogo}>
-            <span style={{ fontSize: '20px' }}>⚡</span>
+            <img src="/logo.png" alt="Codeback Logo" className={styles.brandLogoImg} />
           </div>
           <span className={styles.topNavName}>Codeback</span>
         </div>
         <div className={styles.topNavLinks}>
           <a href="#features" className={styles.topNavLink}>Features</a>
-          <a href="#how-it-works" className={styles.topNavLink}>How it Works</a>
           <Link href="/login" className="btn btn-secondary btn-sm" id="landing-login-btn">
             Sign In
           </Link>
-          <Link href="/register" className={`btn btn-primary ${styles.topNavCta}`} id="landing-register-btn">
+          <Link href="/register" className={`btn btn-primary btn-sm ${styles.topNavCta}`} id="landing-register-btn">
             Start Free Trial →
           </Link>
         </div>
@@ -69,7 +68,7 @@ export default function LandingPage() {
             For Video Editors, Product Sellers, Agencies, Freelancers & Creators. Codeback grounds AI in your real business facts to qualify hot leads, block scams, and safely auto-reply 24/7.
           </p>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginTop: '20px' }}>
+          <div className={styles.heroCtas}>
             <Link href="/register" className="btn btn-primary btn-lg" id="hero-get-started-btn">
               Get Started for Free →
             </Link>
@@ -92,6 +91,47 @@ export default function LandingPage() {
             <div className={styles.heroStat}>
               <span className={styles.statValue}>24/7</span>
               <span className={styles.statLabel}>Intelligent Safe Auto-Reply</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Hero Interactive Mockup Preview */}
+        <div className={styles.mockupWrapper}>
+          <div className={styles.mockupHeader}>
+            <span className={styles.mockupDot} style={{ background: '#ef4444' }} />
+            <span className={styles.mockupDot} style={{ background: '#f59e0b' }} />
+            <span className={styles.mockupDot} style={{ background: '#10b981' }} />
+            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: '8px', fontWeight: 600 }}>
+              Codeback AI DM Workspace
+            </span>
+          </div>
+          <div className={styles.mockupBody}>
+            <div className={styles.mockupList}>
+              <div className={`${styles.mockupListItem} ${styles.mockupListItemActive}`}>
+                <div className={styles.mockupAvatar}>S</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'left' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>@sarah_creator</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>"Need 10 reels edited..."</span>
+                </div>
+              </div>
+              <div className={styles.mockupListItem}>
+                <div className={styles.mockupAvatar} style={{ background: '#10b981' }}>R</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'left' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>@rahul_agency</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>"What is your pricing?"</span>
+                </div>
+              </div>
+            </div>
+            <div className={styles.mockupChat}>
+              <div className={styles.mockupAiSummary}>
+                ✨ AI Summary: High-intent lead inquiring about 10-Reel monthly bundle pricing.
+              </div>
+              <div className={styles.mockupMsgIn}>
+                Hey! Love your edits. How much for a 10-Reel monthly package with 48h turnaround?
+              </div>
+              <div className={styles.mockupMsgOut}>
+                Hey Sarah! Our 10-Reel Growth Pack is ₹7,500 with a standard 48-hour delivery and 2 rounds of revisions included. Would you like to share your footage link?
+              </div>
             </div>
           </div>
         </div>
@@ -159,7 +199,9 @@ export default function LandingPage() {
       <footer className={styles.footer}>
         <div className={styles.footerContent}>
           <div className={styles.footerBrand}>
-            <div className={styles.footerLogo}>⚡</div>
+            <div className={styles.footerLogo}>
+              <img src="/logo.png" alt="Codeback Logo" className={styles.footerLogoImg} />
+            </div>
             <span className={styles.footerName}>Codeback</span>
           </div>
           <p className={styles.footerCopy}>

@@ -127,10 +127,10 @@ export default function DashboardPage() {
             <div className={styles.metricValue}>{summary.attentionQueueCount}</div>
             <div className={styles.metricLabel}>Need Attention</div>
           </button>
-          <button className={styles.metricCard} onClick={() => router.push('/brand-deals')}>
+          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=hot_leads')}>
             <div className={`${styles.metricIconWrap} ${styles.metricIconDeals}`}>🔥</div>
-            <div className={styles.metricValue}>{breakdown.brandDeals || 0}</div>
-            <div className={styles.metricLabel}>Brand Deals</div>
+            <div className={styles.metricValue}>{breakdown.hotLeads || breakdown.brandDeals || 0}</div>
+            <div className={styles.metricLabel}>Hot Leads</div>
           </button>
           <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=collaboration')}>
             <div className={`${styles.metricIconWrap} ${styles.metricIconCollabs}`}>🤝</div>

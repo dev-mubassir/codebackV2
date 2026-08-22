@@ -39,6 +39,7 @@ function InboxPageContent() {
   const [sendError, setSendError] = useState('');
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [aiSummaryHidden, setAiSummaryHidden] = useState(false);
   const [editingAutoReply, setEditingAutoReply] = useState(false);
   const [customPromptText, setCustomPromptText] = useState('');
   const [showClearModal, setShowClearModal] = useState(false);
@@ -307,10 +308,11 @@ function InboxPageContent() {
   // ---- Logout ----
   async function handleLogout() {
     try {
-      await logout();
-      router.push('/');
+      await logout().catch(() => {});
+      router.push('/login');
     } catch (err) {
       console.error('Logout failed:', err);
+      router.push('/login');
     }
   }
 
@@ -440,9 +442,6 @@ function InboxPageContent() {
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/dashboard')}>
             📊 Dashboard
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/brand-deals')}>
-            🔥 Brand Deals
-          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/notifications')} style={{ position: 'relative' }}>
             🔔 Notifications
             {notifUnreadCount > 0 && <span className={styles.bellBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>}
@@ -542,6 +541,37 @@ function InboxPageContent() {
         {/* Column 2: Squeezed Conversation List Panel                */}
         {/* ========================================================= */}
         <section className={styles.convPanel}>
+          {/* Mobile Filter Bar (Visible on mobile/tablets where sidebar is hidden) */}
+          <div className={styles.mobileFilterBar}>
+            <div className={styles.mobileFilterScroll}>
+              <button
+                className={`${styles.mobileFilterChip} ${selectedAccountId === '' ? styles.mobileFilterChipActive : ''}`}
+                onClick={() => handleAccountChange('')}
+              >
+                🌐 All ({conversations.length})
+              </button>
+              {accounts.map(acc => (
+                <button
+                  key={acc.id}
+                  className={`${styles.mobileFilterChip} ${selectedAccountId === acc.id ? styles.mobileFilterChipActive : ''}`}
+                  onClick={() => handleAccountChange(acc.id)}
+                >
+                  📸 @{acc.igUsername || 'account'}
+                </button>
+              ))}
+              <div className={styles.mobileChipDivider} />
+              {INBOX_FILTERS.map(f => (
+                <button
+                  key={f.id}
+                  className={`${styles.mobileFilterChip} ${selectedFilter === f.id ? styles.mobileFilterChipActive : ''}`}
+                  onClick={() => handleFilterChange(f.id)}
+                >
+                  <span>{f.icon}</span> {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className={styles.convPanelHeader}>
             <h3 className={styles.convPanelTitle}>
               Conversations
@@ -814,56 +844,85 @@ function InboxPageContent() {
 
               {/* AI Customer Intelligence & Risk Box */}
               {(analysis?.latestAnalysis || activeConvData?.aiExplanation || activeConvData?.summary || analysis?.summary?.summary) && (
-                <div className={styles.intelligenceCard}>
-                  <div className={styles.intelligenceHeader}>
-                    <div className={styles.intelligenceTitleRow}>
-                      <span className={styles.intelligenceBadge}>⚡ AI DM Intelligence</span>
+                aiSummaryHidden ? (
+                  <div className={styles.intelligenceCardCollapsed}>
+                    <div className={styles.collapsedLeft}>
+                      <span className={styles.intelligenceBadge}>⚡ AI Summary</span>
                       {activeConvData?.intent && (
-                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        <span className={styles.collapsedIntent}>
                           Intent: <strong>{activeConvData.intent}</strong>
                         </span>
                       )}
-                      {activeConvData?.customerType && activeConvData.customerType !== 'unknown' && (
-                        <span className="badge" style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(124, 58, 237, 0.08)', color: 'var(--color-primary)' }}>
-                          {activeConvData.customerType.replace('_', ' ')}
-                        </span>
-                      )}
                     </div>
-                    {activeConvData?.riskLevel && (
-                      <span className={activeConvData.riskLevel === 'CRITICAL' ? styles.riskBadgeCrit : activeConvData.riskLevel === 'HIGH' ? styles.riskBadgeHigh : styles.riskBadgeLow}>
-                        🛡️ Risk: {activeConvData.riskLevel}
-                      </span>
+                    <button
+                      className={styles.toggleSummaryBtn}
+                      onClick={() => setAiSummaryHidden(false)}
+                      title="Expand AI Summary and Lead Metrics"
+                    >
+                      👁️ Show AI Summary
+                    </button>
+                  </div>
+                ) : (
+                  <div className={styles.intelligenceCard}>
+                    <div className={styles.intelligenceHeader}>
+                      <div className={styles.intelligenceTitleRow}>
+                        <span className={styles.intelligenceBadge}>⚡ AI DM Intelligence</span>
+                        {activeConvData?.intent && (
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            Intent: <strong>{activeConvData.intent}</strong>
+                          </span>
+                        )}
+                        {activeConvData?.customerType && activeConvData.customerType !== 'unknown' && (
+                          <span className="badge" style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(124, 58, 237, 0.08)', color: 'var(--color-primary)' }}>
+                            {activeConvData.customerType.replace('_', ' ')}
+                          </span>
+                        )}
+                      </div>
+                      <div className={styles.intelligenceHeaderRight}>
+                        {activeConvData?.riskLevel && (
+                          <span className={activeConvData.riskLevel === 'CRITICAL' ? styles.riskBadgeCrit : activeConvData.riskLevel === 'HIGH' ? styles.riskBadgeHigh : styles.riskBadgeLow}>
+                            🛡️ Risk: {activeConvData.riskLevel}
+                          </span>
+                        )}
+                        <button
+                          className={styles.toggleSummaryBtn}
+                          onClick={() => setAiSummaryHidden(true)}
+                          title="Hide AI Summary for full chat view"
+                        >
+                          👁️ Hide
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className={styles.intelligenceMetrics}>
+                      <div className={styles.metricItem}>
+                        <span className={styles.metricLabel}>Lead Quality</span>
+                        <span className={styles.metricValue}>{activeConvData?.leadQuality ?? analysis?.latestAnalysis?.leadQuality ?? 0}/100</span>
+                      </div>
+                      <div className={styles.metricItem}>
+                        <span className={styles.metricLabel}>Purchase Intent</span>
+                        <span className={styles.metricValue}>{activeConvData?.purchaseIntent ?? analysis?.latestAnalysis?.purchaseIntent ?? 0}/100</span>
+                      </div>
+                      <div className={styles.metricItem}>
+                        <span className={styles.metricLabel}>Scam Probability</span>
+                        <span className={styles.metricValue}>{activeConvData?.scamProbability ?? analysis?.latestAnalysis?.scamProbability ?? 0}%</span>
+                      </div>
+                      <div className={styles.metricItem}>
+                        <span className={styles.metricLabel}>Recommended Action</span>
+                        <span className={styles.metricValue} style={{ color: 'var(--color-primary)' }}>
+                          {activeConvData?.recommendedAction ?? analysis?.latestAnalysis?.recommendedAction ?? 'REVIEW'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {(analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason) && (
+                      <div className={styles.recommendationBanner}>
+                        <span>✨</span>
+                        <span><strong>AI Summary:</strong> {analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason}</span>
+                      </div>
                     )}
                   </div>
-
-                  <div className={styles.intelligenceMetrics}>
-                    <div className={styles.metricItem}>
-                      <span className={styles.metricLabel}>Lead Quality</span>
-                      <span className={styles.metricValue}>{activeConvData?.leadQuality ?? analysis?.latestAnalysis?.leadQuality ?? 0}/100</span>
-                    </div>
-                    <div className={styles.metricItem}>
-                      <span className={styles.metricLabel}>Purchase Intent</span>
-                      <span className={styles.metricValue}>{activeConvData?.purchaseIntent ?? analysis?.latestAnalysis?.purchaseIntent ?? 0}/100</span>
-                    </div>
-                    <div className={styles.metricItem}>
-                      <span className={styles.metricLabel}>Scam Probability</span>
-                      <span className={styles.metricValue}>{activeConvData?.scamProbability ?? analysis?.latestAnalysis?.scamProbability ?? 0}%</span>
-                    </div>
-                    <div className={styles.metricItem}>
-                      <span className={styles.metricLabel}>Recommended Action</span>
-                      <span className={styles.metricValue} style={{ color: 'var(--color-primary)' }}>
-                        {activeConvData?.recommendedAction ?? analysis?.latestAnalysis?.recommendedAction ?? 'REVIEW'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {(analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason) && (
-                    <div className={styles.recommendationBanner}>
-                      <span>✨</span>
-                      <span><strong>AI Summary:</strong> {analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason}</span>
-                    </div>
-                  )}
-                </div>
+                )
               )}
 
               {/* Brand Deal Panel */}

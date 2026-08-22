@@ -11,7 +11,6 @@ const NAV_ITEMS = [
   ]},
   { section: 'Messaging', items: [
     { label: 'Inbox', path: '/inbox', icon: '📥' },
-    { label: 'Brand Deals', path: '/brand-deals', icon: '🔥' },
     { label: 'Notifications', path: '/notifications', icon: '🔔' },
   ]},
   { section: 'Configuration', items: [
@@ -38,7 +37,7 @@ export default function AppShell({ children, activeRoute }) {
           .then((d) => setNotifCount(d.unreadCount || 0))
           .catch(() => {});
       } catch {
-        router.push('/');
+        router.push('/login');
       } finally {
         setLoading(false);
       }
@@ -48,10 +47,11 @@ export default function AppShell({ children, activeRoute }) {
 
   async function handleLogout() {
     try {
-      await logout();
-      router.push('/');
+      await logout().catch(() => {});
+      router.push('/login');
     } catch (err) {
       console.error('Logout failed:', err);
+      router.push('/login');
     }
   }
 

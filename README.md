@@ -47,7 +47,7 @@ Codeback syncs incoming Direct Messages via signature-verified Meta webhooks, qu
 ## ✨ Core SaaS Features
 
 ### 1. 🔐 Email & Password Authentication + Dynamic Onboarding
-- **Independent Application Auth**: Standard signup and login with `bcryptjs` password hashing and secure session cookies (`codeback.sid`).
+- **Independent Application Auth**: Standard signup, login, and robust session termination (`POST /auth/logout`) with `bcryptjs` password hashing and secure session cookies (`codeback.sid`).
 - **Interactive Onboarding Wizard (`/onboarding`)**: 3-step setup with pre-filled, production-ready knowledge templates for 12 business categories (Video Editor, Used Devices, Clothing Boutique, Freelancer, Agency, Coach, Creator, Photo Editor, Graphic Designer, Product Seller, Local Business, E-commerce), plus a clean custom template for `other`.
 - **Persistent Business Profile (`BusinessProfile`)**: Ground-truth context storing business name, categories, products/services, pricing rates, turnaround times, shipping coverage, payment methods, FAQs, and tone.
 
@@ -66,9 +66,9 @@ Codeback syncs incoming Direct Messages via signature-verified Meta webhooks, qu
 - **Strict Anti-Hallucination Grounding**: AI replies strictly quote prices, turnaround times, and policies defined in your `BusinessProfile` — never inventing arbitrary discounts or fake dates.
 
 ### 4. 📥 3-Column Structured Inbox & Smart CRM (`/inbox`)
-- **Column 1 (Dedicated Filter Sidebar)**: Vertically stacks Connected Accounts and Smart Inbox Folders (`All`, `Unread`, `Important`, `Hot Leads`, `Leads & Inquiries`, `Customers`, `Questions`, `Support`, `Brand Deals / Collabs`, `Needs Human`, `Spam & Scams`) plus a bottom-left user Profile link.
+- **Column 1 (Dedicated Filter Sidebar)**: Vertically stacks Connected Accounts and Smart Inbox Folders (`All`, `Unread`, `Important`, `Hot Leads`, `Leads & Inquiries`, `Customers`, `Questions`, `Support`, `Needs Human`, `Spam & Scams`) plus a bottom-left user Profile link.
 - **Column 2 (Squeezed Conversation List Panel)**: 300px min-width list showing contact avatar, 24h window radar dot, name & timestamp pushed to opposite ends, single-line ellipsis message preview (`white-space: nowrap`), and wrapped compact badges.
-- **Column 3 (Main Chat Workspace)**: Full-width workspace with AI DM Intelligence card & ✨ AI Summary banner, 24h window countdown, conversation message stream, and grounded AI reply composer.
+- **Column 3 (Main Chat Workspace)**: Full-width workspace with collapsible `⚡ AI DM Intelligence` card & `✨ AI Summary` (with `👁️ Hide` / `👁️ Show` toggle for clear chat visibility), 24h window countdown, conversation message stream, and grounded AI reply composer.
 - **🧹 Clear Chat**: Clears message history for a conversation thread (`DELETE /api/conversations/:id/messages`) while keeping contact profile and automation rules.
 - **🗑️ Full Chat Delete**: Permanently removes the conversation and cascades related messages, analyses, and brand deal extractions (`DELETE /api/conversations/:id`).
 
@@ -101,7 +101,7 @@ Codeback syncs incoming Direct Messages via signature-verified Meta webhooks, qu
 The codebase includes automated test suites covering all critical functions:
 
 ```bash
-# 1. Generalized SaaS Verification (Auth, Onboarding, 10-category intelligence, auto-reply gate, anti-hallucination)
+# 1. Generalized SaaS Verification (Auth, Logout, Onboarding, 10-category intelligence, auto-reply gate, anti-hallucination)
 node scripts/test-general-saas.js    # 28/28 tests passed
 
 # 2. Clear Chat & Full Conversation Delete Verification

@@ -10,7 +10,7 @@ The platform serves **any Instagram business or creator**:
 - Freelancers & Solopreneurs
 - Agencies & Studios
 - Coaches & Consultants
-- Content Creators & Influencers (with full Brand Deal pipeline support preserved)
+- Content Creators & Influencers
 
 ---
 
@@ -39,38 +39,32 @@ The platform serves **any Instagram business or creator**:
 ### 3-Column Structured Inbox (`/inbox`)
 1. **Column 1 (`.filterSidebar`)**: Dedicated vertical sidebar containing:
    - Vertically stacked Connected Accounts list (`🌐 All Accounts`, `📸 @username`).
-   - Vertically stacked Smart Folders (`All`, `Unread`, `Important`, `Hot Leads`, `Leads & Inquiries`, `Customers`, `Questions`, `Support`, `Brand Deals / Collabs`, `Needs Human`, `Spam & Scams`).
+   - Vertically stacked Smart Folders (`All`, `Unread`, `Important`, `Hot Leads`, `Leads & Inquiries`, `Customers`, `Questions`, `Support`, `Needs Human`, `Spam & Scams`).
    - Bottom-left user profile card link (`.filterSidebarFooter` / `sidebarProfileBtn`) pointing to `/profile`.
 2. **Column 2 (`.convPanel`)**: Squeezed conversation list (300px min-width) containing:
+   - Mobile Filter Bar (`.mobileFilterBar`) for screens `< 768px`.
    - Header with count badge.
    - Conversation cards with contact avatar, 24h window dot, top row with name and time pushed to opposite ends (`justify-content: space-between`), single-line ellipsis preview (`white-space: nowrap`), and wrapped compact badges (`flex-wrap: wrap; gap: 4px`).
-3. **Column 3 (`.chatPanel`)**: Expansive chat workspace with AI DM Intelligence card, `✨ AI Summary` callout, 24h window countdown, message stream, `🧹 Clear Chat`, `🗑️ Delete Chat`, and grounded AI composer.
+3. **Column 3 (`.chatPanel`)**: Expansive chat workspace with:
+   - Collapsible `⚡ AI DM Intelligence` card & `✨ AI Summary` with `👁️ Hide` / `👁️ Show AI Summary` toggle button for unobstructed vision of the full conversation.
+   - 24h window countdown.
+   - Message stream and grounded AI composer.
+   - `🧹 Clear Chat` and `🗑️ Delete Chat` buttons.
+
+### Navigation & Authentication
+- **App Navigation**: Streamlined to Dashboard, Inbox, Notifications, Settings, and Profile.
+- **Session Termination**: `POST /auth/logout` destroys server session, clears `codeback.sid` cookie, and reliably redirects users to `/login`.
 
 ### Profile Page & Account Deletion (`/profile`)
 - **Navigation Access**: Left-down corner in sidebars and right-top corner in global header actions.
 - **Features**: User details, display name update, password update, connected Instagram accounts overview, and AI knowledge base summary.
 - **Danger Zone**: Full account deletion (`DELETE /auth/account`) with confirmation modal requiring typing `DELETE`.
 
-### Onboarding Flow (`/onboarding`)
-- **3-Step Setup**: Basic Identity (Step 1), Business Category Selection (Step 2), Train AI Knowledge Base (Step 3).
-- **Default Knowledge Templates**: Pre-filled with realistic, high-converting defaults for all 12 categories (`video_editor`, `photo_editor`, `graphic_designer`, `product_seller`, `used_devices`, `clothing`, `freelancer`, `agency`, `coach_consultant`, `creator`, `local_business`, `ecommerce`), with `other` left clean for custom input.
-- **One-Click Reset**: `↺ Reset Defaults` button to restore standard templates anytime.
-
 ---
 
-## 4. Intelligent Multi-Stage Auto-Reply Safety Decision Model
-The auto-reply system follows strict safety rules:
-1. **Per-Conversation Scope**: Only active for conversations where `autoReplyEnabled === true`.
-2. **Mode Check**: Skipped if `businessProfile.autoReplyMode === 'human_only'`.
-3. **Window Check**: Must be within Meta's 24-hour messaging window.
-4. **Risk Gate**: Blocked if `riskLevel` is `HIGH` or `CRITICAL`, `scamProbability >= 30%`, or message is spam/scam/abusive.
-5. **Anti-Hallucination Grounding**: AI replies strictly quote prices, turnaround times, and policies defined in `BusinessProfile`.
-
----
-
-## 5. Test Suites & Verification Results
+## 4. Test Suites & Verification Results
 All test suites pass 100%:
-- `backend/scripts/test-general-saas.js`: 28/28 passed (Auth, Onboarding, 10-category intelligence, auto-reply gate, anti-hallucination)
+- `backend/scripts/test-general-saas.js`: 28/28 passed (Auth, Logout, Onboarding, 10-category intelligence, auto-reply gate, anti-hallucination)
 - `backend/scripts/test-chat-delete.js`: 11/11 passed (Clear chat & full conversation delete with tenant isolation)
 - `backend/scripts/test-isolation.js`: 29/29 passed (Tenant data isolation & session boundary)
 - `backend/scripts/test-ai-failover.js`: 10/10 passed (Multi-provider failover chain)
@@ -79,7 +73,7 @@ All test suites pass 100%:
 
 ---
 
-## 6. Important Rules & Directives
-- **DO NOT run Git commands** (`git commit`, `git push`, `git checkout`, etc.) unless the user explicitly asks to commit/push.
+## 5. Important Rules & Directives
+- **DO NOT run Git commands** (`git commit`, `git push`, etc.) unless the user explicitly requests it.
 - **Maintain Session & Tenant Safety**: All queries must filter by `instagramAccount: { userId: req.userId }`.
 - **Grounded AI Answers**: Never remove anti-hallucination system prompt constraints.

@@ -1074,6 +1074,61 @@
   gap: 8px;
 }
 
+.intelligenceHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggleSummaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.toggleSummaryBtn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.intelligenceCardCollapsed {
+  margin: 12px 24px 0;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.collapsedLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.collapsedIntent {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .intelligenceTitleRow {
   display: flex;
   align-items: center;
@@ -1289,6 +1344,67 @@
 }
 
 /* ============================================
+ * Mobile Filter Bar (Horizontally Scrollable)
+ * ============================================ */
+.mobileFilterBar {
+  display: none;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+}
+
+.mobileFilterBar::-webkit-scrollbar {
+  display: none;
+}
+
+.mobileFilterScroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobileFilterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.mobileFilterChip:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.mobileFilterChipActive {
+  background: var(--color-primary-subtle) !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  font-weight: 600;
+}
+
+.mobileChipDivider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-default);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* ============================================
  * Responsive Media Queries for 3-Column Layout
  * ============================================ */
 @media (max-width: 1024px) {
@@ -1298,28 +1414,142 @@
     padding: 10px 6px;
   }
   .convPanel {
-    width: 250px;
-    min-width: 230px;
+    width: 280px;
+    min-width: 260px;
   }
 }
 
 @media (max-width: 768px) {
+  .globalNav {
+    padding: 10px 12px;
+  }
+
+  .globalNavActions {
+    gap: 4px;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .globalNavActions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .globalNavActions button {
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+  }
+
   .filterSidebar {
     display: none;
   }
+
+  .mobileFilterBar {
+    display: block;
+  }
+
   .convPanel {
     width: 100%;
     max-width: 100%;
+    border-right: none;
   }
+
   .inboxLayout.showChatMobile .convPanel {
     display: none;
   }
+
   .inboxLayout.showChatMobile .chatPanel {
     display: flex;
+    width: 100%;
   }
+
   .backBtnMobile {
     display: inline-flex !important;
   }
+
+  .chatHeader {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chatUserMeta {
+    gap: 2px;
+  }
+
+  .chatUserTitleRow {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .chatHeaderActionGroup {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .intelligenceCard {
+    margin: 8px 12px 0;
+    padding: 10px 12px;
+  }
+
+  .intelligenceMetrics {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .summaryCard {
+    margin: 8px 12px 0;
+    padding: 10px 12px;
+  }
+
+  .messagesContainer {
+    padding: 12px;
+  }
+
+  .messageBubble {
+    max-width: 88%;
+  }
+
+  .composeBar {
+    padding: 8px 12px 14px;
+  }
+
+  .composeToolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .composeFooter {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .composeHint {
+    font-size: 10px;
+    text-align: left;
+    width: 100%;
+  }
 }
+
+@media (max-width: 480px) {
+  .navBrandText {
+    display: none;
+  }
+
+  .chatUsername {
+    font-size: var(--text-sm);
+  }
+
+  .messageText {
+    font-size: 12px;
+  }
+}
+
 
 

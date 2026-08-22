@@ -132,3 +132,20 @@
   max-width: 400px;
   margin: 0 auto;
 }
+
+@media (max-width: 640px) {
+  .pageHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .item {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .itemArrow {
+    display: none;
+  }
+}

@@ -515,3 +515,16 @@ input, textarea, select {
 .mono {
   font-family: var(--font-mono);
 }
+
+/* ============================================
+ * Mobile Global Optimizations
+ * ============================================ */
+@media (max-width: 768px) {
+  html, body {
+    overflow-x: hidden;
+  }
+
+  .input, .select, .textarea {
+    font-size: 16px !important; /* Prevents unwanted auto-zoom on iOS Safari */
+  }
+}
