@@ -1,179 +1,182 @@
-# Codeback — Context Briefing
+# Codeback — Context Briefing & Technical Master Document
 
-## Architecture
+## 1. Project Overview & Architecture
 
-Codeback is an **AI-powered Instagram DM assistant** built as a SaaS platform. The architecture separates concerns between a Next.js frontend and an Express backend, with Instagram as the data source.
+Codeback is a production-grade **AI-Powered Instagram DM Assistant and Creator CRM SaaS**. The platform connects to Instagram Professional accounts via official Meta Graph APIs, captures direct messages in real time using signature-verified webhooks, classifies and prioritizes conversations with resilient AI, extracts commercial brand opportunities, and provides on-demand and **selective per-conversation auto-reply capabilities**.
 
+```text
+┌─────────────────────────┐       ┌──────────────────────────┐       ┌─────────────────────┐
+│   Next.js 16 Frontend   │──────▶│     Express Backend      │──────▶│   Instagram Graph   │
+│       (Port 3000)       │       │       (Port 5000)        │       │         API         │
+│                         │  WS   │                          │       │                     │
+│  • AppShell Layout      │◀─────▶│  • OAuth Flow            │       │ • OAuth Tokens      │
+│  • Inbox & Chat         │       │  • Webhook HMAC Handler  │       │ • Send API          │
+│  • Brand Deals Pipeline │       │  • REST API              │       │ • User Profiles     │
+│  • Per-Chat Auto-Reply  │       │  • Socket.io Gateway     │       └─────────────────────┘
+│  • Settings & Admin     │       └─────────────┬────────────┘
+└─────────────────────────┘                     │
+                                                ▼
+                                  ┌───────────────────────────┐
+                                  │   SQLite / PostgreSQL     │
+                                  │       (Prisma ORM)        │
+                                  └───────────────────────────┘
 ```
-┌─────────────────────┐     ┌──────────────────────┐     ┌─────────────────┐
-│   Next.js Frontend  │────▶│   Express Backend    │────▶│ Instagram Graph │
-│    (port 3000)      │     │    (port 5000)       │     │      API        │
-│                     │ WS  │                      │     │                 │
-│  • Landing page     │     │  • OAuth flow        │     │ • OAuth tokens  │
-│  • AppShell Layout  │     │  • Webhook handler   │     │ • Send messages │
-│  • Dashboard        │     │  • REST API          │     │ • User profiles │
-│  • Inbox + Chat     │     │  • Socket.io         │     └─────────────────┘
-│  • Brand Deals      │     └──────────┬───────────┘
-│  • Notifications    │                │
-│  • Settings         │     ┌──────────▼───────────┐
-│  • Admin Panel      │     │    SQLite Database    │
-└─────────────────────┘     │   (codeback.db)       │
-                            └──────────────────────┘
-```
 
-### Core Data Flow
+---
 
-1. **OAuth**: User clicks "Connect Instagram" → hidden HTML form GET submission (bypasses mobile Universal Links/App Links) → redirects to Instagram → callback exchanges code for long-lived token → profile fetched → user/account saved (encrypted) → webhook subscribed → redirect to dashboard
-2. **Webhook**: Meta sends DM events → signature verified → account matched by `igUserId` → contact found/created → conversation found/created → message saved → AI classification queued → Socket.io emits `new_message` to frontend
-3. **Real-time**: Socket.io connections per user → `join` room by `userId` → new messages pushed instantly to frontend chat
-4. **Replying**: Frontend sends reply text → backend decrypts token → `instagram.sendMessage()` → saves outbound message → updates conversation → emits to frontend
-5. **Admin**: Separate admin login → `requireAdmin` middleware → full user/account management, token refresh, webhook resubscription, audit logs
+## 2. Core Data Flows
 
-### AI Pipeline (async, never blocks messaging)
+### A. Instagram OAuth 2.0 (Mobile-Safe)
+1. User clicks "Connect Instagram" on frontend.
+2. `navigateToInstagramAuth()` triggers a client-side hidden HTML form `GET` submission to `/auth/instagram`. This prevents mobile OS Universal Links / App Links from hijacking the URL into the native Instagram app.
+3. User authorizes permissions (`instagram_basic`, `instagram_manage_messages`, `pages_manage_metadata`).
+4. Callback exchanges authorization code for short-lived token, then long-lived token (60 days).
+5. Token is encrypted via **AES-256-GCM** using `TOKEN_ENCRYPTION_KEY` and saved to `InstagramAccount`.
+6. Account is linked to `User` tenant; webhook subscription is activated.
+7. Redirects to `/inbox`.
 
-1. Webhook receives message → persists immediately → queues `message.analysis` job
-2. Job runs in background (Redis/BullMQ if `REDIS_URL` set, else in-process fallback)
-3. AI classifies: category, priority, brand-deal extraction, summary
-4. Appends append-only `AIAnalysis` record → updates conversation's denormalized `category`/`priority`/`needsAttention`
-5. Notifications sent only for genuinely important events (brand deals, critical priority)
-6. Live `analysis_completed` socket event updates inbox UI
+### B. Real-Time Webhook & AI Pipeline
+1. Meta sends DM event payload to `/webhooks/instagram`.
+2. HMAC SHA-256 signature is verified against `INSTAGRAM_APP_SECRET`.
+3. Webhook handler matches account by `igUserId` and resolves/creates `Contact` and `Conversation`.
+4. Message is persisted to `Message` table immediately with `aiStatus: 'pending'`.
+5. Webhook responds HTTP `200 OK` in <50ms.
+6. Emits `new_message` event over Socket.io room `user:${userId}`.
+7. Asynchronous background job (`messageAnalysisJob.js`) processes the message:
+   - Evaluates keyword pre-filter (0ms latency for obvious spam).
+   - Calls **Resilient AI Multi-Provider Engine** (`Gemini` ⟷ `xAI Grok` ⟷ `OpenAI`).
+   - Validates & sanitizes structured output.
+   - Computes deterministic priority score (0-100) blended with creator preferences.
+   - Appends append-only `AIAnalysis` record and updates conversation denormalized fields.
+   - Extracts and upserts `BrandDeal` if commercial sponsorship detected.
+   - Evaluates **Per-Conversation Auto-Reply**: If `conversation.autoReplyEnabled === true` and within the 24-hour Meta messaging window, AI drafts and automatically dispatches the reply via Instagram Graph API.
+   - Emits `analysis_completed` and `new_message` events to creator inbox in real time.
 
-## Tech Stack
+### C. Admin & Support Isolation
+1. Admin logs in via `/api/admin/login`.
+2. Session receives `isAdmin: true` and `adminUserId: ...` in an isolated namespace that **does not overwrite the creator's `userId` session slot**.
+3. Superadmin can inspect users, audit logs, trigger forced token refreshes, and test webhooks without corrupting user sessions in adjacent tabs.
 
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Next.js 16 (App Router), React 19, axios, socket.io-client, Cloudflare-inspired light SaaS theme, Vanilla CSS tokens |
-| **Backend** | Node.js, Express 4.21, Prisma ORM, SQLite (dev) / Postgres (swapable), bcrypt.js for password hashing |
-| **AI** | Google Gemini 1.5 Flash (default) / OpenAI gpt-4o-mini (optional), with keyword pre-filtering to save costs |
-| **Queue** | BullMQ + Redis (optional, `REDIS_URL` env var) or in-process fallback (zero-config) |
-| **Auth** | Express-session cookies (HTTP-only, `sameSite: 'lax'`), no JWTs, no localStorage persistence |
-| **Database** | SQLite (dev) / Postgres (swapable via Prisma schema), all tenant-scoped by `userId` |
-| **Encryption** | AES-256-GCM for Instagram tokens at rest (`TOKEN_ENCRYPTION_KEY` env var) |
-| **Testing** | 33 automated e2e checks (webhook → AI → persistence → isolation → admin → routes) + static build checks |
+---
 
-## Key Decisions & Why
+## 3. Technology Stack
 
-| Decision | Reason |
-|----------|--------|
-| **Cloudflare SaaS Redesign** | Clean, production-grade light SaaS visual hierarchy with shared `AppShell` layout, color-coded badges, and responsive sidebar. |
-| **Mobile Form OAuth Navigation** | Tapping Instagram OAuth links on mobile browsers previously triggered native app Universal Link hijacking. Using `navigateToInstagramAuth()` (hidden form GET) forces the browser to handle the OAuth flow completely in-browser. |
-| **Async AI processing** | Messaging must never block on AI inference. Webhook responds `200` instantly; AI runs after. |
-| **Soft-disconnect** | `Disconnect` flips `connectionStatus` to `DISCONNECTED` but never deletes conversations/messages. Reconnecting the same `igUserId` restores everything automatically. |
-| **Tenant isolation via `userId`** | Every database query scopes to the authenticated user's `userId`. Never trust client-supplied ids. |
-| **Empty-state AI defaults** | Without a Gemini key, classification gracefully falls back to `category: 'other'`, `priority: 'low'` — messages still appear, never hidden. |
-| **In-process queue fallback** | `REDIS_URL` optional. If unset, Codeback uses a matching in-process queue with retries/backoff/concurrency — same interface, zero setup. |
-| **No hardcoded secrets** | All secrets (`INSTAGRAM_APP_ID`, `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`) set in `.env`. `.env` files gitignored. |
-| **`?user_id=` auth bypass disabled in production** | Security-hardened: `if (!isProduction && ...)` + warning log. |
+| Layer | Technology | Details |
+|---|---|---|
+| **Frontend** | Next.js 16 (App Router), React 19 | Cloudflare SaaS light theme, responsive CSS tokens, Socket.io-client |
+| **Backend API** | Node.js v24, Express v4.21 | Modular architecture, `express-session`, CORS, cookie-parser |
+| **Real-time Gateway** | Socket.io v4.8 | Authenticated handshake session verification, room-scoped messaging |
+| **Database & ORM** | SQLite (Dev) / PostgreSQL (Prod), Prisma v6.19 | 15 relational tables, cascading tenant safety |
+| **Multi-Provider AI** | Google Gemini, xAI Grok, OpenAI | Automatic failover chain with fallback to keyword engine |
+| **Background Jobs** | In-Process Async Queue / BullMQ + Redis | Background job processing off the request/response cycle |
+| **Cryptography** | Node.js Crypto | AES-256-GCM token encryption, HMAC-SHA256 signature verification |
 
-## Tech Stack (Full)
+---
 
-- **Node.js** v24.15.0
-- **Express** v4.21.0
-- **Prisma** v6.19.3 (ORM, SQLite dev / Postgres swapable)
-- **Next.js** v16.2.12 (App Router)
-- **React** v19.2.4
-- **socket.io** v4.8.0 / **socket.io-client** v4.8.3
-- **BullMQ** v5.34.0 (optional, via `REDIS_URL`)
-- **ioredis** v5.4.1 (Redis client)
-- **Axios** v1.7.0 / v1.19.0
-- **Crypto** built-in (AES-256-GCM, SHA-256)
-- **ESLint** v9 (frontend)
-- **dotenv** v16.4.0
+## 4. Key Architectural & Security Decisions
 
-## Current File Structure
+| Area | Implementation Decision | Rationale |
+|---|---|---|
+| **Multi-Provider AI Auto-Failover** | `Gemini` ⟷ `xAI Grok` ⟷ `OpenAI` ⟷ `Rule-Based Fallback` | Prevents single-point-of-failure if an API key expires, encounters rate limits (429), or suffers an upstream outage. |
+| **Per-Chat AI Auto-Reply** | `autoReplyEnabled` flag on `Conversation` (Default: `false`) | Global auto-reply is dangerous for creator brand reputation. Restricting auto-reply to specific chats gives creators 100% precision. |
+| **Admin / User Session Separation** | Isolated session keys (`isAdmin`, `adminUserId`) | Prevents session collision when an admin logs in and switches to a user dashboard in another tab of the same browser. |
+| **Removal of Dev-Mode Leakage Fallbacks** | Strict 401s and tenant boundaries in all environments | Eliminated legacy dev fallbacks that returned all accounts/conversations across users when an account was empty. |
+| **Socket.io Handshake Auth** | Validates session cookie signature before room join | Blocks unauthorized clients from listening to another user's incoming DM stream. |
+| **Soft-Disconnect Lifecycle** | Flips `connectionStatus` to `DISCONNECTED` | Disconnecting an account never purges historical chat history, contacts, or brand deals unless explicitly purged (`?purge=true`). |
+| **24-Hour Messaging Window Radar** | Real-time calculation from `lastInbound.createdAt` | Prevents Meta API policy violations by blocking/alerting when the 24-hour reply window has elapsed. |
 
-```
+---
+
+## 5. Current File Tree
+
+```text
 codeback/
 ├── backend/
 │   ├── prisma/
-│   │   └── schema.prisma          # DB schema (13 models)
+│   │   ├── schema.prisma              # Database schema (15 models)
+│   │   └── codeback.db                # SQLite database
 │   ├── scripts/
-│   │   ├── check-users.js
-│   │   ├── clean-database.js
-│   │   ├── clean-remaining.js
-│   │   └── e2e-test.js            # 33 automated checks
+│   │   ├── test-isolation.js          # 29 tenant & session isolation checks
+│   │   ├── test-ai-failover.js        # 10 multi-provider AI failover checks
+│   │   ├── test-auto-reply.js         # 11 per-chat auto-reply checks
+│   │   ├── e2e-test.js                # Full end-to-end regression suite
+│   │   └── verify-cleanup.js          # DB state verification
 │   ├── src/
-│   │   ├── index.js               # Express entry point
+│   │   ├── index.js                   # Express server & Socket.io setup
+│   │   ├── jobs/
+│   │   │   └── messageAnalysisJob.js  # Async AI analysis & auto-reply worker
 │   │   ├── lib/
-│   │   │   ├── instagram.js       # Graph API helpers
-│   │   │   ├── crypto.js          # AES-256-GCM encryption
-│   │   │   ├── prisma.js          # Shared Prisma client singleton
-│   │   │   ├── queue.js           # Redis/BullMQ + in-process fallback
-│   │   │   ├── socket.js          # Shared Socket.io accessor
-│   │   │   ├── notify.js          # Creator notification helper
-│   │   │   ├── constants.js       # Canonical categories/priorities
-│   │   │   └── categories.js      # Extensible UI metadata
+│   │   │   ├── constants.js           # Categories, scores, priorities
+│   │   │   ├── crypto.js              # AES-256-GCM encryption helpers
+│   │   │   ├── instagram.js           # Meta Graph API SDK client
+│   │   │   ├── notify.js              # Socket & notification dispatchers
+│   │   │   ├── prisma.js              # Prisma Client singleton
+│   │   │   ├── queue.js               # In-process / BullMQ queue abstraction
+│   │   │   └── socket.js              # Socket.io helper singleton
 │   │   ├── middleware/
-│   │   │   ├── auth.js            # Session auth
-│   │   │   └── adminAuth.js       # Admin auth
-│   │   └── routes/
-│   │       ├── auth.js            # OAuth flow
-│   │       ├── webhook.js           # Signature-verified, queues AI job
-│   │       ├── api.js              # Conversations, messages, AI, replies
-│   │       ├── accounts.js          # Soft-disconnect
-│   │       ├── dashboard.js         # Creator Home
-│   │       ├── brandDeals.js        # Brand deal pipeline
-│   │       ├── notifications.js     # Notification center
-│   │       ├── settings.js          # AI preferences
-│   │       ├── subscription.js      # Subscription + usage
-│   │       └── admin.js             # Admin panel API
+│   │   │   ├── adminAuth.js           # Superadmin session verification
+│   │   │   └── auth.js                # Tenant session verification
+│   │   ├── routes/
+│   │   │   ├── accounts.js            # Account management & soft-disconnect
+│   │   │   ├── admin.js               # Superadmin portal API
+│   │   │   ├── api.js                 # Conversations, messages, auto-reply toggle
+│   │   │   ├── auth.js                # Instagram OAuth consent & callback
+│   │   │   ├── brandDeals.js          # Brand deal pipeline CRUD
+│   │   │   ├── dashboard.js           # Dashboard KPIs and summary
+│   │   │   ├── notifications.js       # In-app notifications
+│   │   │   ├── settings.js            # Creator AI preferences & auto-reply chats
+│   │   │   ├── subscription.js        # Billing abstraction
+│   │   │   └── webhook.js             # Meta webhook ingress & HMAC validation
 │   │   └── services/
-│   │       ├── aiService.js       # Classification/priority/summary/reply
-│   │       ├── preferencesService.js
-│   │       ├── brandDealService.js
-│   │       └── billingService.js    # Abstraction (no provider wired yet)
-│   ├── .env                       # Not committed
+│   │       ├── aiService.js           # Resilient multi-provider AI coordinator
+│   │       ├── billingService.js      # Plan & subscription abstraction
+│   │       ├── brandDealService.js    # Deal extraction & merging
+│   │       └── preferencesService.js  # Creator preference defaults
+│   ├── .env                           # Local environment config (gitignored)
 │   └── package.json
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── components/
-│   │   │   │   ├── AppShell.js        # Shared authenticated SaaS shell
+│   │   │   │   ├── AppShell.js        # Unified navigation layout
 │   │   │   │   └── AppShell.module.css
-│   │   │   ├── page.js                # Landing page
-│   │   │   ├── page.module.css
-│   │   │   ├── globals.css            # Centralized design system & tokens
-│   │   │   ├── dashboard/               # Creator Home
-│   │   │   ├── inbox/                     # Inbox + Chat
-│   │   │   ├── brand-deals/               # Brand deals pipeline
-│   │   │   ├── notifications/               # Notification center
-│   │   │   ├── settings/                    # AI preferences
-│   │   │   └── admin/                       # Admin panel
+│   │   │   ├── admin/                 # Superadmin portal UI
+│   │   │   ├── brand-deals/           # Brand CRM pipeline UI
+│   │   │   ├── dashboard/             # Creator home dashboard UI
+│   │   │   ├── inbox/                 # Inbox, Chat view, Auto-reply controls
+│   │   │   ├── notifications/         # Notification center UI
+│   │   │   ├── settings/              # Settings & Per-Chat Auto-Reply Manager
+│   │   │   ├── globals.css            # Design tokens & utilities
+│   │   │   └── page.js                # Marketing landing page
 │   │   └── lib/
-│   │       ├── api.js                 # Backend API client + mobile OAuth helper
-│   │       └── categories.js            # Extensible UI metadata
-│   ├── .env.local               # Not committed
+│   │       ├── api.js                 # API client with credentials & helpers
+│   │       └── categories.js          # Category badges & icons
+│   ├── .env.local                     # Frontend environment config (gitignored)
 │   └── package.json
-├── CONTEXT.md               # Full project background & briefing
-├── README.md                # Full product docs
+├── CONTEXT.md                         # This context master briefing
+├── README.md                          # Public product documentation
 └── package.json
 ```
 
-## What's Done
+---
 
-- ✅ Cloudflare-style SaaS UI redesign across all frontend pages (Landing, Dashboard, Inbox, Brand Deals, Notifications, Settings, Admin)
-- ✅ Shared `AppShell` component with active route indicators, mobile drawer overlay, and unread notification counter
-- ✅ Mobile OAuth fix (`navigateToInstagramAuth()`) using hidden form GET submission to bypass mobile Universal Links / native Instagram app hijacking
-- ✅ Verified all interactive button handlers, form submissions, dropdowns, and API client calls
-- ✅ Database cleanup utility executed (zero records remaining in SQLite dev DB)
-- ✅ Full Instagram OAuth flow (connect/reconnect)
-- ✅ Webhook reception with signature verification
-- ✅ Message persistence before AI processing
-- ✅ Deduplication (igMessageId + contact/conversation race-condition guards)
-- ✅ AI classification (keyword pre-filter → Gemini fallback → "other" if no key)
-- ✅ Deterministic priority scoring (blended with creator preferences)
-- ✅ Brand deal extraction (structured, merged across messages)
-- ✅ Conversation summaries
-- ✅ On-demand reply generation (never auto-sends; only `POST /api/conversations/:id/reply` reaches Instagram)
-- ✅ Soft-disconnect (preserves history; `?purge=true` for irreversible delete)
-- ✅ Tenant isolation (every query scoped to `userId`)
-- ✅ Notifications & Creator AI preferences
-- ✅ Admin panel (user management, accounts, support inspector, settings, audit logs)
-- ✅ Static frontend build verified (`15/15` pages prerendered with 0 errors)
-- ✅ `.env`/`.env.local` gitignored (never committed)
+## 6. Completed Work & Current Status
 
-## What's Pending
+- [x] **Multi-Provider AI Resilience**: Built automatic failover across Google Gemini, xAI Grok, and OpenAI with zero downtime on rate limits or API key failures.
+- [x] **Per-Conversation AI Auto-Reply**: Implemented granular chat-level auto-reply toggle, status banner, custom prompt editor, settings manager, and background Graph API message dispatch.
+- [x] **Tenant & Session Security**: Fixed admin/user session collision, removed dev-mode cross-tenant data leakage fallbacks, and added Socket.io handshake authentication.
+- [x] **Database & Schema**: Added `autoReplyEnabled` and `autoReplyPrompt` to `Conversation` model; synced SQLite database.
+- [x] **Automated Verification**:
+  - `test-isolation.js`: **29/29 Passed**
+  - `test-ai-failover.js`: **10/10 Passed**
+  - `test-auto-reply.js`: **11/11 Passed**
+- [x] **Git Repository**: Committed and pushed all clean code to `origin/master`.
+- [x] **Documentation**: Rewrote `README.md` and updated `CONTEXT.md`.
 
-- Real payment provider integration (Stripe/Paddle — `billingService.js` abstraction ready but unplugged)
-- Real Redis/BullMQ queue (in-process fallback works identically; `REDIS_URL` enables production BullMQ)
-- Production deployment setup
+---
+
+## 7. Next Steps & Roadmap
+
+1. **Payment Provider Integration**: Wire real payment gateway (Stripe / Lemon Squeezy) to `billingService.js` and subscription routes.
+2. **Production Redis Deployment**: Configure `REDIS_URL` for distributed BullMQ processing across multiple backend replicas.
+3. **Instagram Direct Message Templates**: Support media / image attachment replies and quick-reply buttons via Graph API.
