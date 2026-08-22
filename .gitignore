@@ -45,7 +45,7 @@ lerna-debug.log*
 # OS
 .DS_Store
 Thumbs.db
-*.png
+Screenshot*.png
 
 # Testing
 coverage/
