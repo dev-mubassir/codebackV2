@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   getMe,
@@ -12,6 +12,13 @@ import {
   getAutoReplyChats,
   toggleAutoReply,
 } from '@/lib/api';
+import {
+  BUSINESS_CATEGORIES,
+  DEFAULT_KNOWLEDGE_TEMPLATES,
+  getCategoryMetadata,
+  parseBusinessTypes,
+  combineKnowledgeTemplates,
+} from '@/lib/businessTemplates';
 import AppShell from '@/app/components/AppShell';
 import styles from './settings.module.css';
 
@@ -32,9 +39,12 @@ const PRIORITY_ROWS = [
   { key: 'spamPriority', label: '🚫 Spam & Low Relevance' },
 ];
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('profile'); // 'profile' | 'ai' | 'chats'
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'profile';
+
+  const [activeTab, setActiveTab] = useState(initialTab); // 'profile' | 'ai' | 'chats'
   const [prefs, setPrefs] = useState(null);
   const [businessProfile, setBusinessProfile] = useState(null);
   const [autoReplyChats, setAutoReplyChats] = useState([]);
@@ -80,6 +90,44 @@ export default function SettingsPage() {
   function updateProfileField(key, value) {
     setBusinessProfile((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
+  }
+
+  function handleToggleCategory(catId) {
+    const current = parseBusinessTypes(businessProfile?.businessTypes, businessProfile?.primaryCategory);
+    let next;
+    if (current.includes(catId)) {
+      next = current.length > 1 ? current.filter((id) => id !== catId) : current;
+    } else {
+      next = [...current, catId];
+    }
+    setBusinessProfile((prev) => ({
+      ...prev,
+      businessTypes: JSON.stringify(next),
+      primaryCategory: next[0] || 'other',
+    }));
+    setSaved(false);
+  }
+
+  function handleApplyCombinedTemplates() {
+    const current = parseBusinessTypes(businessProfile?.businessTypes, businessProfile?.primaryCategory);
+    const combined = combineKnowledgeTemplates(current);
+    if (!combined) return;
+    const names = current.map((id) => getCategoryMetadata(id).label).join(' + ');
+    if (confirm(`Load starter template for "${names}"? This will populate description, services, pricing, and FAQs (you can still edit everything).`)) {
+      setBusinessProfile((prev) => ({
+        ...prev,
+        description: combined.description || '',
+        productsServices: combined.productsServices || '',
+        pricingInfo: combined.pricingInfo || '',
+        locationDelivery: combined.locationDelivery || '',
+        policies: combined.policies || '',
+        paymentMethods: combined.paymentMethods || '',
+        faqData: combined.faqData || '',
+        aiInstructions: combined.aiInstructions || '',
+        tone: combined.tone || 'friendly',
+      }));
+      setSaved(false);
+    }
   }
 
   async function handleToggleChatAutoReply(chatId, currentStatus) {
@@ -202,6 +250,52 @@ export default function SettingsPage() {
                 </div>
 
                 <div className={styles.prefList}>
+                  {/* Interactive Business Category Cards Grid (Multi-select) */}
+                  <div className={styles.prefRowVertical}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                      <label className={styles.prefLabel} style={{ margin: 0 }}>Business Types & Industry Categories</label>
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
+                        {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).length} Selected
+                      </span>
+                    </div>
+                    <span className={styles.prefSublabel}>
+                      Select all business cards that apply to you (multiple allowed). Click any card to toggle on/off.
+                    </span>
+                    <div className={styles.categoryGrid}>
+                      {BUSINESS_CATEGORIES.map((cat) => {
+                        const currentSelected = parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory);
+                        const isSelected = currentSelected.includes(cat.id);
+                        return (
+                          <button
+                            key={cat.id}
+                            type="button"
+                            className={`${styles.categoryCard} ${isSelected ? styles.categoryCardActive : ''}`}
+                            onClick={() => handleToggleCategory(cat.id)}
+                          >
+                            {isSelected && <span className={styles.categorySelectedBadge}>✓ Active</span>}
+                            <span className={styles.categoryIcon}>{cat.icon}</span>
+                            <span className={styles.categoryTitle}>{cat.label}</span>
+                            <span className={styles.categoryDesc}>{cat.defaultPrompt}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Quick Template Loader Banner */}
+                    <div className={styles.templateActionBanner}>
+                      <span className={styles.templateActionText}>
+                        💡 Selected: <strong>{parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).map((id) => getCategoryMetadata(id).label).join(' + ')}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.templateActionBtn}
+                        onClick={handleApplyCombinedTemplates}
+                      >
+                        ✨ Autofill {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).length > 1 ? 'Combined' : getCategoryMetadata(parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory)[0]).label} Template
+                      </button>
+                    </div>
+                  </div>
+
                   <div className={styles.prefRowVertical}>
                     <label className={styles.prefLabel}>Business / Brand Name</label>
                     <input
@@ -309,23 +403,55 @@ export default function SettingsPage() {
             <>
               <div className={styles.card}>
                 <div className={styles.cardHeader}>
-                  <h2 className={styles.cardTitle}>🤖 AI Reply Tone & Automation Mode</h2>
+                  <h2 className={styles.cardTitle}>🤖 AI Auto-Reply & Response Settings</h2>
                   <p className={styles.cardDesc}>
-                    Configure how and when AI responds to customer messages.
+                    Control whether AI automatically answers incoming customer inquiries or only drafts suggestions.
                   </p>
                 </div>
 
                 <div className={styles.prefList}>
+                  {/* Master Auto-Reply Switch */}
+                  <div className={styles.prefRow} style={{ background: 'var(--bg-surface-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)' }}>
+                    <div className={styles.prefLabelGroup}>
+                      <span className={styles.prefLabel} style={{ fontSize: '15px', fontWeight: '700' }}>
+                        ⚡ Master AI Auto-Reply
+                      </span>
+                      <span className={styles.prefSublabel}>
+                        {businessProfile.autoReplyMode === 'smart'
+                          ? 'Active: AI automatically answers safe pricing, service, and product inquiries.'
+                          : businessProfile.autoReplyMode === 'suggest_only'
+                          ? 'Suggest Only: AI prepares response drafts without automatically sending.'
+                          : 'Disabled: All automated replies are turned off (human-only mode).'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${businessProfile.autoReplyMode === 'smart' ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => updateProfileField('autoReplyMode', 'smart')}
+                      >
+                        ⚡ ON (Smart)
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${businessProfile.autoReplyMode === 'human_only' ? 'btn-danger' : 'btn-secondary'}`}
+                        onClick={() => updateProfileField('autoReplyMode', 'human_only')}
+                      >
+                        🔴 OFF
+                      </button>
+                    </div>
+                  </div>
+
                   <div className={styles.prefRow}>
                     <div className={styles.prefLabelGroup}>
-                      <span className={styles.prefLabel}>Automation Mode</span>
-                      <span className={styles.prefSublabel}>Control whether AI can auto-send or only suggest replies</span>
+                      <span className={styles.prefLabel}>Detailed Automation Mode</span>
+                      <span className={styles.prefSublabel}>Fine-tune auto-reply trigger behavior</span>
                     </div>
                     <select
                       className="select"
                       value={businessProfile.autoReplyMode || 'smart'}
                       onChange={(e) => updateProfileField('autoReplyMode', e.target.value)}
-                      style={{ maxWidth: '280px' }}
+                      style={{ maxWidth: '320px' }}
                     >
                       {AUTO_REPLY_MODES.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -568,5 +694,13 @@ export default function SettingsPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className={styles.loadingContainer}><div className="spinner spinner-lg" /></div>}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }

@@ -146,7 +146,7 @@ async function runVerification() {
       id: 'TC5',
       description: 'Support / Post-purchase follow-up',
       message: 'Hey, when will the revised draft for project #3 be delivered?',
-      expectedCategories: ['support_request', 'customer', 'service_inquiry', 'general_question'],
+      expectedCategories: ['support_request', 'customer', 'service_inquiry', 'general_question', 'delivery_inquiry'],
       minPurchaseIntent: 0,
       expectedRisk: 'LOW',
     },

@@ -163,9 +163,9 @@ export default function LandingPage() {
 
           <div className={styles.featureCard}>
             <div className={styles.featureIcon}>🛡️</div>
-            <h3 className={styles.featureTitle}>Scam & Risk Gatekeeper</h3>
+            <h3 className={styles.featureTitle}>AI Safety & Spam Protection</h3>
             <p className={styles.featureDesc}>
-              Detect phishing links, password/OTP requests, fake payment proof, and spam. High-risk conversations are flagged and prevented from receiving automated replies.
+              Automatically filter phishing links, password/OTP requests, fake payment proof, and spam bots to keep your inbox clean and secure.
             </p>
           </div>
 

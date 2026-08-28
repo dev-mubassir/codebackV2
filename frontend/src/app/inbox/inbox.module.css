@@ -1072,19 +1072,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
 }
 
 .intelligenceHeaderRight {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .toggleSummaryBtn {
-  display: inline-flex;
+  display: inline-flex !important;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 3px 8px;
+  padding: 4px 10px;
   font-size: 11px;
   font-weight: 600;
   border-radius: var(--radius-sm);
@@ -1092,6 +1095,8 @@
   border: 1px solid var(--border-default);
   color: var(--text-secondary);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all var(--transition-fast);
 }
 
@@ -1111,14 +1116,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .collapsedLeft {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .collapsedIntent {
@@ -1132,7 +1139,10 @@
 .intelligenceTitleRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
 }
 
 .intelligenceBadge {
@@ -1490,9 +1500,17 @@
     border-top: 1px solid var(--border-subtle);
   }
 
-  .intelligenceCard {
-    margin: 8px 12px 0;
-    padding: 10px 12px;
+  .intelligenceCard,
+  .intelligenceCardCollapsed {
+    margin: 8px 10px 0;
+    padding: 8px 10px;
+  }
+
+  .toggleSummaryBtn {
+    font-size: 10px !important;
+    padding: 3px 8px !important;
+    min-height: 26px;
+    flex-shrink: 0 !important;
   }
 
   .intelligenceMetrics {

@@ -2,13 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import AppShell from '@/app/components/AppShell';
-import { getMe, updateProfile, deleteAccount, getInstagramAuthUrl } from '@/lib/api';
+import { getMe, updateProfile, deleteAccount, getInstagramAuthUrl, getBusinessProfile } from '@/lib/api';
+import { getCategoryMetadata, parseBusinessTypes } from '@/lib/businessTemplates';
 import styles from './profile.module.css';
 
 export default function ProfilePage() {
   const router = useRouter();
   const [user, setUser] = useState(null);
+  const [businessProfile, setBusinessProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Form states
@@ -30,9 +33,13 @@ export default function ProfilePage() {
   useEffect(() => {
     async function loadUser() {
       try {
-        const data = await getMe();
-        setUser(data);
-        setName(data.name || '');
+        const [userData, profileData] = await Promise.all([
+          getMe(),
+          getBusinessProfile().catch(() => null),
+        ]);
+        setUser(userData);
+        setName(userData.name || '');
+        setBusinessProfile(profileData);
       } catch (err) {
         console.error('Failed to load profile:', err);
         router.push('/login');
@@ -232,6 +239,96 @@ export default function ProfilePage() {
               </button>
             </div>
           </form>
+        </div>
+
+        {/* Business Profile & Industry Type Card */}
+        <div className={styles.card}>
+          <div className={styles.cardHeader}>
+            <div>
+              <h2 className={styles.cardTitle}>🏢 Business Profile & Industry Category</h2>
+              <p className={styles.cardDescription}>
+                Your active business type card and knowledge base details used by AI for lead qualification and replies.
+              </p>
+            </div>
+            <Link
+              href="/settings?tab=profile"
+              className="btn btn-secondary btn-sm"
+              id="profile-edit-business-btn"
+            >
+              ✏️ Edit Business Profile & FAQs
+            </Link>
+          </div>
+
+          {businessProfile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).map((catId) => (
+                  <span
+                    key={catId}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '4px 12px',
+                      borderRadius: 'var(--radius-full)',
+                      background: 'rgba(124, 58, 237, 0.1)',
+                      color: 'var(--color-primary)',
+                      fontWeight: 700,
+                      fontSize: '12px',
+                    }}
+                  >
+                    <span>{getCategoryMetadata(catId).icon}</span>
+                    <span>{getCategoryMetadata(catId).label}</span>
+                  </span>
+                ))}
+                {businessProfile.businessName && (
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    • {businessProfile.businessName}
+                  </span>
+                )}
+              </div>
+
+              {businessProfile.description && (
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                  {businessProfile.description}
+                </p>
+              )}
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: '10px',
+                  padding: '12px',
+                  background: 'var(--bg-surface-secondary)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <div>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                    Products / Services
+                  </span>
+                  <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginTop: '2px', whiteSpace: 'pre-line' }}>
+                    {businessProfile.productsServices ? businessProfile.productsServices.slice(0, 150) + (businessProfile.productsServices.length > 150 ? '…' : '') : 'Not configured'}
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-tertiary)', fontWeight: 700 }}>
+                    Pricing / Rates
+                  </span>
+                  <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginTop: '2px', whiteSpace: 'pre-line' }}>
+                    {businessProfile.pricingInfo ? businessProfile.pricingInfo.slice(0, 150) + (businessProfile.pricingInfo.length > 150 ? '…' : '') : 'Not configured'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+              No business profile configured yet. Click "Edit Business Profile & FAQs" to choose your business type.
+            </p>
+          )}
         </div>
 
         {/* Connected Instagram Accounts */}

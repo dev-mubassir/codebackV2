@@ -91,12 +91,18 @@ app.set('trust proxy', 1);
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Critical production security assertion
+if (isProduction && process.env.SKIP_SIGNATURE_VERIFICATION === 'true') {
+  console.error('[Server] FATAL SECURITY MISCONFIGURATION: SKIP_SIGNATURE_VERIFICATION=true is strictly forbidden in production mode. Refusing to start.');
+  process.exit(1);
+}
+
 if (isProduction && !process.env.SESSION_SECRET) {
   console.error('[Server] WARNING: SESSION_SECRET is not set in production. Set it in your environment before going live.');
 }
 
-// Session middleware — simple cookie-based sessions for testing
-app.use(session({
+// Session middleware
+const sessionMiddleware = session({
   name: 'codeback.sid',
   secret: process.env.SESSION_SECRET || 'codeback-dev-secret-change-in-production',
   resave: true,
@@ -107,7 +113,9 @@ app.use(session({
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     sameSite: isProduction ? 'none' : 'lax',
   },
-}));
+});
+
+app.use(sessionMiddleware);
 
 // JSON body parser — but we need raw body for webhook signature verification
 // So we parse JSON manually for the webhook route, and use express.json() for everything else
@@ -145,6 +153,9 @@ const io = new SocketIO(server, {
   },
 });
 
+// Mount session middleware directly onto Socket.io engine to verify sessions on handshake
+io.engine.use(sessionMiddleware);
+
 // Make Socket.io available to every module via lib/socket.js (webhook
 // handler, background AI worker, notification service, etc.)
 setIO(io);
@@ -157,54 +168,26 @@ startWorkers();
 
 // Handle Socket.io connections
 io.on('connection', (socket) => {
-  console.log('[Socket.io] Client connected:', socket.id);
+  const session = socket.request?.session;
+  const userId = session?.userId;
 
-  // Client joins a room based on their user ID
-  // Frontend sends: socket.emit('join', { userId: '...' })
-  socket.on('join', ({ userId }) => {
-    if (!userId) return;
+  // Reject unauthenticated socket connections
+  if (!userId) {
+    console.warn(`[Socket.io] Rejected unauthenticated connection attempt (socket ${socket.id}, no active session)`);
+    socket.disconnect(true);
+    return;
+  }
 
-    // SECURITY: Verify the session cookie matches the requested userId.
-    // Without this, any client could join another user's room and
-    // eavesdrop on their real-time messages.
-    try {
-      const cookieHeader = socket.handshake?.headers?.cookie || '';
-      const sidCookie = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith('codeback.sid='));
+  // Automatically join the user-scoped room verified from the server session
+  socket.join(`user:${userId}`);
+  console.log(`[Socket.io] Authenticated socket ${socket.id} joined room user:${userId}`);
 
-      if (sidCookie) {
-        const rawSid = decodeURIComponent(sidCookie.split('=')[1]);
-        // express-session signs the cookie as s:<id>.<signature>
-        const unsignedSid = rawSid.startsWith('s:') ? rawSid.slice(2).split('.')[0] : rawSid;
-
-        // Look up the session from the session store
-        const store = socket.request?.sessionStore || socket.handshake?.sessionStore;
-        if (store) {
-          store.get(unsignedSid, (err, sessionData) => {
-            if (err || !sessionData) {
-              console.warn(`[Socket.io] Session lookup failed for socket ${socket.id}, allowing join as fallback`);
-              socket.join(`user:${userId}`);
-              return;
-            }
-            if (sessionData.userId === userId) {
-              socket.join(`user:${userId}`);
-              console.log(`[Socket.io] Socket ${socket.id} joined room user:${userId} (session verified)`);
-            } else {
-              console.warn(`[Socket.io] Socket ${socket.id} tried to join room user:${userId} but session belongs to user:${sessionData.userId}`);
-            }
-          });
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn(`[Socket.io] Session verification error for socket ${socket.id}:`, e.message);
+  // Safe handler if client emits 'join' — verifies against the server session, never trusting client-supplied userId
+  socket.on('join', ({ userId: requestedUserId } = {}) => {
+    if (requestedUserId && requestedUserId !== userId) {
+      console.warn(`[Socket.io] Blocked socket ${socket.id} (user:${userId}) from joining unauthorized room user:${requestedUserId}`);
+      return;
     }
-
-    // Fallback: if session store is unavailable (e.g. in-memory sessions
-    // without store.get), allow the join but log it. This preserves
-    // backwards compatibility while the SECURITY check above works when
-    // a session store is accessible.
-    socket.join(`user:${userId}`);
-    console.log(`[Socket.io] Socket ${socket.id} joined room user:${userId} (no session store available)`);
   });
 
   socket.on('disconnect', () => {

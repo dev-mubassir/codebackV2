@@ -23,18 +23,34 @@ const SPAM_KEYWORDS = [
   'buy followers', 'buy likes', 'boost followers', 'grow your account',
   'telegram channel', 'telegram group', 'whatsapp group', 'dm to feature', 'dm @',
   'page manager', 'crypto investment', 'forex trading', 'double your money',
+  'get 10k followers', 'free followers', 'send pic on @', 'promote it on @',
+  'shoutout on @', 'growth agency', 'dm us on @', 'check my bio link',
+  'passive income crypto', 'investment platform', 'earn 500$ daily',
 ];
 
 const SCAM_KEYWORDS = [
   'send otp', 'share password', 'send verification code', 'login to this link',
   'account suspended click here', 'claim prize send fee', 'transfer bitcoin',
   'seed phrase', 'send bank login', 'overpaid refund difference',
+  'hacked account recovery', 'unban your account', 'copyright is violated',
+  'copyright violation click', 'urgent: your account', 'send your login',
+  'verification code otp', 'whatsapp me +', 'contact on whatsapp +',
+  'western union', 'send gift card', 'apple gift card', 'wire transfer to',
 ];
 
-const BRAND_COLLAB_KEYWORDS = [
-  'collab', 'collaboration', 'sponsorship', 'sponsor', 'brand deal',
-  'paid partnership', 'ugc', 'ambassador', 'campaign', 'budget',
-  'affiliate', 'gifted', 'promote', 'partnership', 'media kit', 'rate sheet', 'rates',
+const GREETING_ONLY_PATTERNS = [
+  /^[\p{Emoji}\s]+$/u, // Emojis only e.g. "🔥", "❤️😍", "👏🙌"
+  /^(hi|hello|hey|hy|hlo|yo|hola|gm|gn|good morning|good night|good evening|wassup|sup|bro|sir|mam|madam)$/i,
+  /^(nice|great|awesome|super|cool|fire|legend|goat|super work|great work|nice work|love this|love your work|nice reel|nice video|great video|super inspiring)$/i,
+];
+
+const COMMERCIAL_QUESTION_INDICATORS = [
+  'price', 'pricing', 'cost', 'rate', 'rates', 'how much', 'kitna', 'fee', 'fees',
+  'buy', 'purchase', 'order', 'book', 'booking', 'slot', 'slots', 'available', 'availability',
+  'stock', 'specs', 'specification', 'specs', 'deliver', 'delivery', 'ship', 'shipping',
+  'edit', 'editing', 'service', 'services', 'package', 'packages', 'bundle', 'pay', 'payment',
+  'upi', 'qr', 'discount', 'turnaround', 'warranty', 'revision', 'revisions', 'quote',
+  '?', 'where do i', 'can i', 'do you', 'how do i', 'what is', 'when will',
 ];
 
 // In-memory AI call monitoring
@@ -57,43 +73,89 @@ function getAIStats() {
 }
 
 // ============================================
-// Cheap pre-filter (no AI call, zero latency)
+// Cheap pre-filter (no AI call, zero tokens, zero latency)
 // ============================================
 function classifyByKeywords(messageText) {
   if (!messageText || typeof messageText !== 'string') return null;
-  const lower = messageText.toLowerCase();
+  const trimmed = messageText.trim();
+  const lower = trimmed.toLowerCase();
 
+  // 1. Critical Scams & Security Attacks (0ms, 0 tokens)
   for (const kw of SCAM_KEYWORDS) {
     if (lower.includes(kw)) {
       return {
         category: 'scam',
-        intent: 'scam_attempt',
+        intent: 'scam_or_phishing_attempt',
         customerType: 'scammer',
-        confidence: 0.95,
+        confidence: 0.98,
+        purchaseIntent: 0,
+        leadQuality: 0,
+        commercialRelevance: 0,
+        urgency: 90,
         riskLevel: 'CRITICAL',
-        scamProbability: 95,
+        scamProbability: 100,
+        sentiment: 'negative',
         requiresHumanAttention: true,
         shouldAutoReply: false,
         recommendedAction: 'BLOCK_OR_WARN_USER',
-        reason: `Flagged for potential scam/phishing keyword: "${kw}"`,
+        summary: 'Security Threat: Potential scam/phishing message blocked.',
+        reason: `Flagged for security threat / phishing keyword: "${kw}"`,
+        brandDeal: null,
       };
     }
   }
 
+  // 2. Unsolicited Spam & Bot Promotions (0ms, 0 tokens)
   for (const kw of SPAM_KEYWORDS) {
     if (lower.includes(kw)) {
       return {
         category: 'spam',
         intent: 'unsolicited_spam',
         customerType: 'spammer',
-        confidence: 0.9,
+        confidence: 0.95,
+        purchaseIntent: 0,
+        leadQuality: 0,
+        commercialRelevance: 0,
+        urgency: 0,
         riskLevel: 'LOW',
         scamProbability: 10,
+        sentiment: 'neutral',
         requiresHumanAttention: false,
         shouldAutoReply: false,
         recommendedAction: 'IGNORE_SPAM',
-        reason: `Matched spam keyword "${kw}"`,
+        summary: 'Promotional spam filtered by keyword engine.',
+        reason: `Matched spam promotion pattern: "${kw}"`,
+        brandDeal: null,
       };
+    }
+  }
+
+  // 3. Casual Fan Greetings / Pure Emojis (Token-Saver: 0 tokens used)
+  // Only apply if the message does NOT contain any commercial inquiry terms or question marks
+  const hasCommercialTerms = COMMERCIAL_QUESTION_INDICATORS.some((term) => lower.includes(term));
+  if (!hasCommercialTerms) {
+    for (const pattern of GREETING_ONLY_PATTERNS) {
+      if (pattern.test(trimmed)) {
+        return {
+          category: 'fan',
+          intent: 'casual_greeting_or_compliment',
+          customerType: 'casual_fan',
+          confidence: 0.92,
+          purchaseIntent: 5,
+          leadQuality: 5,
+          commercialRelevance: 5,
+          urgency: 0,
+          riskLevel: 'LOW',
+          scamProbability: 0,
+          sentiment: 'positive',
+          requiresHumanAttention: false,
+          shouldAutoReply: false,
+          recommendedAction: 'AWAIT_CUSTOMER_INQUIRY',
+          summary: 'Casual social greeting or praise (no commercial question detected).',
+          reason: 'Message consists of casual greetings, compliments, or emojis without business inquiries.',
+          brandDeal: null,
+        };
+      }
     }
   }
 
@@ -218,12 +280,16 @@ function computePriorityScore(analysis, preferences = null) {
 }
 
 // ============================================
-// Context Formatter
+// Context Formatter (Optimized for low token footprint)
 // ============================================
 function buildContextBlock(recentMessages = [], businessName = 'Business Owner') {
   return recentMessages
-    .slice(-10)
-    .map((m) => `${m.direction === 'inbound' ? 'Customer' : businessName}: ${m.content || `[${m.messageType || 'attachment'}]`}`)
+    .slice(-4)
+    .map((m) => {
+      const role = m.direction === 'inbound' ? 'Customer' : businessName;
+      const text = truncate(m.content, 200) || `[${m.messageType || 'attachment'}]`;
+      return `${role}: ${text}`;
+    })
     .join('\n');
 }
 
@@ -233,18 +299,17 @@ function formatBusinessProfileContext(profile) {
   const parts = [];
   if (profile.businessName) parts.push(`Business Name: ${profile.businessName}`);
   if (profile.primaryCategory || profile.businessTypes) {
-    parts.push(`Business Category / Types: ${profile.primaryCategory || ''} ${profile.businessTypes || ''}`.trim());
+    parts.push(`Category: ${profile.primaryCategory || ''} ${profile.businessTypes || ''}`.trim());
   }
-  if (profile.description) parts.push(`Description: ${profile.description}`);
-  if (profile.productsServices) parts.push(`Products/Services Offered:\n${profile.productsServices}`);
-  if (profile.pricingInfo) parts.push(`Pricing & Rates:\n${profile.pricingInfo}`);
-  if (profile.targetAudience) parts.push(`Target Customers: ${profile.targetAudience}`);
-  if (profile.locationDelivery) parts.push(`Location / Delivery / Service Area: ${profile.locationDelivery}`);
-  if (profile.paymentMethods) parts.push(`Payment Methods: ${profile.paymentMethods}`);
-  if (profile.policies) parts.push(`Policies (Warranty/Turnaround/Refunds): ${profile.policies}`);
-  if (profile.faqData) parts.push(`Business FAQs:\n${profile.faqData}`);
-  if (profile.aiInstructions) parts.push(`Special Business Instructions: ${profile.aiInstructions}`);
-  if (profile.prohibitedTopics) parts.push(`STRICTLY PROHIBITED (Never promise/invent):\n${profile.prohibitedTopics}`);
+  if (profile.description) parts.push(`Description: ${truncate(profile.description, 300)}`);
+  if (profile.productsServices) parts.push(`Products/Services:\n${truncate(profile.productsServices, 500)}`);
+  if (profile.pricingInfo) parts.push(`Pricing & Rates:\n${truncate(profile.pricingInfo, 400)}`);
+  if (profile.locationDelivery) parts.push(`Location/Delivery: ${truncate(profile.locationDelivery, 200)}`);
+  if (profile.paymentMethods) parts.push(`Payment Methods: ${truncate(profile.paymentMethods, 150)}`);
+  if (profile.policies) parts.push(`Policies: ${truncate(profile.policies, 250)}`);
+  if (profile.faqData) parts.push(`FAQs:\n${truncate(profile.faqData, 500)}`);
+  if (profile.aiInstructions) parts.push(`Special Instructions: ${truncate(profile.aiInstructions, 200)}`);
+  if (profile.prohibitedTopics) parts.push(`STRICTLY PROHIBITED:\n${truncate(profile.prohibitedTopics, 200)}`);
 
   return parts.join('\n\n');
 }
@@ -517,6 +582,15 @@ ${contextBlock || '(No prior messages)'}
 2. Select EXACTLY ONE category from:
 ${CATEGORIES.map((c) => `- ${c}`).join('\n')}
 
+Category Guidelines:
+- "pricing_inquiry", "product_inquiry", "service_inquiry", "availability_inquiry", "delivery_inquiry": Customer asking about prices, rates, products, services, turnaround, or shipping.
+- "hot_lead": High-intent customer ready to buy/book immediately.
+- "brand_deal" or "collaboration": Brand, agency, or sponsor offering paid campaigns, sponsorships, or barter collabs (extract structured details into brand_deal object).
+- "support_request": Existing customer needing post-purchase help, order status, or revisions.
+- "fan": Friendly praise, emojis, or compliment.
+- "scam": Phishing, OTP/password theft, fraudulent payment schemes, or fake links.
+- "spam": Unsolicited bulk promo (buy followers, telegram crypto).
+
 3. Select Customer Type from: ${CUSTOMER_TYPES.join(', ')}
 4. Calculate Purchase Intent (0-100), Lead Quality (0-100), Commercial Relevance (0-100), Urgency (0-100), and Scam Probability (0-100).
 5. Assess Risk Level: "LOW", "MEDIUM", "HIGH", or "CRITICAL".
@@ -526,7 +600,7 @@ ${CATEGORIES.map((c) => `- ${c}`).join('\n')}
    - FALSE if: casual fan greeting, spam, scam, abusive, angry/legal dispute, or if the question requires facts not present in the business context.
 7. Determine requires_human_attention:
    - TRUE if high value lead, angry customer, scam/fraud, refund/dispute, or missing information.
-8. If (and only if) this is a brand sponsorship or commercial collab, extract structured details.
+8. If (and only if) this is a brand sponsorship or commercial collab, extract structured details into brand_deal.
 
 Return ONLY valid JSON in this exact shape:
 {
@@ -671,17 +745,19 @@ Draft the reply text:`;
 // 3. Conversation Summaries
 // ============================================
 async function summarizeConversation({ recentMessages = [], previousSummary = null, brandDeal = null, businessProfile = null }) {
-  const contextBlock = buildContextBlock(recentMessages, businessProfile?.businessName || 'Business Owner');
+  // Take only the last 3 messages as requested to save tokens
+  const last3 = recentMessages.slice(-3);
+  const contextBlock = buildContextBlock(last3, businessProfile?.businessName || 'Business Owner');
 
-  const prompt = `Summarize this Instagram DM conversation for a busy business owner.
-${previousSummary ? `Previous summary: "${previousSummary}"\n` : ''}
-Conversation so far:
+  const prompt = `Summarize the last 3 messages of this Instagram DM inquiry for a business owner.
+${previousSummary ? `Previous: "${previousSummary}"\n` : ''}
+Latest messages:
 ${contextBlock || '(no messages)'}
 
 Return ONLY valid JSON:
 {
-  "summary": "2-3 sentences summarizing who this customer is, what they requested, and current status",
-  "stage": "short phrase e.g. 'Waiting for customer specs' or 'Price quoted'"
+  "summary": "1-2 brief sentences summarizing customer request and current status",
+  "stage": "short status phrase"
 }`;
 
   try {

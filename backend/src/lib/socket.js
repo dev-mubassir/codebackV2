@@ -26,4 +26,15 @@ function emitToUser(userId, event, payload) {
   ioInstance.to(`user:${userId}`).emit(event, payload);
 }
 
-module.exports = { setIO, getIO, emitToUser };
+/** Force-disconnect all active sockets for a user upon session termination/logout */
+function disconnectUserSockets(userId) {
+  if (!ioInstance || !userId) return;
+  try {
+    ioInstance.in(`user:${userId}`).disconnectSockets(true);
+    console.log(`[Socket.io] Force-disconnected all sockets for user:${userId}`);
+  } catch (err) {
+    console.warn(`[Socket.io] Error disconnecting sockets for user:${userId}:`, err.message);
+  }
+}
+
+module.exports = { setIO, getIO, emitToUser, disconnectUserSockets };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback, Suspense } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { io } from 'socket.io-client';
 import {
@@ -14,6 +14,54 @@ import styles from './inbox.module.css';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];
+
+/** Classification filter matching logic for smart folders */
+function matchesFolder(conv, folderId) {
+  if (!conv) return false;
+  switch (folderId) {
+    case 'all':
+      return true;
+    case 'unread':
+      return Boolean(conv.unread);
+    case 'important':
+      return Boolean(
+        conv.needsAttention ||
+        conv.needsHuman ||
+        conv.priority === 'critical' ||
+        conv.priority === 'high' ||
+        (typeof conv.priorityScore === 'number' && conv.priorityScore >= 70)
+      );
+    case 'hot_leads':
+      return (
+        conv.category === 'hot_lead' ||
+        conv.customerType === 'hot_lead' ||
+        (typeof conv.purchaseIntent === 'number' && conv.purchaseIntent >= 80)
+      );
+    case 'leads':
+      return (
+        ['lead', 'service_inquiry', 'product_inquiry', 'pricing_inquiry', 'availability_inquiry', 'delivery_inquiry', 'hot_lead'].includes(conv.category) ||
+        conv.customerType === 'lead' ||
+        conv.customerType === 'hot_lead'
+      );
+    case 'customers':
+      return (
+        conv.category === 'customer' ||
+        conv.customerType === 'customer'
+      );
+    case 'questions':
+      return conv.category === 'general_question';
+    case 'support':
+      return conv.category === 'support_request';
+    case 'brand_deal':
+      return conv.category === 'brand_deal' || conv.category === 'collaboration';
+    case 'needs_human':
+      return Boolean(conv.needsHuman || conv.needsAttention);
+    case 'spam':
+      return ['spam', 'scam', 'abusive'].includes(conv.category);
+    default:
+      return conv.category === folderId;
+  }
+}
 
 function InboxPageContent() {
   const router = useRouter();
@@ -29,14 +77,14 @@ function InboxPageContent() {
   const [conversations, setConversations] = useState([]);
   const [selectedConv, setSelectedConv] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [contactInfo, setContactInfo] = useState(null);
-  const [copied, setCopied] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [draftText, setDraftText] = useState('');
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [aiSummaryHidden, setAiSummaryHidden] = useState(false);
@@ -49,6 +97,26 @@ function InboxPageContent() {
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
   const messageIdsRef = useRef(new Set());
+  const selectedConvRef = useRef(selectedConv);
+
+  // Keep selectedConvRef synchronized with selectedConv state
+  useEffect(() => {
+    selectedConvRef.current = selectedConv;
+  }, [selectedConv]);
+
+  // Compute live real-time counts for all inbox folders
+  const folderCounts = useMemo(() => {
+    const counts = {};
+    INBOX_FILTERS.forEach(f => {
+      counts[f.id] = conversations.filter(c => matchesFolder(c, f.id)).length;
+    });
+    return counts;
+  }, [conversations]);
+
+  // Compute conversations list filtered by active folder
+  const filteredConversations = useMemo(() => {
+    return conversations.filter(c => matchesFolder(c, selectedFilter));
+  }, [conversations, selectedFilter]);
 
   // ---- Auth check + load accounts & conversations ----
   useEffect(() => {
@@ -60,7 +128,7 @@ function InboxPageContent() {
         const accountsData = await getAccounts();
         setAccounts(accountsData);
 
-        await loadConversations(initialAccountId, initialFilter);
+        await loadConversations(initialAccountId);
 
         if (initialConversationId) {
           await selectConversation(initialConversationId);
@@ -110,29 +178,24 @@ function InboxPageContent() {
         ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false }
         : c
     ));
-    setSelectedConv(current => {
-      if (current === data.conversationId) {
-        setMessages([]);
-        messageIdsRef.current.clear();
-      }
-      return current;
-    });
+    if (selectedConvRef.current === data.conversationId) {
+      setMessages([]);
+      messageIdsRef.current.clear();
+    }
   }, []);
 
   // ---- Handle real-time conversation deleted ----
   const handleConversationDeleted = useCallback((data) => {
     if (!data?.conversationId) return;
     setConversations(prev => prev.filter(c => c.id !== data.conversationId));
-    setSelectedConv(current => {
-      if (current === data.conversationId) {
-        setMessages([]);
-        setAnalysis(null);
-        setContactInfo(null);
-        setMobileShowChat(false);
-        return null;
-      }
-      return current;
-    });
+    if (selectedConvRef.current === data.conversationId) {
+      setSelectedConv(null);
+      selectedConvRef.current = null;
+      setMessages([]);
+      setAnalysis(null);
+      setContactInfo(null);
+      setMobileShowChat(false);
+    }
   }, []);
 
   // ---- Auto-scroll to bottom on new messages ----
@@ -146,6 +209,13 @@ function InboxPageContent() {
 
   // ---- Handle real-time new message from Socket.io ----
   const handleNewMessage = useCallback((data) => {
+    if (!data?.conversationId || !data?.message) return;
+
+    const currentSelectedId = selectedConvRef.current;
+    const isCurrentlyOpen = currentSelectedId === data.conversationId;
+    const isInbound = data.message?.direction === 'inbound';
+
+    // 1. Update live conversation list & unread state
     setConversations(prev => {
       const existing = prev.find(c => c.id === data.conversationId);
       if (existing) {
@@ -153,87 +223,95 @@ function InboxPageContent() {
           c.id === data.conversationId
             ? {
               ...c,
-              lastMessage: data.message.content || `[${data.message.messageType}]`,
-              lastMessageAt: data.message.igTimestamp,
-              unread: true,
+              lastMessage: data.message.content || `[${data.message.messageType || 'text'}]`,
+              lastMessageAt: data.message.igTimestamp || new Date().toISOString(),
+              unread: isCurrentlyOpen ? false : true,
+              messagingWindow: isInbound
+                ? { status: 'open', canReply: true, hoursRemaining: 24 }
+                : (existing.messagingWindow || { status: 'unknown', canReply: true }),
+              ...(data.conversation || {}),
             }
             : c
-        ).sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+        ).sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
       } else {
+        // New conversation arriving from new contact
         loadConversations();
         return prev;
       }
     });
 
-    setSelectedConv(current => {
-      if (current === data.conversationId) {
-        setMessages(prev => {
-          if (messageIdsRef.current.has(data.message.id)) return prev;
-          messageIdsRef.current.add(data.message.id);
-          return [...prev, data.message];
-        });
-      }
-      return current;
-    });
+    // 2. If user is currently in this open chat, append message to chat live!
+    if (isCurrentlyOpen) {
+      setMessages(prev => {
+        if (messageIdsRef.current.has(data.message.id)) return prev;
+        messageIdsRef.current.add(data.message.id);
+        return [...prev, data.message];
+      });
+      // Mark read in background
+      setConversationRead(data.conversationId).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---- Handle live AI analysis completion (category/priority/summary) ----
   const handleAnalysisCompleted = useCallback((data) => {
+    if (!data?.conversationId) return;
+
     setConversations(prev => prev.map(c =>
       c.id === data.conversationId
-        ? { ...c, category: data.category, priority: data.priority, priorityScore: data.priorityScore, needsAttention: data.needsAttention, summary: data.summary || c.summary }
+        ? {
+          ...c,
+          category: data.category || c.category,
+          intent: data.intent || c.intent,
+          customerType: data.customerType || c.customerType,
+          leadQuality: data.leadQuality ?? c.leadQuality,
+          purchaseIntent: data.purchaseIntent ?? c.purchaseIntent,
+          riskLevel: data.riskLevel || c.riskLevel,
+          scamProbability: data.scamProbability ?? c.scamProbability,
+          aiExplanation: data.aiExplanation || c.aiExplanation,
+          recommendedAction: data.recommendedAction || c.recommendedAction,
+          needsHuman: data.needsHuman ?? c.needsHuman,
+          priority: data.priority || c.priority,
+          priorityScore: data.priorityScore ?? c.priorityScore,
+          needsAttention: data.needsAttention ?? c.needsAttention,
+          summary: data.summary || c.summary,
+        }
         : c
     ));
 
-    setSelectedConv(current => {
-      if (current === data.conversationId) {
-        setAnalysis(prevAnalysis => prevAnalysis ? {
-          ...prevAnalysis,
-          category: data.category,
-          priority: data.priority,
-          priorityScore: data.priorityScore,
-          needsAttention: data.needsAttention,
-          summary: { ...(prevAnalysis.summary || {}), summary: data.summary || prevAnalysis.summary?.summary },
-        } : prevAnalysis);
-      }
-      return current;
-    });
+    if (selectedConvRef.current === data.conversationId) {
+      setAnalysis(prevAnalysis => ({
+        ...(prevAnalysis || {}),
+        category: data.category,
+        intent: data.intent,
+        customerType: data.customerType,
+        leadQuality: data.leadQuality,
+        purchaseIntent: data.purchaseIntent,
+        riskLevel: data.riskLevel,
+        scamProbability: data.scamProbability,
+        reason: data.aiExplanation,
+        recommendedAction: data.recommendedAction,
+        needsCreatorAttention: data.needsHuman,
+        priority: data.priority,
+        priorityScore: data.priorityScore,
+        summary: { ...(prevAnalysis?.summary || {}), summary: data.summary || prevAnalysis?.summary?.summary },
+      }));
+    }
   }, []);
 
   // ---- Handle live brand deal detection ----
   const handleBrandDealDetected = useCallback((data) => {
-    setSelectedConv(current => {
-      if (current === data.conversationId) {
-        setAnalysis(prevAnalysis => prevAnalysis ? { ...prevAnalysis, brandDeal: data.brandDeal } : prevAnalysis);
-      }
-      return current;
-    });
+    if (selectedConvRef.current === data.conversationId) {
+      setAnalysis(prevAnalysis => (prevAnalysis ? { ...prevAnalysis, brandDeal: data.brandDeal } : prevAnalysis));
+    }
     loadConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- Build query extras from the active pseudo/real filter ----
-  function filterToQuery(filterId) {
-    if (filterId === 'all' || !filterId) return {};
-    if (filterId === 'unread') return { unread: true };
-    if (filterId === 'important') return { important: true };
-    if (filterId === 'hot_leads') return { category: 'hot_lead' };
-    if (filterId === 'leads') return { category: 'service_inquiry' };
-    if (filterId === 'customers') return { category: 'customer' };
-    if (filterId === 'questions') return { category: 'general_question' };
-    if (filterId === 'support') return { category: 'support_request' };
-    if (filterId === 'brand_deal') return { category: 'brand_deal' };
-    if (filterId === 'needs_human') return { needsHuman: true };
-    if (filterId === 'spam') return { category: 'spam' };
-    return { category: filterId };
-  }
-
-  // ---- Load conversations ----
-  async function loadConversations(accId = selectedAccountId, filterId = selectedFilter) {
+  // ---- Load all conversations for account ----
+  async function loadConversations(accId = selectedAccountId) {
     try {
-      const extra = filterToQuery(filterId);
-      const data = await getConversations(accId, extra.category, extra);
+      const data = await getConversations(accId);
       setConversations(data);
     } catch (err) {
       console.error('Failed to load conversations:', err);
@@ -244,21 +322,20 @@ function InboxPageContent() {
   async function handleAccountChange(accId) {
     setSelectedAccountId(accId);
     setSelectedConv(null);
+    selectedConvRef.current = null;
     setMessages([]);
-    await loadConversations(accId, selectedFilter);
+    await loadConversations(accId);
   }
 
-  // ---- Switch category/status filter ----
-  async function handleFilterChange(filterId) {
+  // ---- Switch folder filter (Instant client-side filter) ----
+  function handleFilterChange(filterId) {
     setSelectedFilter(filterId);
-    setSelectedConv(null);
-    setMessages([]);
-    await loadConversations(selectedAccountId, filterId);
   }
 
   // ---- Select a conversation ----
   async function selectConversation(convId) {
     setSelectedConv(convId);
+    selectedConvRef.current = convId;
     setMessages([]);
     setAnalysis(null);
     setDraftText('');
@@ -280,7 +357,13 @@ function InboxPageContent() {
       setEditingAutoReply(false);
 
       // The GET above marks it read server-side — reflect that optimistically.
-      setConversations(prev => prev.map(c => (c.id === convId ? { ...c, unread: false, autoReplyEnabled: data.conversation.autoReplyEnabled, autoReplyPrompt: data.conversation.autoReplyPrompt } : c)));
+      setConversations(prev => prev.map(c => (c.id === convId ? {
+        ...c,
+        unread: false,
+        autoReplyEnabled: data.conversation.autoReplyEnabled,
+        autoReplyPrompt: data.conversation.autoReplyPrompt,
+        messagingWindow: data.conversation.messagingWindow || c.messagingWindow,
+      } : c)));
 
       const analysisData = await getConversationAnalysis(convId).catch(() => null);
       if (analysisData) setAnalysis(analysisData);
@@ -320,8 +403,34 @@ function InboxPageContent() {
   const activeCategory = analysis?.category || activeConvData?.category || 'other';
   const activeCategoryMeta = getCategoryMeta(activeCategory);
   const activePriorityMeta = getPriorityMeta(analysis?.priority || activeConvData?.priority);
-  const messagingWindow = activeConvData?.messagingWindow;
-  const canSend = messagingWindow?.canReply !== false; // unknown/open => allow attempt, closed => block
+
+  // Calculate real-time 24-hour messaging window from active messages
+  const messagingWindow = useMemo(() => {
+    let latestInbound = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].direction === 'inbound') {
+        latestInbound = messages[i];
+        break;
+      }
+    }
+    if (latestInbound) {
+      const timestamp = latestInbound.igTimestamp || latestInbound.createdAt;
+      const elapsed = Date.now() - new Date(timestamp).getTime();
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      if (elapsed < TWENTY_FOUR_HOURS) {
+        return {
+          status: 'open',
+          canReply: true,
+          hoursRemaining: Math.round((TWENTY_FOUR_HOURS - elapsed) / (60 * 60 * 1000) * 10) / 10,
+        };
+      } else {
+        return { status: 'closed', canReply: false };
+      }
+    }
+    return activeConvData?.messagingWindow || { status: 'unknown', canReply: true };
+  }, [messages, activeConvData]);
+
+  const canSend = messagingWindow?.status !== 'closed';
 
   function handleCopyReply(text) {
     if (!text) return;
@@ -500,6 +609,7 @@ function InboxPageContent() {
             <div className={styles.filterItemList}>
               {INBOX_FILTERS.map(f => {
                 const isActive = selectedFilter === f.id;
+                const count = folderCounts[f.id] ?? 0;
                 return (
                   <button
                     key={f.id}
@@ -511,6 +621,7 @@ function InboxPageContent() {
                       <span className={styles.filterItemIcon}>{f.icon}</span>
                       <span className={styles.filterItemLabel}>{f.label}</span>
                     </div>
+                    {count > 0 && <span className={styles.filterItemCount}>{count}</span>}
                   </button>
                 );
               })}
@@ -560,15 +671,18 @@ function InboxPageContent() {
                 </button>
               ))}
               <div className={styles.mobileChipDivider} />
-              {INBOX_FILTERS.map(f => (
-                <button
-                  key={f.id}
-                  className={`${styles.mobileFilterChip} ${selectedFilter === f.id ? styles.mobileFilterChipActive : ''}`}
-                  onClick={() => handleFilterChange(f.id)}
-                >
-                  <span>{f.icon}</span> {f.label}
-                </button>
-              ))}
+              {INBOX_FILTERS.map(f => {
+                const count = folderCounts[f.id] ?? 0;
+                return (
+                  <button
+                    key={f.id}
+                    className={`${styles.mobileFilterChip} ${selectedFilter === f.id ? styles.mobileFilterChipActive : ''}`}
+                    onClick={() => handleFilterChange(f.id)}
+                  >
+                    <span>{f.icon}</span> {f.label} {count > 0 ? `(${count})` : ''}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -577,19 +691,19 @@ function InboxPageContent() {
               Conversations
             </h3>
             <span className={styles.convPanelBadge}>
-              {conversations.length}
+              {filteredConversations.length}
             </span>
           </div>
 
           <div className={styles.convList}>
-            {conversations.length === 0 ? (
+            {filteredConversations.length === 0 ? (
               <div className={styles.emptyConvs}>
                 <div className={styles.emptyConvsIcon}>📥</div>
                 <h4>No conversations found</h4>
-                <p>Incoming DMs will appear here when someone messages your Instagram account.</p>
+                <p>No messages matching this folder.</p>
               </div>
             ) : (
-              conversations.map((conv) => {
+              filteredConversations.map((conv) => {
                 const meta = getCategoryMeta(conv.category);
                 const prio = getPriorityMeta(conv.priority);
                 return (
@@ -651,11 +765,6 @@ function InboxPageContent() {
 
                       {/* Wrapped Badges / Tags Row */}
                       <div className={styles.convBadgesRow}>
-                        {conv.riskLevel && conv.riskLevel !== 'LOW' && (
-                          <span className={`badge ${styles.riskBadge} ${conv.riskLevel === 'CRITICAL' ? styles.riskBadgeCrit : styles.riskBadgeHigh}`}>
-                            {conv.riskLevel === 'CRITICAL' ? '🚨 SCAM' : '⚠️ RISK'}
-                          </span>
-                        )}
                         {conv.customerType && conv.customerType !== 'unknown' && (
                           <span className={`badge ${styles.customerBadge}`}>
                             {conv.customerType.replace('_', ' ')}
@@ -724,17 +833,6 @@ function InboxPageContent() {
                   </div>
                 </div>
                 <div className={styles.chatHeaderRight}>
-                  {/* Per-Chat AI Auto-Reply Button */}
-                  <button
-                    className={`${styles.autoReplyBtn} ${activeConvData?.autoReplyEnabled ? styles.autoReplyBtnActive : ''}`}
-                    onClick={() => handleToggleAutoReply()}
-                    title={activeConvData?.autoReplyEnabled ? 'Auto-Reply is ON for this chat (click to turn OFF)' : 'Auto-Reply is OFF for this chat (click to turn ON)'}
-                    id="toggle-chat-auto-reply-btn"
-                  >
-                    <span className={styles.autoReplyDot} />
-                    {activeConvData?.autoReplyEnabled ? '⚡ Auto-Reply ON' : '🤖 Auto-Reply OFF'}
-                  </button>
-
                   {/* Clear & Delete Action Buttons */}
                   <div className={styles.chatHeaderActionGroup}>
                     <button
@@ -773,76 +871,16 @@ function InboxPageContent() {
               </div>
 
               {/* Needs Human Attention Alert */}
-              {(activeConvData?.needsHuman || activeConvData?.riskLevel === 'HIGH' || activeConvData?.riskLevel === 'CRITICAL') && (
+              {activeConvData?.needsHuman && (
                 <div className={styles.humanAttentionBanner}>
                   <span>⚠️</span>
                   <div>
-                    <strong>Needs Human Attention:</strong> {activeConvData?.aiExplanation || 'High risk inquiry or customer requested direct assistance.'}
+                    <strong>Needs Human Attention:</strong> {activeConvData?.aiExplanation || 'Customer inquiry requiring direct human follow-up.'}
                   </div>
                 </div>
               )}
 
-              {/* Specific Chat Auto-Reply Banner */}
-              {activeConvData?.autoReplyEnabled && (
-                <div className={styles.autoReplyBanner}>
-                  <div className={styles.autoReplyBannerLeft}>
-                    <span className={styles.autoReplyBannerIcon}>⚡</span>
-                    <div className={styles.autoReplyBannerText}>
-                      <div className={styles.autoReplyBannerTitle}>
-                        AI Auto-Reply is active for @{contactInfo?.username || 'this user'}
-                      </div>
-                      <div className={styles.autoReplyBannerDesc}>
-                        {activeConvData.autoReplyPrompt
-                          ? `Custom instructions: "${activeConvData.autoReplyPrompt}"`
-                          : 'AI will automatically draft & send responses to incoming DMs from this contact based on your tone.'}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setEditingAutoReply(!editingAutoReply)}
-                    style={{ fontSize: '11px', padding: '4px 10px' }}
-                  >
-                    {editingAutoReply ? 'Close' : '✏️ Edit Prompt'}
-                  </button>
-                </div>
-              )}
-
-              {/* Custom Auto-Reply Prompt Editor */}
-              {editingAutoReply && (
-                <div className={styles.autoReplyPromptBox}>
-                  <label className={styles.autoReplyPromptLabel}>
-                    Custom Auto-Reply Instructions for @{contactInfo?.username || 'this contact'}:
-                  </label>
-                  <textarea
-                    className="textarea"
-                    placeholder="e.g. Always share pricing sheet link https://example.com/rates and ask for deliverables/budget."
-                    value={customPromptText}
-                    onChange={(e) => setCustomPromptText(e.target.value)}
-                    rows={2}
-                    style={{ marginTop: '6px', marginBottom: '8px' }}
-                  />
-                  <div className={styles.autoReplyPromptActions}>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        handleToggleAutoReply(true, customPromptText);
-                        setEditingAutoReply(false);
-                      }}
-                    >
-                      Save Custom Instructions
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setEditingAutoReply(false)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* AI Customer Intelligence & Risk Box */}
+              {/* AI Customer Intelligence & Summary Box */}
               {(analysis?.latestAnalysis || activeConvData?.aiExplanation || activeConvData?.summary || analysis?.summary?.summary) && (
                 aiSummaryHidden ? (
                   <div className={styles.intelligenceCardCollapsed}>
@@ -879,11 +917,6 @@ function InboxPageContent() {
                         )}
                       </div>
                       <div className={styles.intelligenceHeaderRight}>
-                        {activeConvData?.riskLevel && (
-                          <span className={activeConvData.riskLevel === 'CRITICAL' ? styles.riskBadgeCrit : activeConvData.riskLevel === 'HIGH' ? styles.riskBadgeHigh : styles.riskBadgeLow}>
-                            🛡️ Risk: {activeConvData.riskLevel}
-                          </span>
-                        )}
                         <button
                           className={styles.toggleSummaryBtn}
                           onClick={() => setAiSummaryHidden(true)}
@@ -904,8 +937,8 @@ function InboxPageContent() {
                         <span className={styles.metricValue}>{activeConvData?.purchaseIntent ?? analysis?.latestAnalysis?.purchaseIntent ?? 0}/100</span>
                       </div>
                       <div className={styles.metricItem}>
-                        <span className={styles.metricLabel}>Scam Probability</span>
-                        <span className={styles.metricValue}>{activeConvData?.scamProbability ?? analysis?.latestAnalysis?.scamProbability ?? 0}%</span>
+                        <span className={styles.metricLabel}>Match Confidence</span>
+                        <span className={styles.metricValue}>{Math.round((analysis?.confidence ?? 0.95) * 100)}%</span>
                       </div>
                       <div className={styles.metricItem}>
                         <span className={styles.metricLabel}>Recommended Action</span>

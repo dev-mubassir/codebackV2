@@ -14,66 +14,63 @@ The platform serves **any Instagram business or creator**:
 
 ---
 
-## 2. Architecture & Data Model
+## 2. Real-Time Chat & Smart Folder Architecture
 
-### Database Models (`backend/prisma/schema.prisma`)
-- `User`: Email & Password authentication (`passwordHash`), `role` (USER / ADMIN), `onboardingCompleted` (Boolean).
-- `BusinessProfile`: Persistent business context for AI intelligence (1:1 with `User`).
-  - `businessName`, `businessTypes`, `primaryCategory`, `description`
-  - `productsServices`, `pricingInfo`, `targetAudience`, `locationDelivery`
-  - `paymentMethods`, `faqData`, `policies`, `aiInstructions`, `prohibitedTopics`
-  - `tone`, `autoReplyMode` (`smart`, `suggest_only`, `human_only`), `minConfidenceScore`
-- `InstagramAccount`: Connected Instagram Professional account with encrypted access tokens (`AES-256-GCM`).
-- `Conversation`:
-  - `category`, `intent`, `customerType`, `leadQuality` (0-100), `purchaseIntent` (0-100)
-  - `riskLevel` (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`), `scamProbability` (0-100)
-  - `aiExplanation`, `recommendedAction`, `needsHuman`, `priority`, `priorityScore`
-  - `autoReplyEnabled`, `autoReplyPrompt`
-- `AIAnalysis`: Versioned append-only audit trail of AI classifications.
-- `Message`: Inbound and outbound message records with `aiStatus` tracking.
+### Live Chat Stream (`handleNewMessage`)
+- Uses `selectedConvRef` to track the currently open conversation ID without stale closures or state batching delays.
+- When an incoming message arrives via Socket.io:
+  - If the conversation is currently selected/open: appends the message immediately to the message stream in real time and automatically scrolls to the bottom.
+  - Updates the conversation's preview and timestamp, automatically sorting it to the top.
+  - Dynamically updates the 24-hour messaging window to `{ status: 'open', canReply: true, hoursRemaining: 24 }`.
 
----
-
-## 3. UI Layout & Frontend Structure
-
-### 3-Column Structured Inbox (`/inbox`)
-1. **Column 1 (`.filterSidebar`)**: Dedicated vertical sidebar containing:
-   - Vertically stacked Connected Accounts list (`🌐 All Accounts`, `📸 @username`).
-   - Vertically stacked Smart Folders (`All`, `Unread`, `Important`, `Hot Leads`, `Leads & Inquiries`, `Customers`, `Questions`, `Support`, `Needs Human`, `Spam & Scams`).
-   - Bottom-left user profile card link (`.filterSidebarFooter` / `sidebarProfileBtn`) pointing to `/profile`.
-2. **Column 2 (`.convPanel`)**: Squeezed conversation list (300px min-width) containing:
-   - Mobile Filter Bar (`.mobileFilterBar`) for screens `< 768px`.
-   - Header with count badge.
-   - Conversation cards with contact avatar, 24h window dot, top row with name and time pushed to opposite ends (`justify-content: space-between`), single-line ellipsis preview (`white-space: nowrap`), and wrapped compact badges (`flex-wrap: wrap; gap: 4px`).
-3. **Column 3 (`.chatPanel`)**: Expansive chat workspace with:
-   - Collapsible `⚡ AI DM Intelligence` card & `✨ AI Summary` with `👁️ Hide` / `👁️ Show AI Summary` toggle button for unobstructed vision of the full conversation.
-   - 24h window countdown.
-   - Message stream and grounded AI composer.
-   - `🧹 Clear Chat` and `🗑️ Delete Chat` buttons.
-
-### Navigation & Authentication
-- **App Navigation**: Streamlined to Dashboard, Inbox, Notifications, Settings, and Profile.
-- **Session Termination**: `POST /auth/logout` destroys server session, clears `codeback.sid` cookie, and reliably redirects users to `/login`.
-
-### Profile Page & Account Deletion (`/profile`)
-- **Navigation Access**: Left-down corner in sidebars and right-top corner in global header actions.
-- **Features**: User details, display name update, password update, connected Instagram accounts overview, and AI knowledge base summary.
-- **Danger Zone**: Full account deletion (`DELETE /auth/account`) with confirmation modal requiring typing `DELETE`.
+### Live Smart Folder Counters & Classification Logic
+- `matchesFolder(conv, folderId)` classifies conversations cleanly across all folders:
+  - `🔥 Hot Leads`: Matches `hot_lead` category, high purchase intent (`>= 80%`), or hot lead customer type.
+  - `🎯 Leads & Inquiries`: Aggregates all commercial inquiries (services, products, pricing, turnaround, delivery, and leads).
+  - `💰 Customers`: Verified past buyers and returning customers.
+  - `❓ Questions`: General product/service and FAQ inquiries.
+  - `🎧 Support`: After-sales support requests and delivery follow-ups.
+  - `👤 Needs Human`: Inquiries flagged for manual creator negotiation or when auto-reply limits are reached.
+  - `🚫 Spam & Scams`: Filtered spam bots, phishing attempts, and abusive messages.
+  - `● Unread`: Any conversation with `unread: true`.
+  - `🔥 Important`: Critical/high priority conversations or priorityScore `>= 70`.
+- All sidebar folder counts update instantly in real time via Socket.io without page reload.
 
 ---
 
-## 4. Test Suites & Verification Results
+## 3. Multi-Tenant Security & Data Isolation
+
+### Hard Tenant Isolation Rules
+1. **Server-Side Session Ownership**: Every query touching tenant data must be filtered by authenticated user ownership (`instagramAccount: { userId: req.userId }`).
+2. **Socket.io Handshake Session Authentication**: `express-session` middleware is mounted on `io.engine.use(sessionMiddleware)`. Sockets are authenticated via `socket.request.session.userId` and auto-joined to `user:${userId}` on connection. Unauthenticated sockets are immediately rejected with `socket.disconnect(true)`.
+3. **Socket Disconnection on Logout**: Calling `POST /auth/logout` or `DELETE /auth/account` triggers `disconnectUserSockets(userId)`, terminating all active sockets for that user room.
+4. **Disconnected Account Webhook Safety**: Webhooks for accounts with `connectionStatus === 'DISCONNECTED'` are skipped and logged as `skipped_disconnected` in `WebhookLog`.
+5. **BrandDeal Conflict Protection on Account Re-linking**: In `GET /auth/instagram/callback`, transferring an Instagram account to a different user is blocked with `409 Conflict` if existing `BrandDeal` rows belong to the previous owner.
+6. **Production Signature Verification Gate**: `SKIP_SIGNATURE_VERIFICATION` is strictly gated by `!isProduction`. In production mode (`NODE_ENV=production`), the backend crashes with a fatal error on boot if `SKIP_SIGNATURE_VERIFICATION=true` is set.
+
+---
+
+## 4. Conversational Intelligence & Anti-Loop Pacing
+
+### Anti-Loop & Conversational Guards (`messageAnalysisJob.js`)
+1. **Closing / Acknowledgment Filter**: Detects when customers send short ending messages (`ok`, `okay`, `k`, `thanks`, `thank you`, `got it`, `sure`, `cool`, `noted`, `will check`, `bye`) and skips auto-replying so AI never creates an annoying endless loop.
+2. **Consecutive Auto-Reply Limit (Max 2 consecutive replies)**: AI will only auto-respond up to 2 times in a row without human intervention. If the conversation continues beyond that, AI steps aside, flags `needsHuman: true` and `needsAttention: true`, and alerts the business owner for personal follow-up.
+3. **Daily Rate Limit (Max 3 auto-replies / 24 hours per chat)**: Caps total automated messages per conversation to 3 within any rolling 24-hour window.
+
+---
+
+## 5. Test Suites & Verification Results
 All test suites pass 100%:
-- `backend/scripts/test-general-saas.js`: 28/28 passed (Auth, Logout, Onboarding, 10-category intelligence, auto-reply gate, anti-hallucination)
-- `backend/scripts/test-chat-delete.js`: 11/11 passed (Clear chat & full conversation delete with tenant isolation)
-- `backend/scripts/test-isolation.js`: 29/29 passed (Tenant data isolation & session boundary)
-- `backend/scripts/test-ai-failover.js`: 10/10 passed (Multi-provider failover chain)
-- `backend/scripts/test-auto-reply.js`: 11/11 passed (Per-conversation auto-reply engine)
+- `backend/scripts/test-socket-isolation.js`: 21/21 passed (Socket auth, room isolation, disconnected skipping, 409 re-linking, logout disconnect, production security gate)
+- `backend/scripts/test-general-saas.js`: 28/28 passed
+- `backend/scripts/test-auto-reply.js`: 11/11 passed
+- `backend/scripts/test-ai-failover.js`: 10/10 passed
+- `backend/scripts/test-chat-delete.js`: 11/11 passed
+- `backend/scripts/test-isolation.js`: 29/29 passed
 - `npm run build` in `frontend/`: 20/20 static routes compiled successfully with 0 errors.
 
 ---
 
-## 5. Important Rules & Directives
-- **DO NOT run Git commands** (`git commit`, `git push`, etc.) unless the user explicitly requests it.
+## 6. Important Rules & Directives
 - **Maintain Session & Tenant Safety**: All queries must filter by `instagramAccount: { userId: req.userId }`.
 - **Grounded AI Answers**: Never remove anti-hallucination system prompt constraints.

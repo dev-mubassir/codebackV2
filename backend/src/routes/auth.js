@@ -15,6 +15,7 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
+const { disconnectUserSockets } = require('../lib/socket');
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -185,6 +186,11 @@ router.post('/login', async (req, res) => {
 // End session & clear cookie
 // ============================================
 router.post('/logout', (req, res) => {
+  const userId = req.session ? req.session.userId : null;
+  if (userId) {
+    disconnectUserSockets(userId);
+  }
+
   if (req.session) {
     req.session.destroy((err) => {
       if (err) {
@@ -269,6 +275,30 @@ router.get('/instagram/callback', async (req, res) => {
       // — all historical contacts/conversations/messages remain attached to
       // this row and are never touched here.
       const targetUserId = currentUserId || existingAccount.userId;
+
+      // FIX 3: If re-linking to a different user, check for existing BrandDeal rows tied to this account
+      if (targetUserId !== existingAccount.userId) {
+        const existingDealsCount = await prisma.brandDeal.count({
+          where: {
+            instagramAccountId: existingAccount.id,
+            userId: { not: targetUserId },
+          },
+        });
+
+        if (existingDealsCount > 0) {
+          console.warn(
+            `[Auth] ⚠️ Re-link BLOCKED: Instagram account @${existingAccount.igUsername} (${igUserId}) has ${existingDealsCount} BrandDeal records owned by User ${existingAccount.userId}. Cannot transfer ownership to User ${targetUserId} automatically.`
+          );
+          if (req.accepts('json') && !req.accepts('html')) {
+            return res.status(409).json({
+              error: 'Account re-link conflict',
+              message: 'This Instagram account has existing brand deal history under a different user. Re-linking is blocked and requires manual administrator review.',
+            });
+          }
+          return res.redirect(`${process.env.FRONTEND_URL}?error=account_conflict_brand_deals`);
+        }
+      }
+
       await prisma.instagramAccount.update({
         where: { igUserId: igUserId },
         data: {
@@ -523,6 +553,7 @@ router.delete('/account', async (req, res) => {
       where: { id: userId },
     });
 
+    disconnectUserSockets(userId);
     console.log(`[Auth] Permanently deleted user account ${userId} (${user.email})`);
 
     req.session.destroy((err) => {

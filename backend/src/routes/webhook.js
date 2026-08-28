@@ -18,6 +18,7 @@ const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
 const { emitToUser } = require('../lib/socket');
 const { enqueueMessageAnalysis } = require('../jobs');
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Kept for backwards compatibility with index.js — Socket.io is now
 // accessed through lib/socket.js everywhere, so this is a no-op shim.
@@ -28,17 +29,19 @@ function setSocketIO() {}
 // Webhook verification endpoint (Meta sends this to verify your endpoint)
 // ============================================
 router.get('/', (req, res) => {
-  const challenge = req.query['hub.challenge'];
+  const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
 
-  console.log('[Webhook] Verification GET request received. Verify token:', token);
+  console.log('[Webhook] Verification request received:', { mode, token: token ? '***' : undefined });
 
-  if (challenge) {
-    console.log('[Webhook] Responding with challenge string:', challenge);
+  if (mode === 'subscribe' && token === process.env.WEBHOOK_VERIFY_TOKEN) {
+    console.log('[Webhook] Verified successfully with Meta!');
     return res.status(200).send(challenge);
   }
 
-  res.status(200).send('Webhook Endpoint Active');
+  console.warn('[Webhook] Verification failed — token mismatch or invalid mode.');
+  return res.status(403).send('Verification failed');
 });
 
 // ============================================
@@ -73,8 +76,9 @@ router.post('/', async (req, res) => {
  */
 function verifySignature(rawBody, signatureHeader) {
   if (!signatureHeader || !rawBody) {
-    if (process.env.SKIP_SIGNATURE_VERIFICATION === 'true') {
-      console.warn('[Webhook] Missing signature/raw body — allowed because SKIP_SIGNATURE_VERIFICATION=true.');
+    // Development/testing escape hatch — STRUCTURALLY BLOCKED in production
+    if (process.env.SKIP_SIGNATURE_VERIFICATION === 'true' && !isProduction) {
+      console.warn('[Webhook] Missing signature/raw body — allowed because SKIP_SIGNATURE_VERIFICATION=true in non-production.');
       return true;
     }
     console.warn('[Webhook] Missing signature or raw body.');
@@ -92,10 +96,20 @@ function verifySignature(rawBody, signatureHeader) {
   // Buffers of different lengths would make timingSafeEqual throw instead of
   // returning false — guard against that first.
   if (provided.length !== expected.length) {
+    if (process.env.SKIP_SIGNATURE_VERIFICATION === 'true' && !isProduction) {
+      console.warn('[Webhook] Signature length mismatch — allowed because SKIP_SIGNATURE_VERIFICATION=true in non-production.');
+      return true;
+    }
     return false;
   }
 
-  return crypto.timingSafeEqual(provided, expected);
+  const isValid = crypto.timingSafeEqual(provided, expected);
+  if (!isValid && process.env.SKIP_SIGNATURE_VERIFICATION === 'true' && !isProduction) {
+    console.warn('[Webhook] Signature mismatch — allowed because SKIP_SIGNATURE_VERIFICATION=true in non-production.');
+    return true;
+  }
+
+  return isValid;
 }
 
 /**
@@ -128,6 +142,24 @@ async function processEntry(entry, fullBody) {
         status: 'SKIPPED',
         payload: redactedPayload,
         errorMessage: `No connected account found for IG User ID ${igUserId}`,
+      }
+    }).catch(() => {});
+
+    return;
+  }
+
+  // Check if the account has been disconnected by the user
+  if (account.connectionStatus === 'DISCONNECTED') {
+    console.warn(`[Webhook] Account @${account.igUsername || igUserId} is disconnected. Skipping event.`);
+
+    await prisma.webhookLog.create({
+      data: {
+        instagramAccountId: account.id,
+        igUserId,
+        eventType: 'skipped_disconnected',
+        status: 'SKIPPED',
+        payload: redactedPayload,
+        errorMessage: `Account @${account.igUsername || igUserId} is disconnected. Webhook skipped.`,
       }
     }).catch(() => {});
 

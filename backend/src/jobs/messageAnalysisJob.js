@@ -40,18 +40,26 @@ async function recordUsage(userId, type, quantity = 1, metadata = null) {
   }
 }
 
-async function maybeRegenerateSummary({ conversation, userId }) {
+async function maybeRegenerateSummary({ conversation, userId, analysis }) {
   try {
+    // 1. Skip secondary AI summary calls for non-business, spam, scam, abusive, or fan messages to save tokens
+    const NON_BUSINESS_CATEGORIES = ['spam', 'scam', 'abusive', 'fan'];
+    if (analysis && NON_BUSINESS_CATEGORIES.includes(analysis.category)) {
+      console.log(`[Summary] Skipping summary AI call for non-business category: "${analysis.category}"`);
+      return;
+    }
+
     const preferences = await getOrCreatePreferences(userId);
     if (!preferences.autoGenerateSummary) return;
 
+    // 2. Fetch only the last 3 messages to keep summary token cost minimal
     const [existingSummary, messageCount, recentMessages, latestBrandDeal] = await Promise.all([
       prisma.conversationSummary.findUnique({ where: { conversationId: conversation.id } }),
       prisma.message.count({ where: { conversationId: conversation.id } }),
       prisma.message.findMany({
         where: { conversationId: conversation.id },
         orderBy: { createdAt: 'desc' },
-        take: 12,
+        take: 3,
       }),
       prisma.brandDeal.findFirst({ where: { conversationId: conversation.id }, orderBy: { createdAt: 'desc' } }),
     ]);
@@ -257,11 +265,14 @@ async function processMessageAnalysis(job) {
       aiFailed: analysis.failed,
     });
 
-    // 7. Periodic conversation summary.
-    await maybeRegenerateSummary({ conversation, userId });
+    // 7. Periodic conversation summary (only for relevant commercial/business inquiries).
+    await maybeRegenerateSummary({ conversation, userId, analysis });
 
     // 8. Multi-Stage Intelligent Auto-Reply Safety Gate
-    if (conversation.autoReplyEnabled && message.direction === 'inbound') {
+    const isAutoReplyActive = (conversation.autoReplyEnabled || businessProfile?.autoReplyMode === 'smart') &&
+      businessProfile?.autoReplyMode !== 'human_only';
+
+    if (isAutoReplyActive && message.direction === 'inbound') {
       await maybeAutoReply({
         conversation,
         contact: conversation.contact,
@@ -286,7 +297,7 @@ async function processMessageAnalysis(job) {
 
 /**
  * Executes an automated AI reply for a specific conversation that has
- * auto-reply enabled by the user, applying strict multi-stage safety checks.
+ * auto-reply enabled by the user or business profile, applying strict multi-stage safety checks.
  */
 async function maybeAutoReply({
   conversation,
@@ -305,17 +316,17 @@ async function maybeAutoReply({
       return;
     }
 
-    // Stage 2: Risk & Scam Safety Check
+    // Stage 2: Risk, Scam & Inquiry Safety Checks
     if (analysis) {
       if (analysis.riskLevel === 'HIGH' || analysis.riskLevel === 'CRITICAL') {
         console.log(`[AutoReply] Blocked auto-reply: Risk level is ${analysis.riskLevel}.`);
         return;
       }
-      if (analysis.scamProbability >= 30) {
+      if (analysis.scamProbability >= 25) {
         console.log(`[AutoReply] Blocked auto-reply: Scam probability is ${analysis.scamProbability}%.`);
         return;
       }
-      if (analysis.category === 'spam' || analysis.category === 'scam' || analysis.category === 'abusive') {
+      if (['spam', 'scam', 'abusive'].includes(analysis.category)) {
         console.log(`[AutoReply] Blocked auto-reply: Category is ${analysis.category}.`);
         return;
       }
@@ -327,17 +338,100 @@ async function maybeAutoReply({
         console.log(`[AutoReply] AI safety classifier determined shouldAutoReply=false for conversation ${conversation.id}.`);
         return;
       }
+
+      // Normal business inquiry categories eligible for auto-reply
+      const normalInquiryCategories = [
+        'pricing_inquiry',
+        'product_inquiry',
+        'service_inquiry',
+        'availability_inquiry',
+        'delivery_inquiry',
+        'hot_lead',
+        'lead',
+        'customer',
+        'general_question',
+        'support_request',
+        'other',
+      ];
+
+      if (!normalInquiryCategories.includes(analysis.category) && !analysis.shouldAutoReply) {
+        console.log(`[AutoReply] Category "${analysis.category}" not eligible for auto-reply.`);
+        return;
+      }
     }
 
     // Stage 3: Fetch recent messages in conversation
     const recentMessages = await prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: 'desc' },
-      take: 10,
+      take: 12,
     });
 
     const lastInbound = recentMessages.find((m) => m.direction === 'inbound');
     if (!lastInbound) return;
+
+    // Conversational Intelligence Guard 1: Ignore Short Acknowledgments / Conversation Closers
+    const ACKNOWLEDGMENT_PATTERNS = [
+      /^(ok|okay|k|kk|thx|thanks|thank you|ty|tysm|got it|sure|alright|cool|great|perfect|done|noted|will check|will let you know|sounds good|see you|bye|goodbye|tc)$/i,
+    ];
+    const trimmedInbound = (lastInbound.content || '').trim().toLowerCase();
+    const isAcknowledgment = ACKNOWLEDGMENT_PATTERNS.some((p) => p.test(trimmedInbound));
+    if (isAcknowledgment) {
+      console.log(`[AutoReply] Customer sent brief acknowledgment/closing ("${trimmedInbound}"), skipping auto-reply to avoid loop.`);
+      return;
+    }
+
+    // Conversational Intelligence Guard 2: Consecutive Auto-Reply Limit (Max 2 in a row)
+    let consecutiveAutoReplies = 0;
+    for (const msg of recentMessages) {
+      if (msg.direction === 'outbound') {
+        if (msg.aiStatus === 'auto_replied') {
+          consecutiveAutoReplies++;
+        } else {
+          // A manual human reply was sent, resetting the consecutive counter
+          break;
+        }
+      }
+    }
+
+    const MAX_CONSECUTIVE_AUTO_REPLIES = 2;
+    if (consecutiveAutoReplies >= MAX_CONSECUTIVE_AUTO_REPLIES) {
+      console.log(`[AutoReply] Max consecutive auto-replies (${MAX_CONSECUTIVE_AUTO_REPLIES}) reached for conversation ${conversation.id}. Handing off to human.`);
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          needsHuman: true,
+          needsAttention: true,
+          aiExplanation: `Auto-reply session limit reached (${MAX_CONSECUTIVE_AUTO_REPLIES} replies sent). Handed off for personal human follow-up.`,
+        },
+      });
+      return;
+    }
+
+    // Conversational Intelligence Guard 3: Daily Auto-Reply Cap (Max 3 per 24 hours per chat)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const dailyAutoReplyCount = await prisma.message.count({
+      where: {
+        conversationId: conversation.id,
+        direction: 'outbound',
+        aiStatus: 'auto_replied',
+        createdAt: { gte: oneDayAgo },
+      },
+    });
+
+    const MAX_DAILY_AUTO_REPLIES = 3;
+    if (dailyAutoReplyCount >= MAX_DAILY_AUTO_REPLIES) {
+      console.log(`[AutoReply] Daily auto-reply cap (${MAX_DAILY_AUTO_REPLIES}/day) reached for conversation ${conversation.id}. Handing off to human.`);
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          needsHuman: true,
+          needsAttention: true,
+          aiExplanation: `Daily auto-reply limit reached (${MAX_DAILY_AUTO_REPLIES}/24h). Handed off for personal human follow-up.`,
+        },
+      });
+      return;
+    }
 
     // Stage 4: Check 24-hour Meta messaging window
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;

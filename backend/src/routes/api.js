@@ -44,24 +44,55 @@ async function getOwnedAccountIds(userId) {
 // ============================================
 router.get('/conversations', async (req, res) => {
   try {
-    const { accountId, category, priority, unread, important } = req.query;
+    const { accountId, category, priority, unread, important, filter, needsHuman } = req.query;
 
     const userAccountIds = await getOwnedAccountIds(req.userId);
     const targetAccountIds = accountId ? [accountId].filter((id) => userAccountIds.includes(id)) : userAccountIds;
 
     const whereClause = { instagramAccountId: { in: targetAccountIds } };
-    if (category) {
-      whereClause.category = normalizeCategory(category) === category ? category : category;
-    }
-    if (priority) {
-      whereClause.priority = priority;
-    }
-    if (important === 'true') {
-      // Same definition used by the dashboard's "attention queue" count.
-      whereClause.OR = [{ needsAttention: true }, { priority: 'critical' }];
-    }
-    if (unread === 'true') {
-      whereClause.unread = true;
+
+    if (filter) {
+      if (filter === 'unread') {
+        whereClause.unread = true;
+      } else if (filter === 'important') {
+        whereClause.OR = [{ needsAttention: true }, { priority: { in: ['critical', 'high'] } }, { priorityScore: { gte: 70 } }];
+      } else if (filter === 'hot_leads') {
+        whereClause.OR = [{ category: 'hot_lead' }, { customerType: 'hot_lead' }, { purchaseIntent: { gte: 80 } }];
+      } else if (filter === 'leads') {
+        whereClause.OR = [
+          { category: { in: ['lead', 'service_inquiry', 'product_inquiry', 'pricing_inquiry', 'availability_inquiry', 'delivery_inquiry', 'hot_lead'] } },
+          { customerType: 'lead' },
+          { customerType: 'hot_lead' },
+        ];
+      } else if (filter === 'customers') {
+        whereClause.OR = [{ category: 'customer' }, { customerType: 'customer' }];
+      } else if (filter === 'questions') {
+        whereClause.category = 'general_question';
+      } else if (filter === 'support') {
+        whereClause.category = 'support_request';
+      } else if (filter === 'brand_deal') {
+        whereClause.category = { in: ['brand_deal', 'collaboration'] };
+      } else if (filter === 'needs_human') {
+        whereClause.OR = [{ needsHuman: true }, { needsAttention: true }];
+      } else if (filter === 'spam') {
+        whereClause.category = { in: ['spam', 'scam', 'abusive'] };
+      }
+    } else {
+      if (category) {
+        whereClause.category = normalizeCategory(category) === category ? category : category;
+      }
+      if (priority) {
+        whereClause.priority = priority;
+      }
+      if (important === 'true') {
+        whereClause.OR = [{ needsAttention: true }, { priority: 'critical' }];
+      }
+      if (unread === 'true') {
+        whereClause.unread = true;
+      }
+      if (needsHuman === 'true') {
+        whereClause.OR = [{ needsHuman: true }, { needsAttention: true }];
+      }
     }
 
     // Fetch conversations with contact info
@@ -103,7 +134,7 @@ router.get('/conversations', async (req, res) => {
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
     const conversationsWithWindow = conversations.map(conv => {
       const lastInbound = conv.messages?.[0]?.createdAt;
-      let messagingWindow = { status: 'unknown', canReply: false };
+      let messagingWindow = { status: 'unknown', canReply: true };
 
       if (lastInbound) {
         const elapsed = Date.now() - new Date(lastInbound).getTime();
@@ -193,8 +224,29 @@ router.get('/conversations/:id/messages', async (req, res) => {
       });
     }
 
+    // Compute real-time 24-hour messaging window from inbound messages
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const latestInbound = messages.filter(m => m.direction === 'inbound').slice(-1)[0];
+    let messagingWindow = { status: 'unknown', canReply: true };
+
+    if (latestInbound) {
+      const elapsed = Date.now() - new Date(latestInbound.igTimestamp || latestInbound.createdAt).getTime();
+      if (elapsed < TWENTY_FOUR_HOURS) {
+        messagingWindow = {
+          status: 'open',
+          canReply: true,
+          hoursRemaining: Math.round((TWENTY_FOUR_HOURS - elapsed) / (60 * 60 * 1000) * 10) / 10,
+        };
+      } else {
+        messagingWindow = { status: 'closed', canReply: false };
+      }
+    }
+
     res.json({
-      conversation,
+      conversation: {
+        ...conversation,
+        messagingWindow,
+      },
       messages,
     });
   } catch (error) {
