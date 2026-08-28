@@ -158,6 +158,7 @@ function InboxPageContent() {
     });
 
     socket.on('new_message', handleNewMessage);
+    socket.on('conversation_read', handleConversationRead);
     socket.on('analysis_completed', handleAnalysisCompleted);
     socket.on('brand_deal_detected', handleBrandDealDetected);
     socket.on('notification', () => setNotifUnreadCount((c) => c + 1));
@@ -169,6 +170,21 @@ function InboxPageContent() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // ---- Handle real-time conversation read / attention cleared ----
+  const handleConversationRead = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations(prev => prev.map(c =>
+      c.id === data.conversationId
+        ? {
+            ...c,
+            unread: Boolean(data.unread),
+            needsAttention: data.needsAttention !== undefined ? Boolean(data.needsAttention) : false,
+            needsHuman: data.needsHuman !== undefined ? Boolean(data.needsHuman) : false,
+          }
+        : c
+    ));
+  }, []);
 
   // ---- Handle real-time chat cleared ----
   const handleChatCleared = useCallback((data) => {
@@ -360,6 +376,8 @@ function InboxPageContent() {
       setConversations(prev => prev.map(c => (c.id === convId ? {
         ...c,
         unread: false,
+        needsAttention: false,
+        needsHuman: false,
         autoReplyEnabled: data.conversation.autoReplyEnabled,
         autoReplyPrompt: data.conversation.autoReplyPrompt,
         messagingWindow: data.conversation.messagingWindow || c.messagingWindow,

@@ -285,30 +285,29 @@ export default function OnboardingPage() {
                   Fill in your pricing, services, and policies. AI will ONLY answer customer questions based on facts provided here — it will never hallucinate or invent prices.
                 </p>
               </div>
-              {selectedCategory !== 'other' && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => applyCategoryTemplate(selectedCategory, true)}
-                  title="Restore default knowledge template for this category"
-                  style={{ alignSelf: 'flex-start' }}
-                >
-                  ↺ Reset Defaults
-                </button>
-              )}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => applyCategoriesTemplates(selectedCategories, true)}
+                title="Restore default knowledge template for selected categories"
+                style={{ alignSelf: 'flex-start' }}
+              >
+                ↺ Reset Defaults
+              </button>
             </div>
 
-            {selectedCategory !== 'other' ? (
-              <div style={{ padding: '8px 12px', background: 'rgba(124, 58, 237, 0.08)', border: '1px solid rgba(124, 58, 237, 0.2)', borderRadius: 'var(--radius-md)', fontSize: '12px', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                <span>✨</span>
-                <span>Pre-filled with standard <strong>{BUSINESS_CATEGORIES.find(c => c.id === selectedCategory)?.label || 'Business'}</strong> knowledge base. Customize any detail below or keep as is.</span>
-              </div>
-            ) : (
-              <div style={{ padding: '8px 12px', background: 'rgba(0, 0, 0, 0.03)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                <span>⚡</span>
-                <span>Custom business profile. Fill in your specific services, pricing, and rules below.</span>
-              </div>
-            )}
+            <div style={{ padding: '8px 12px', background: 'rgba(124, 58, 237, 0.08)', border: '1px solid rgba(124, 58, 237, 0.2)', borderRadius: 'var(--radius-md)', fontSize: '12px', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+              <span>✨</span>
+              <span>
+                Pre-filled with knowledge base for{' '}
+                <strong>
+                  {selectedCategories
+                    .map((id) => BUSINESS_CATEGORIES.find((c) => c.id === id)?.label || id)
+                    .join(' + ')}
+                </strong>
+                . Customize any detail below or keep as is.
+              </span>
+            </div>
 
             <div className={styles.formGrid}>
               <div className={styles.formRow}>

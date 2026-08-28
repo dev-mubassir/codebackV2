@@ -36,6 +36,7 @@ router.get('/summary', async (req, res) => {
     const [
       totalDmsReviewed,
       attentionQueueCount,
+      hotLeadsCount,
       brandDealCount,
       collaborationCount,
       customerCount,
@@ -45,9 +46,28 @@ router.get('/summary', async (req, res) => {
       unreadCount,
     ] = await Promise.all([
       prisma.message.count({ where: { conversation: conversationScope, direction: 'inbound', aiStatus: 'completed' } }),
-      prisma.conversation.count({ where: { ...conversationScope, OR: [{ needsAttention: true }, { priority: 'critical' }] } }),
+      prisma.conversation.count({
+        where: {
+          ...conversationScope,
+          OR: [
+            { needsAttention: true },
+            { needsHuman: true },
+            { priority: 'critical', unread: true },
+          ],
+        },
+      }),
+      prisma.conversation.count({
+        where: {
+          ...conversationScope,
+          OR: [
+            { category: 'hot_lead' },
+            { customerType: 'hot_lead' },
+            { purchaseIntent: { gte: 75 } },
+          ],
+        },
+      }),
       prisma.conversation.count({ where: { ...conversationScope, category: 'brand_deal' } }),
-      prisma.conversation.count({ where: { ...conversationScope, category: 'collaboration' } }),
+      prisma.conversation.count({ where: { ...conversationScope, category: { in: ['collaboration', 'brand_deal'] } } }),
       prisma.conversation.count({ where: { ...conversationScope, category: 'customer' } }),
       prisma.conversation.count({
         where: {
@@ -68,7 +88,15 @@ router.get('/summary', async (req, res) => {
     const categoryCounts = Object.fromEntries(categoryBreakdownSinceAway.map((row) => [row.category || 'other', row._count.id]));
 
     const needsAttentionSinceAway = await prisma.conversation.count({
-      where: { ...conversationScope, updatedAt: { gte: since }, OR: [{ needsAttention: true }, { priority: 'critical' }] },
+      where: {
+        ...conversationScope,
+        updatedAt: { gte: since },
+        OR: [
+          { needsAttention: true },
+          { needsHuman: true },
+          { priority: 'critical', unread: true },
+        ],
+      },
     });
 
     const connectionProblems = accounts.filter((a) => a.connectionStatus === 'DISCONNECTED' || a.tokenStatus === 'NEEDS_RECONNECT');
@@ -84,6 +112,7 @@ router.get('/summary', async (req, res) => {
       attentionQueueCount,
       unreadCount,
       breakdown: {
+        hotLeads: hotLeadsCount,
         brandDeals: brandDealCount,
         collaborations: collaborationCount,
         customers: customerCount,

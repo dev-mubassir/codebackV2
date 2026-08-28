@@ -215,12 +215,19 @@ router.get('/conversations/:id/messages', async (req, res) => {
       take: parseInt(limit),
     });
 
-    // Opening a conversation marks it read.
-    if (conversation.unread) {
+    // Opening a conversation marks it read and clears pending attention & human review flags
+    if (conversation.unread || conversation.needsAttention || conversation.needsHuman) {
       conversation = await prisma.conversation.update({
         where: { id: conversation.id },
-        data: { unread: false },
+        data: { unread: false, needsAttention: false, needsHuman: false },
         include: { contact: { select: { id: true, igsid: true, username: true, name: true, profilePicUrl: true } } },
+      });
+
+      emitToUser(req.userId, 'conversation_read', {
+        conversationId: conversation.id,
+        unread: false,
+        needsAttention: false,
+        needsHuman: false,
       });
     }
 
@@ -273,10 +280,20 @@ router.post('/conversations/:id/read', async (req, res) => {
 
     const updated = await prisma.conversation.update({
       where: { id },
-      data: { unread: Boolean(unread) },
+      data: {
+        unread: Boolean(unread),
+        ...(unread ? {} : { needsAttention: false, needsHuman: false }),
+      },
     });
 
-    res.json({ id: updated.id, unread: updated.unread });
+    emitToUser(req.userId, 'conversation_read', {
+      conversationId: updated.id,
+      unread: updated.unread,
+      needsAttention: updated.needsAttention,
+      needsHuman: updated.needsHuman,
+    });
+
+    res.json({ id: updated.id, unread: updated.unread, needsAttention: updated.needsAttention, needsHuman: updated.needsHuman });
   } catch (error) {
     console.error('[API] Error updating read state:', error.message);
     res.status(500).json({ error: 'Failed to update conversation' });
@@ -590,14 +607,22 @@ router.post('/conversations/:id/reply', async (req, res) => {
     });
 
     // Update conversation's last message; replying implies it's been handled.
-    await prisma.conversation.update({
+    const updatedConv = await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         lastMessage: text.trim(),
         lastMessageAt: new Date(),
         unread: false,
         needsAttention: false,
+        needsHuman: false,
       },
+    });
+
+    emitToUser(req.userId, 'conversation_read', {
+      conversationId: updatedConv.id,
+      unread: false,
+      needsAttention: false,
+      needsHuman: false,
     });
 
     // Best-effort audit trail: mark the draft as sent if it was used verbatim.
@@ -613,6 +638,7 @@ router.post('/conversations/:id/reply', async (req, res) => {
     res.json({
       message: savedMessage,
       igResponse,
+      conversation: updatedConv,
     });
   } catch (error) {
     console.error('[API] Error sending reply:', error.message);

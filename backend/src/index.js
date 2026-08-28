@@ -27,6 +27,7 @@ const apiRoutes = require('./routes/api');
 const accountRoutes = require('./routes/accounts');
 const adminRoutes = require('./routes/admin');
 const dashboardRoutes = require('./routes/dashboard');
+const analyticsRoutes = require('./routes/analytics');
 const brandDealRoutes = require('./routes/brandDeals');
 const notificationRoutes = require('./routes/notifications');
 const settingsRoutes = require('./routes/settings');
@@ -230,6 +231,10 @@ app.use('/api/accounts', accountRoutes);
 
 // Creator Home Dashboard + "While You Were Away"
 app.use('/api/dashboard', dashboardRoutes);
+
+// Analytics API (Cloudflare-style metric summaries & time-series)
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/dashboard/analytics', analyticsRoutes);
 
 // Brand deal pipeline
 app.use('/api/brand-deals', brandDealRoutes);

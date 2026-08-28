@@ -262,10 +262,15 @@ export async function getUsage() {
   return data;
 }
 
-// ---- Dashboard ----
+// ---- Dashboard & Analytics ----
 
 export async function getDashboardSummary() {
   const { data } = await api.get('/api/dashboard/summary');
+  return data;
+}
+
+export async function getAnalyticsSummary(timeRange = '24h') {
+  const { data } = await api.get(`/api/analytics/summary?timeRange=${encodeURIComponent(timeRange)}`);
   return data;
 }
 
