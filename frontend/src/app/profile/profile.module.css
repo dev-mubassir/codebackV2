@@ -50,7 +50,7 @@
   width: 64px;
   height: 64px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  background: linear-gradient(135deg, var(--color-ai), var(--color-ai-light));
   color: white;
   display: flex;
   align-items: center;
@@ -100,7 +100,7 @@
   padding: 2px 8px;
   border-radius: var(--radius-full);
   background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  color: var(--color-success);
 }
 
 .heroDate {
@@ -172,10 +172,11 @@
   transition: all var(--transition-fast);
 }
 
+/* Glow is keyed to --color-primary (blue); it previously used the purple AI
+   accent, which read as a mismatched halo around a blue border. */
 .formInput:focus {
-  outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+  box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.12);
   background: var(--bg-surface);
 }
 
@@ -288,7 +289,7 @@
 
 /* Danger Zone */
 .dangerCard {
-  background: #fff5f5;
+  background: var(--color-error-subtle);
   border: 1px solid rgba(239, 68, 68, 0.3);
   border-radius: var(--radius-lg);
   padding: 24px;
@@ -314,7 +315,7 @@
 
 .dangerText {
   font-size: var(--text-xs);
-  color: #991b1b;
+  color: var(--color-error-text);
   line-height: 1.5;
 }
 
@@ -331,14 +332,14 @@
 }
 
 .btnDanger:hover {
-  background: #dc2626;
+  background: var(--color-error-hover);
 }
 
 /* Alert Banners */
 .successBanner {
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #065f46;
+  color: var(--color-success-text);
   padding: 10px 14px;
   border-radius: var(--radius-md);
   font-size: var(--text-xs);
@@ -348,7 +349,7 @@
 .errorBanner {
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #991b1b;
+  color: var(--color-error-text);
   padding: 10px 14px;
   border-radius: var(--radius-md);
   font-size: var(--text-xs);

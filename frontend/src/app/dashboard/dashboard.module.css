@@ -449,7 +449,6 @@
   font-weight: 500;
   color: var(--text-primary);
   cursor: pointer;
-  outline: none;
   transition: all var(--transition-fast);
 }
 
@@ -584,7 +583,7 @@
 .deltaPositive {
   font-size: 12px;
   font-weight: 600;
-  color: #16a34a;
+  color: var(--color-success);
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -593,7 +592,7 @@
 .deltaNegative {
   font-size: 12px;
   font-weight: 600;
-  color: #dc2626;
+  color: var(--color-error);
   display: inline-flex;
   align-items: center;
   gap: 2px;

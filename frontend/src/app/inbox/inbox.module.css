@@ -43,8 +43,15 @@
   gap: 8px;
   background: none;
   border: none;
-  padding: 0;
+  padding: 4px 6px;
+  margin-left: -6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.navBrand:hover {
+  background: var(--bg-surface-hover);
 }
 
 .navBrandIcon {
@@ -245,7 +252,7 @@
   width: 30px;
   height: 30px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  background: linear-gradient(135deg, var(--color-ai), var(--color-ai-light));
   color: white;
   display: flex;
   align-items: center;
@@ -557,7 +564,7 @@
   font-size: 9px;
   padding: 1px 4px;
   background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  color: var(--color-success);
   border-radius: var(--radius-sm);
   font-weight: 600;
   line-height: 1.2;
@@ -605,6 +612,14 @@
   font-size: var(--text-lg);
   color: var(--text-secondary);
   padding: 4px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.backBtnMobile:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
 }
 
 .chatUserMeta {
@@ -961,7 +976,7 @@
 
 .autoReplyBtnActive {
   background: rgba(16, 185, 129, 0.12) !important;
-  color: #10b981 !important;
+  color: var(--color-success) !important;
   border-color: rgba(16, 185, 129, 0.35) !important;
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
 }
@@ -975,15 +990,15 @@
 }
 
 .autoReplyBtnActive .autoReplyDot {
-  background: #10b981;
-  box-shadow: 0 0 6px #10b981;
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
 }
 
 .autoReplyListBadge {
   font-size: 10px;
   padding: 1px 5px;
   background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
+  color: var(--color-success);
   border-radius: var(--radius-sm);
   border: 1px solid rgba(16, 185, 129, 0.25);
   font-weight: 600;
@@ -1021,7 +1036,7 @@
 .autoReplyBannerTitle {
   font-size: var(--text-xs);
   font-weight: 600;
-  color: #10b981;
+  color: var(--color-success);
 }
 
 .autoReplyBannerDesc {
@@ -1185,17 +1200,17 @@
 }
 
 .riskBadgeLow {
-  color: #10b981;
+  color: var(--color-success);
 }
 .riskBadgeMed {
-  color: #f59e0b;
+  color: var(--color-warning);
 }
 .riskBadgeHigh {
-  color: #ef4444;
+  color: var(--color-error);
   font-weight: 700;
 }
 .riskBadgeCrit {
-  color: #b91c1c;
+  color: var(--color-error-strong);
   font-weight: 700;
 }
 
@@ -1349,8 +1364,8 @@
 }
 
 .btnDanger:hover {
-  background: #dc2626 !important;
-  border-color: #dc2626 !important;
+  background: var(--color-error-hover) !important;
+  border-color: var(--color-error-hover) !important;
 }
 
 /* ============================================

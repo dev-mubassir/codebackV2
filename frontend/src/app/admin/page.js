@@ -42,7 +42,10 @@ export default function AdminDashboardHome() {
                 <span className={styles.alertTitle}>[{alert.level}] {alert.title}: </span>
                 <span className={styles.alertText}>{alert.message}</span>
               </div>
-              <Link href={alert.level === 'ERROR' ? '/admin/accounts' : '/admin/logs'} className="btn btn-secondary btn-sm">
+              {/* Non-ERROR alerts previously pointed at /admin/logs, which has no
+                  page and 404s. Both levels route to the accounts view until a
+                  logs page exists. */}
+              <Link href="/admin/accounts" className="btn btn-secondary btn-sm">
                 Investigate ↗
               </Link>
             </div>
@@ -85,7 +88,12 @@ export default function AdminDashboardHome() {
           <h2 style={{ fontSize: 'var(--text-sm)', fontWeight: 600 }}>
             🤖 AI DM Classification & API Performance Monitoring
           </h2>
-          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>Provider: Gemini 1.5 Flash</span>
+          {/* Was hardcoded to "Gemini 1.5 Flash", which no longer matched the
+              failover chain (Gemini Flash Lite → Grok → OpenAI). Read the live
+              provider off aiStats instead. */}
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            Provider: {stats?.aiStats?.lastSuccessfulProvider || 'none yet'}
+          </span>
         </div>
 
         <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>

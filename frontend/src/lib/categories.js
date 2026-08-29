@@ -90,10 +90,10 @@ export function getPriorityMeta(priority) {
 }
 
 export const RISK_META = {
-  LOW: { label: 'Low Risk', badgeClass: 'riskLow', color: '#10b981' },
-  MEDIUM: { label: 'Medium Risk', badgeClass: 'riskMedium', color: '#f59e0b' },
-  HIGH: { label: 'High Risk', badgeClass: 'riskHigh', color: '#ef4444' },
-  CRITICAL: { label: 'Critical Risk', badgeClass: 'riskCritical', color: '#b91c1c' },
+  LOW: { label: 'Low Risk', badgeClass: 'riskLow', color: 'var(--color-success)' },
+  MEDIUM: { label: 'Medium Risk', badgeClass: 'riskMedium', color: 'var(--color-warning)' },
+  HIGH: { label: 'High Risk', badgeClass: 'riskHigh', color: 'var(--color-error)' },
+  CRITICAL: { label: 'Critical Risk', badgeClass: 'riskCritical', color: 'var(--color-error-strong)' },
 };
 
 export function getRiskMeta(riskLevel) {

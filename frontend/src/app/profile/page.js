@@ -326,7 +326,7 @@ export default function ProfilePage() {
             </div>
           ) : (
             <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-              No business profile configured yet. Click "Edit Business Profile & FAQs" to choose your business type.
+              No business profile configured yet. Click &ldquo;Edit Business Profile &amp; FAQs&rdquo; to choose your business type.
             </p>
           )}
         </div>
@@ -350,7 +350,7 @@ export default function ProfilePage() {
           <div className={styles.accountList}>
             {(!user?.instagramAccounts || user.instagramAccounts.length === 0) ? (
               <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px 0' }}>
-                No Instagram accounts connected yet. Click "+ Connect Instagram" to link your creator or business account.
+                No Instagram accounts connected yet. Click &ldquo;+ Connect Instagram&rdquo; to link your creator or business account.
               </p>
             ) : (
               user.instagramAccounts.map((acc) => (

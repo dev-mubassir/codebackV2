@@ -98,9 +98,9 @@ export default function LandingPage() {
         {/* Hero Interactive Mockup Preview */}
         <div className={styles.mockupWrapper}>
           <div className={styles.mockupHeader}>
-            <span className={styles.mockupDot} style={{ background: '#ef4444' }} />
-            <span className={styles.mockupDot} style={{ background: '#f59e0b' }} />
-            <span className={styles.mockupDot} style={{ background: '#10b981' }} />
+            <span className={styles.mockupDot} style={{ background: 'var(--color-error)' }} />
+            <span className={styles.mockupDot} style={{ background: 'var(--color-warning)' }} />
+            <span className={styles.mockupDot} style={{ background: 'var(--color-success)' }} />
             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: '8px', fontWeight: 600 }}>
               Codeback AI DM Workspace
             </span>
@@ -111,14 +111,14 @@ export default function LandingPage() {
                 <div className={styles.mockupAvatar}>S</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'left' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>@sarah_creator</span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>"Need 10 reels edited..."</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>&ldquo;Need 10 reels edited...&rdquo;</span>
                 </div>
               </div>
               <div className={styles.mockupListItem}>
-                <div className={styles.mockupAvatar} style={{ background: '#10b981' }}>R</div>
+                <div className={styles.mockupAvatar} style={{ background: 'var(--color-success)' }}>R</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', textAlign: 'left' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)' }}>@rahul_agency</span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>"What is your pricing?"</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>&ldquo;What is your pricing?&rdquo;</span>
                 </div>
               </div>
             </div>

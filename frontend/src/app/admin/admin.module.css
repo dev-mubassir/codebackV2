@@ -36,6 +36,11 @@
   font-weight: 600;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.impersonationBanner button:hover {
+  background: var(--color-warning-subtle);
 }
 
 /* Sidebar Navigation */
@@ -257,16 +262,19 @@
 }
 
 /* Data Tables */
+/* overflow-x must be `auto`, not `hidden`: admin tables run 6-7 columns wide and
+   `hidden` silently clipped the trailing columns with no way to reach them. */
 .tableContainer {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: var(--shadow-xs);
 }
 
 .table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
   text-align: left;
   font-size: var(--text-sm);
@@ -387,4 +395,81 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 20px;
+}
+
+/* ============================================
+ * Responsive — the admin panel previously had no media queries at all, so the
+ * fixed 240px sidebar left ~135px of content on a phone. Below 900px the
+ * sidebar becomes a static horizontal bar above the content.
+ * ============================================ */
+@media (max-width: 900px) {
+  .adminLayout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    overflow-x: auto;
+  }
+
+  .sidebarHeader {
+    padding: 0 12px 0 0;
+    border-bottom: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+  }
+
+  .nav {
+    flex-direction: row;
+    padding: 0;
+    flex: 1;
+  }
+
+  .navItem {
+    white-space: nowrap;
+  }
+
+  .sidebarFooter {
+    margin-top: 0;
+    padding: 0 0 0 12px;
+    border-top: none;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .main {
+    margin-left: 0;
+  }
+
+  .header {
+    padding: 0 16px;
+  }
+
+  .content {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .content {
+    padding: 12px;
+  }
+
+  .metricsGrid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .modal {
+    width: 94%;
+    padding: 16px;
+  }
 }
