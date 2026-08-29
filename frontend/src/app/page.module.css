@@ -142,7 +142,7 @@
 }
 
 .heroAccent {
-  background: linear-gradient(135deg, #4169e1, #7c3aed);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-ai));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }

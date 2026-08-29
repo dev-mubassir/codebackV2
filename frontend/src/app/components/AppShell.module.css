@@ -45,6 +45,12 @@
   border: none;
   padding: 4px;
   width: 100%;
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+}
+
+.brand:hover {
+  background: var(--bg-sidebar-hover);
 }
 
 .brandIcon {

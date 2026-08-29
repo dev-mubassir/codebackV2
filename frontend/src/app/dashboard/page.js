@@ -362,18 +362,6 @@ export default function DashboardPage() {
 
             <button
               type="button"
-              className={styles.analyticsIconBtn}
-              title="Add metric filter"
-              aria-label="Add metric"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-            </button>
-
-            <button
-              type="button"
               className={`${styles.analyticsIconBtn} ${refreshingAnalytics ? styles.spinning : ''}`}
               onClick={handleRefreshAnalytics}
               title="Refresh analytics data"
@@ -406,7 +394,7 @@ export default function DashboardPage() {
               series={analyticsData?.totalDms?.series}
               labels={analyticsData?.totalDms?.labels}
               unit="DMs"
-              strokeColor="#2563eb"
+              strokeColor="#4169e1"
               fillId="sparkline-dms-grad"
             />
           </div>
@@ -579,7 +567,7 @@ function DeltaBadge({ changePercent }) {
   return <span className={styles.deltaNegative}>↘ {Math.abs(changePercent)}%</span>;
 }
 
-function SparklineChart({ series = [], labels = [], unit = 'DMs', strokeColor = '#2563eb', fillId = 'sparkline-grad' }) {
+function SparklineChart({ series = [], labels = [], unit = 'DMs', strokeColor = '#4169e1', fillId = 'sparkline-grad' }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 

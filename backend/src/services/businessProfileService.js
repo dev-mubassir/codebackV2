@@ -21,7 +21,10 @@ const DEFAULT_PROFILE = {
   aiInstructions: '',
   prohibitedTopics: '',
   tone: 'friendly',
-  autoReplyMode: 'smart',
+  // Auto-sending is opt-in. See the note on BusinessProfile.autoReplyMode in
+  // prisma/schema.prisma — this must stay in sync with that @default and with
+  // the profile created at registration in routes/auth.js.
+  autoReplyMode: 'human_only',
   minConfidenceScore: 75,
 };
 

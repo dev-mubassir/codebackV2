@@ -38,22 +38,28 @@
   --color-primary-subtle: #eef2ff;
   --color-primary-text: #ffffff;
 
-  /* Status Colors */
-  --color-success: #22c55e;
-  --color-success-subtle: #f0fdf4;
-  --color-success-text: #166534;
+  /* Status Colors
+     Success is emerald, not green-500: #10b981 was already the de-facto success
+     colour at 16 call sites across inbox/onboarding/settings/profile, against 5
+     uses of the old token. The token was the outlier, so it moved to match. */
+  --color-success: #10b981;
+  --color-success-subtle: #ecfdf5;
+  --color-success-text: #065f46;
   --color-warning: #f59e0b;
   --color-warning-subtle: #fffbeb;
   --color-warning-text: #92400e;
   --color-error: #ef4444;
+  --color-error-hover: #dc2626;
   --color-error-subtle: #fef2f2;
   --color-error-text: #991b1b;
+  --color-error-strong: #b91c1c;
   --color-info: #3b82f6;
   --color-info-subtle: #eff6ff;
   --color-info-text: #1e40af;
 
   /* AI Accent */
   --color-ai: #7c3aed;
+  --color-ai-light: #a855f7;
   --color-ai-subtle: #f5f3ff;
   --color-ai-text: #5b21b6;
 
@@ -123,13 +129,17 @@ body {
   font-size: var(--text-base);
 }
 
+/* `.btn` is excluded on purpose. A bare `a:hover` (specificity 0,1,1) outranks
+   `.btn-primary` (0,1,0), so every link styled as a button had its label
+   repainted to --color-primary-hover on hover — the exact colour
+   `.btn-primary:hover` paints the background, making the text invisible. */
 a {
   color: var(--text-link);
   text-decoration: none;
   transition: color var(--transition-fast);
 }
 
-a:hover {
+a:not(.btn):hover {
   color: var(--color-primary-hover);
 }
 
@@ -137,13 +147,21 @@ button {
   font-family: var(--font-sans);
   cursor: pointer;
   border: none;
-  outline: none;
   background: none;
 }
 
 input, textarea, select {
   font-family: var(--font-sans);
-  outline: none;
+}
+
+/* Keyboard focus ring. Mouse clicks never trigger :focus-visible, so this is
+   invisible to pointer users but keeps the app navigable by keyboard.
+   Do NOT replace this with `outline: none` — that removes the only focus
+   indicator the app has. */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 /* ---- Scrollbar ---- */
@@ -184,10 +202,11 @@ input, textarea, select {
   border: 1px solid transparent;
 }
 
+/* `pointer-events: none` would suppress the not-allowed cursor entirely, so the
+   click is blocked with a no-op rule instead and the cursor stays visible. */
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  pointer-events: none;
 }
 
 .btn-primary {
@@ -196,14 +215,18 @@ input, textarea, select {
   border-color: var(--color-primary);
 }
 
-.btn-primary:hover {
+/* Each :hover restates `color` so an <a class="btn"> keeps its label colour no
+   matter what the global anchor rules do. */
+.btn-primary:hover:not(:disabled) {
   background: var(--color-primary-hover);
   border-color: var(--color-primary-hover);
+  color: var(--color-primary-text);
 }
 
-.btn-primary:active {
+.btn-primary:active:not(:disabled) {
   background: var(--color-primary-active);
   border-color: var(--color-primary-active);
+  color: var(--color-primary-text);
 }
 
 .btn-secondary {
@@ -212,13 +235,15 @@ input, textarea, select {
   border-color: var(--border-default);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: var(--bg-surface-hover);
   border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
-.btn-secondary:active {
-  background: #e5e5e5;
+.btn-secondary:active:not(:disabled) {
+  background: var(--border-default);
+  color: var(--text-primary);
 }
 
 .btn-danger {
@@ -227,9 +252,10 @@ input, textarea, select {
   border-color: var(--border-default);
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background: var(--color-error-subtle);
   border-color: var(--color-error);
+  color: var(--color-error);
 }
 
 .btn-ghost {
@@ -239,7 +265,7 @@ input, textarea, select {
   padding: 6px 10px;
 }
 
-.btn-ghost:hover {
+.btn-ghost:hover:not(:disabled) {
   background: var(--bg-surface-hover);
   color: var(--text-primary);
 }
@@ -247,6 +273,13 @@ input, textarea, select {
 .btn-lg {
   padding: 10px 20px;
   font-size: var(--text-base);
+}
+
+/* Referenced by 11 call sites (inbox modals, onboarding steps, profile actions)
+   but previously undefined, so those buttons silently fell back to base .btn. */
+.btn-md {
+  padding: 8px 16px;
+  font-size: var(--text-sm);
 }
 
 .btn-sm {
@@ -295,6 +328,10 @@ input, textarea, select {
   background-size: 16px;
   padding-right: 32px;
   cursor: pointer;
+}
+
+.select:hover:not(:disabled) {
+  border-color: var(--border-strong);
 }
 
 .textarea {

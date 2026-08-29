@@ -269,8 +269,20 @@ async function processMessageAnalysis(job) {
     await maybeRegenerateSummary({ conversation, userId, analysis });
 
     // 8. Multi-Stage Intelligent Auto-Reply Safety Gate
-    const isAutoReplyActive = (conversation.autoReplyEnabled || businessProfile?.autoReplyMode === 'smart') &&
-      businessProfile?.autoReplyMode !== 'human_only';
+    //
+    // Tenant mode is the hard gate — ONLY "smart" may ever auto-send:
+    //   'smart'        -> auto-send allowed, per-conversation override may opt out
+    //   'suggest_only' -> drafts only, never auto-sends (the Settings UI promises
+    //                     exactly this; the previous gate only checked human_only,
+    //                     so suggest_only tenants were still getting live sends)
+    //   'human_only'   -> never auto-sends
+    //
+    // The per-conversation override is three-state and can only ever SUBTRACT:
+    //   null -> inherit the mode, true -> opt in, false -> opt out even under smart.
+    // It cannot re-enable sending for a tenant who chose suggest_only/human_only.
+    const autoReplyMode = businessProfile?.autoReplyMode || 'smart';
+    const modeAllowsAutoSend = autoReplyMode === 'smart';
+    const isAutoReplyActive = modeAllowsAutoSend && conversation.autoReplyEnabled !== false;
 
     if (isAutoReplyActive && message.direction === 'inbound') {
       await maybeAutoReply({
@@ -310,9 +322,16 @@ async function maybeAutoReply({
   analysis,
 }) {
   try {
-    // Stage 1: Check Mode Setting
-    if (businessProfile?.autoReplyMode === 'human_only') {
-      console.log(`[AutoReply] Mode is 'human_only' for user ${userId}, skipping auto-reply.`);
+    // Stage 1: Check Mode Setting.
+    // Re-asserted here (not just at the caller's gate) so no future call site
+    // can reach the send path for a tenant who opted out of automatic sending.
+    const mode = businessProfile?.autoReplyMode || 'smart';
+    if (mode !== 'smart') {
+      console.log(`[AutoReply] Mode is '${mode}' for user ${userId} — auto-send disabled, skipping.`);
+      return;
+    }
+    if (conversation.autoReplyEnabled === false) {
+      console.log(`[AutoReply] Conversation ${conversation.id} is explicitly opted out of auto-reply, skipping.`);
       return;
     }
 

@@ -30,7 +30,7 @@ export default function AdminLayout({ children }) {
           router.push('/admin/login');
         } else {
           setAuthenticated(true);
-          setAdminUsername(adminData.username || 'Mubassir');
+          setAdminUsername(adminData.username || 'Admin');
         }
       } catch (err) {
         setAuthenticated(false);
@@ -117,7 +117,7 @@ export default function AdminLayout({ children }) {
 
         <div className={styles.sidebarFooter}>
           <div style={{ fontWeight: '600', color: 'white', marginBottom: '8px' }}>
-            👤 {adminUsername || 'Mubassir'}
+            👤 {adminUsername || 'Admin'}
           </div>
           <button
             onClick={handleAdminLogout}
@@ -136,7 +136,7 @@ export default function AdminLayout({ children }) {
             {navItems.find(n => n.path === pathname)?.label || 'Admin Control Panel'}
           </h1>
           <div>
-            <Link href="/dashboard" className="btn btn-secondary btn-sm" target="_blank">
+            <Link href="/dashboard" className="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
               ↗ Open App
             </Link>
           </div>

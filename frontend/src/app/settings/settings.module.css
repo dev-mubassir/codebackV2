@@ -170,7 +170,7 @@
   font-weight: 600;
   padding: 3px 8px;
   background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
+  color: var(--color-success);
   border-radius: var(--radius-full);
   border: 1px solid rgba(16, 185, 129, 0.25);
 }
@@ -309,7 +309,7 @@
 
 .autoReplyToggleBtnActive {
   background: rgba(16, 185, 129, 0.12) !important;
-  color: #10b981 !important;
+  color: var(--color-success) !important;
   border-color: rgba(16, 185, 129, 0.4) !important;
   font-weight: 700;
 }

@@ -84,7 +84,9 @@ router.post('/register', registerLimiter, async (req, res) => {
           create: {
             businessName: name.trim(),
             tone: 'friendly',
-            autoReplyMode: 'smart',
+            // Auto-sending is opt-in for new accounts — see the note on
+            // BusinessProfile.autoReplyMode in prisma/schema.prisma.
+            autoReplyMode: 'human_only',
           },
         },
         preferences: { create: {} },
