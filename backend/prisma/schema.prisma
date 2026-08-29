@@ -172,7 +172,14 @@ model Conversation {
   priorityScore      Int       @default(0) @map("priority_score") // 0-100, deterministic + AI blended score
   needsAttention     Boolean   @default(false) @map("needs_attention")
   unread             Boolean   @default(true)
-  autoReplyEnabled   Boolean   @default(false) @map("auto_reply_enabled") // per-conversation AI auto-reply toggle
+  // Per-conversation auto-reply override. Deliberately THREE-state:
+  //   null  -> inherit BusinessProfile.autoReplyMode (the default for new rows)
+  //   true  -> opt this conversation in
+  //   false -> opt this conversation OUT, even when the tenant is on "smart"
+  // A plain Boolean @default(false) could not distinguish "never touched" from
+  // "explicitly turned off", which is why toggling a chat off did nothing while
+  // the account was in smart mode.
+  autoReplyEnabled   Boolean?  @map("auto_reply_enabled")
   autoReplyPrompt    String?   @map("auto_reply_prompt")                  // custom prompt/rules for this specific chat
 
   lastMessage        String?   @map("last_message")

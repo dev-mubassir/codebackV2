@@ -321,7 +321,9 @@ router.patch('/conversations/:id/auto-reply', async (req, res) => {
     }
 
     const dataToUpdate = {};
-    if (typeof autoReplyEnabled === 'boolean') {
+    // Three-state: true = opt in, false = opt out, null = inherit the tenant's
+    // BusinessProfile.autoReplyMode. `undefined` leaves the field untouched.
+    if (typeof autoReplyEnabled === 'boolean' || autoReplyEnabled === null) {
       dataToUpdate.autoReplyEnabled = autoReplyEnabled;
     }
     if (typeof autoReplyPrompt !== 'undefined') {

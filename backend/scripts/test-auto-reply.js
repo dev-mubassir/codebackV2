@@ -196,6 +196,17 @@ async function main() {
     return { recipient_id: igsid, message_id: 'mid.mock.auto_reply.001' };
   };
 
+  // Opt this conversation in directly. TEST 1's PATCH is the HTTP path and is
+  // asserted separately; this block exercises maybeAutoReply() in isolation, so
+  // it must not depend on that request having succeeded. Previously the seed
+  // left autoReplyEnabled=false and the send happened anyway — that was the
+  // bug in the old gate (smart mode ignored the per-conversation override), so
+  // asserting a send from a `false` conversation was asserting the bug.
+  await prisma.conversation.update({
+    where: { id: conv1.id },
+    data: { autoReplyEnabled: true },
+  });
+
   const refreshedConv1 = await prisma.conversation.findUnique({ where: { id: conv1.id } });
   await maybeAutoReply({
     conversation: refreshedConv1,
@@ -215,6 +226,43 @@ async function main() {
     where: { conversationId: conv1.id, direction: 'outbound' },
   });
   check('Outbound message saved to database with aiStatus: auto_replied', outboundMsgs.length > 0 && outboundMsgs[0].aiStatus === 'auto_replied', outboundMsgs[0]);
+
+  // --- Regression guard for finding #3: an explicit opt-out must win, even
+  // though the tenant's autoReplyMode is still "smart".
+  await prisma.conversation.update({
+    where: { id: conv1.id },
+    data: { autoReplyEnabled: false },
+  });
+  const optedOutConv = await prisma.conversation.findUnique({ where: { id: conv1.id } });
+  sentMessagePayload = null;
+  await maybeAutoReply({
+    conversation: optedOutConv,
+    contact: contact1,
+    instagramAccount: account,
+    userId: user.id,
+    preferences: { tone: 'friendly' },
+    brandDeal: null,
+  });
+  check('Opted-out conversation is NOT auto-replied to under smart mode', sentMessagePayload === null, sentMessagePayload);
+
+  // --- Regression guard for finding #1: suggest_only must never auto-send,
+  // even for a conversation explicitly opted in.
+  await prisma.conversation.update({
+    where: { id: conv1.id },
+    data: { autoReplyEnabled: true },
+  });
+  const optedInConv = await prisma.conversation.findUnique({ where: { id: conv1.id } });
+  sentMessagePayload = null;
+  await maybeAutoReply({
+    conversation: optedInConv,
+    contact: contact1,
+    instagramAccount: account,
+    userId: user.id,
+    businessProfile: { autoReplyMode: 'suggest_only' },
+    preferences: { tone: 'friendly' },
+    brandDeal: null,
+  });
+  check('suggest_only never auto-sends, even when opted in', sentMessagePayload === null, sentMessagePayload);
 
   // Restore mock
   instagram.sendMessage = originalSendMessage;

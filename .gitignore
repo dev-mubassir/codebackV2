@@ -22,6 +22,7 @@ backend/.env
 backend/certs/
 backend/prisma/*.db
 backend/prisma/*.db-journal
+backend/prisma/*.db.bak-*
 
 # Frontend specific
 frontend/.env.local
