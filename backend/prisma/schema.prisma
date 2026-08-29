@@ -78,7 +78,15 @@ model BusinessProfile {
   aiInstructions     String?  @map("ai_instructions")    // Custom rules for AI
   prohibitedTopics   String?  @map("prohibited_topics")  // Things AI must never promise or answer
   tone               String   @default("friendly")       // friendly, professional, casual, concise, warm, custom
-  autoReplyMode      String   @default("smart") @map("auto_reply_mode") // "smart", "suggest_only", "human_only"
+  // Defaults to "human_only": automatic sending is opt-in, never opt-out. A new
+  // account still gets the full analysis pipeline — classification, priority
+  // scoring, brand-deal extraction, summaries, notifications, live inbox
+  // updates — it just never sends a DM on the user's behalf until they
+  // explicitly choose "smart" in Settings. Reply drafts remain available
+  // on demand via POST /api/conversations/:id/generate-reply.
+  // Keep this in sync with services/businessProfileService.js DEFAULT_PROFILE
+  // and the profile created in routes/auth.js at registration.
+  autoReplyMode      String   @default("human_only") @map("auto_reply_mode") // "smart", "suggest_only", "human_only"
   minConfidenceScore Int      @default(75) @map("min_confidence_score")
 
   createdAt          DateTime @default(now()) @map("created_at")
