@@ -58,6 +58,14 @@ coverage/
 mkcert.exe
 cloudflared.exe
 CODEBASE.md
+login.json
+
+# Local tooling, generated output, and security reports (do not commit)
+.agents/
+.claude/
+skills-lock.json
+graphify-out/
+strix_runs/
 
 # Cloudflare
 .cloudflared/

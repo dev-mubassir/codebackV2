@@ -16,8 +16,19 @@ const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
 const { disconnectUserSockets } = require('../lib/socket');
+const { createRateLimiter } = require('../lib/rateLimit');
 
-const isProduction = process.env.NODE_ENV === 'production';
+// Throttle credential endpoints to blunt brute-force / credential-stuffing.
+const loginLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'Too many login attempts. Please try again in a few minutes.',
+});
+const registerLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  message: 'Too many accounts created from this IP. Please try again later.',
+});
 
 // Helper to sanitize user object
 function sanitizeUser(user) {
@@ -30,7 +41,7 @@ function sanitizeUser(user) {
 // POST /auth/register
 // Email + Password Registration for Codeback SaaS
 // ============================================
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { name, email, password, confirmPassword } = req.body || {};
 
@@ -115,7 +126,7 @@ router.post('/register', async (req, res) => {
 // POST /auth/login
 // Email + Password Login
 // ============================================
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body || {};
 
@@ -394,17 +405,9 @@ router.get('/instagram/callback', async (req, res) => {
 // Return the currently logged-in user's info
 // ============================================
 router.get('/me', async (req, res) => {
-  let userId = req.session ? req.session.userId : null;
-
-  // SECURITY: never trust a client-supplied user_id to authenticate as
-  // another account outside of local development.
-  if (!userId && !isProduction && req.query && req.query.user_id) {
-    console.warn('[Auth] Using query-supplied user_id fallback (non-production only). Never trust this in production.');
-    userId = req.query.user_id;
-  }
-
-  // NOTE: The old dev-mode fallback that auto-picked a USER-role user has
-  // been removed. Unauthenticated requests should return 401 consistently.
+  // Identity comes ONLY from the server-side session — never a client-supplied
+  // user_id (that was a full authentication bypass).
+  const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -458,11 +461,7 @@ router.get('/me', async (req, res) => {
 // Update profile information (name, current/new password)
 // ============================================
 router.put('/profile', async (req, res) => {
-  let userId = req.session ? req.session.userId : null;
-
-  if (!userId && !isProduction && req.query && req.query.user_id) {
-    userId = req.query.user_id;
-  }
+  const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -529,11 +528,7 @@ router.put('/profile', async (req, res) => {
 // Permanently delete user account and all data
 // ============================================
 router.delete('/account', async (req, res) => {
-  let userId = req.session ? req.session.userId : null;
-
-  if (!userId && !isProduction && req.query && req.query.user_id) {
-    userId = req.query.user_id;
-  }
+  const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
     return res.status(401).json({ error: 'Not authenticated' });

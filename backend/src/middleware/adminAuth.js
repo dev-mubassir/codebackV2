@@ -50,12 +50,11 @@ async function requireAdmin(req, res, next) {
       igUsernames.some(u => adminEmails.includes(u) || adminEmails.includes(`@${u}`))
     );
 
-    // Grant access if role is ADMIN or matched ADMIN_EMAILS or if it's the very first user (for local dev setup)
-    const totalUsers = await prisma.user.count();
-    const isFirstUser = totalUsers === 1;
-
-    if (user.role === 'ADMIN' || isEmailAdmin || isFirstUser) {
-      // Auto-promote to ADMIN role in database if not already
+    // Grant access only to an explicit ADMIN role or a configured ADMIN_EMAILS
+    // match. The old "first user is automatically admin" rule was removed — it
+    // silently handed super-admin to the first registrant on any fresh deploy.
+    if (user.role === 'ADMIN' || isEmailAdmin) {
+      // Auto-promote a configured admin email to the ADMIN role if needed.
       if (user.role !== 'ADMIN') {
         await prisma.user.update({
           where: { id: user.id },

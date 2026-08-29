@@ -35,6 +35,7 @@ const subscriptionRoutes = require('./routes/subscription');
 
 const { setIO } = require('./lib/socket');
 const { startWorkers } = require('./jobs');
+const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
 
 // ============================================
 // Express App Setup
@@ -65,24 +66,13 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
 // Middleware
 // ============================================
 
-// CORS — allow the frontend to make requests with cookies
-const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:3000',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:5000',
-];
+// Baseline security headers on every response (no external dependency).
+app.use(securityHeaders);
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin) || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('ngrok')) {
-      callback(null, true);
-    } else {
-      callback(null, true);
-    }
-  },
-  credentials: true,
-}));
+// CORS — strict allowlist (lib/security.js). Credentialed cross-origin
+// requests are only honored for known origins; unknown origins get no
+// Access-Control-Allow-Origin header at all, so the browser blocks them.
+app.use(cors(corsOptions));
 
 // Cookie parser
 app.use(cookieParser());
@@ -91,32 +81,56 @@ app.use(cookieParser());
 app.set('trust proxy', 1);
 
 const isProduction = process.env.NODE_ENV === 'production';
+const DEFAULT_SESSION_SECRET = 'codeback-dev-secret-change-in-production';
 
-// Critical production security assertion
+// ---- Critical production security assertions (fail closed) ----
 if (isProduction && process.env.SKIP_SIGNATURE_VERIFICATION === 'true') {
-  console.error('[Server] FATAL SECURITY MISCONFIGURATION: SKIP_SIGNATURE_VERIFICATION=true is strictly forbidden in production mode. Refusing to start.');
+  console.error('[Server] FATAL: SKIP_SIGNATURE_VERIFICATION=true is forbidden in production. Refusing to start.');
   process.exit(1);
 }
 
-if (isProduction && !process.env.SESSION_SECRET) {
-  console.error('[Server] WARNING: SESSION_SECRET is not set in production. Set it in your environment before going live.');
+if (isProduction && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === DEFAULT_SESSION_SECRET)) {
+  console.error('[Server] FATAL: SESSION_SECRET must be set to a strong, unique value in production. Refusing to start.');
+  process.exit(1);
+}
+
+if (isProduction && !process.env.INSTAGRAM_APP_SECRET) {
+  console.error('[Server] FATAL: INSTAGRAM_APP_SECRET must be set in production (webhook signatures cannot be verified without it). Refusing to start.');
+  process.exit(1);
+}
+
+// Loud warning for the dangerous "production deployment running in dev mode"
+// case: public URLs but NODE_ENV !== production disables production safeguards.
+const looksPublic = [process.env.FRONTEND_URL, process.env.BACKEND_URL]
+  .some((u) => u && !/localhost|127\.0\.0\.1|local\.codeback\.test/.test(u));
+if (!isProduction && looksPublic) {
+  console.warn('[Server] WARNING: Public FRONTEND_URL/BACKEND_URL detected while NODE_ENV is not "production". Production safeguards (secure cookies, strict CORS/headers gating) are relaxed. Set NODE_ENV=production for public deployments.');
 }
 
 // Session middleware
 const sessionMiddleware = session({
   name: 'codeback.sid',
-  secret: process.env.SESSION_SECRET || 'codeback-dev-secret-change-in-production',
-  resave: true,
-  saveUninitialized: true,
+  secret: process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
   cookie: {
     httpOnly: true,
     secure: isProduction,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    sameSite: isProduction ? 'none' : 'lax',
+    // 'lax' blocks the cookie on cross-site POST/PUT/PATCH/DELETE (CSRF), while
+    // still allowing same-site subdomain flows (e.g. app.* -> api.*). Override
+    // with COOKIE_SAMESITE=none only if you split to unrelated domains AND add
+    // real CSRF tokens (a 'none' cookie also requires Secure).
+    sameSite: process.env.COOKIE_SAMESITE || 'lax',
   },
 });
 
 app.use(sessionMiddleware);
+
+// CSRF defense-in-depth: reject state-changing requests whose Origin/Referer
+// is present but not on the CORS allowlist (lib/security.js). Runs after the
+// session is loaded and before route handlers.
+app.use(originGuard);
 
 // JSON body parser — but we need raw body for webhook signature verification
 // So we parse JSON manually for the webhook route, and use express.json() for everything else

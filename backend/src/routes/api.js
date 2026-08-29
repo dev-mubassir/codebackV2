@@ -209,10 +209,13 @@ router.get('/conversations/:id/messages', async (req, res) => {
       whereClause.createdAt = { lt: new Date(before) };
     }
 
+    // Clamp page size to a sane ceiling to prevent resource-exhaustion via a
+    // huge ?limit= value.
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
     const messages = await prisma.message.findMany({
       where: whereClause,
       orderBy: { createdAt: 'asc' },
-      take: parseInt(limit),
+      take: pageSize,
     });
 
     // Opening a conversation marks it read and clears pending attention & human review flags

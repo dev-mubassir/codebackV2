@@ -7,6 +7,8 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAdmin } = require('../middleware/adminAuth');
@@ -14,56 +16,99 @@ const { logAdminAction } = require('../lib/auditLogger');
 const instagram = require('../lib/instagram');
 const { encrypt, decrypt } = require('../lib/crypto');
 const { getAIStats } = require('../services/aiService');
+const { createRateLimiter } = require('../lib/rateLimit');
+
+// Strip password hashes (and any other secrets) before returning user rows.
+function sanitizeUser(user) {
+  if (!user || typeof user !== 'object') return user;
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+const sanitizeUsers = (users) => (Array.isArray(users) ? users.map(sanitizeUser) : users);
+
+// Constant-time string comparison that also hides length differences.
+function timingSafeStrEqual(a, b) {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+const adminLoginLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many admin login attempts. Please try again later.',
+});
 
 // ============================================
 // Public Admin Authentication Routes (No requireAdmin needed)
 // ============================================
 
-// POST /api/admin/login — Dedicated Admin Credentials (Username: Mubassir / Password: Mubassir)
-router.post('/login', async (req, res) => {
+// POST /api/admin/login — Dedicated admin credentials from the environment.
+// Credentials MUST be configured via env (no hardcoded defaults). Prefer
+// ADMIN_PASSWORD_HASH (a bcrypt hash); ADMIN_PASSWORD (plaintext env) is
+// supported as a fallback.
+router.post('/login', adminLoginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
 
-  const adminUsername = process.env.ADMIN_USERNAME || 'Mubassir';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'Mubassir';
+  const adminUsername = process.env.ADMIN_USERNAME;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
 
-  if (username === adminUsername && password === adminPassword) {
-    // Find or create admin user in database
-    let adminUser = await prisma.user.findFirst({
-      where: { role: 'ADMIN' }
-    });
+  if (!adminUsername || (!adminPassword && !adminPasswordHash)) {
+    console.error('[Admin Login] Admin credentials are not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD).');
+    return res.status(503).json({ error: 'Admin login is not configured on this server.' });
+  }
 
-    if (!adminUser) {
-      adminUser = await prisma.user.create({
-        data: {
-          name: 'Mubassir (Admin)',
-          email: 'admin@codeback.internal',
-          role: 'ADMIN',
-        }
-      });
-    }
+  if (typeof username !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
 
-    req.session.isAdmin = true;
-    req.session.adminUsername = username;
-    req.session.adminUserId = adminUser.id;
-    // NOTE: We intentionally do NOT set req.session.userId here.
-    // Admin and user sessions share the same cookie. Setting userId
-    // would overwrite a regular user's session in another tab.
+  const usernameOk = timingSafeStrEqual(username, adminUsername);
+  let passwordOk = false;
+  if (adminPasswordHash) {
+    passwordOk = await bcrypt.compare(password, adminPasswordHash).catch(() => false);
+  } else {
+    passwordOk = timingSafeStrEqual(password, adminPassword);
+  }
 
-    return req.session.save((err) => {
-      if (err) {
-        console.error('[Admin Login] Session save error:', err);
-        return res.status(500).json({ error: 'Failed to initialize session' });
+  if (!usernameOk || !passwordOk) {
+    return res.status(401).json({ error: 'Invalid admin username or password' });
+  }
+
+  // Find or create admin user in database
+  let adminUser = await prisma.user.findFirst({
+    where: { role: 'ADMIN' }
+  });
+
+  if (!adminUser) {
+    adminUser = await prisma.user.create({
+      data: {
+        name: `${adminUsername} (Admin)`,
+        email: 'admin@codeback.internal',
+        role: 'ADMIN',
       }
-      return res.json({
-        success: true,
-        message: 'Admin authenticated successfully',
-        username,
-        user: adminUser,
-      });
     });
   }
 
-  return res.status(401).json({ error: 'Invalid admin username or password' });
+  req.session.isAdmin = true;
+  req.session.adminUsername = adminUsername;
+  req.session.adminUserId = adminUser.id;
+  // NOTE: We intentionally do NOT set req.session.userId here.
+  // Admin and user sessions share the same cookie. Setting userId
+  // would overwrite a regular user's session in another tab.
+
+  return req.session.save((err) => {
+    if (err) {
+      console.error('[Admin Login] Session save error:', err);
+      return res.status(500).json({ error: 'Failed to initialize session' });
+    }
+    return res.json({
+      success: true,
+      message: 'Admin authenticated successfully',
+      username: adminUsername,
+      user: sanitizeUser(adminUser),
+    });
+  });
 });
 
 // GET /api/admin/me — Check if active session is authenticated as Admin
@@ -207,7 +252,7 @@ router.get('/stats', async (req, res) => {
       messagesThisWeek,
       failedWebhooks24h,
       alerts,
-      recentSignups,
+      recentSignups: sanitizeUsers(recentSignups),
       aiStats,
       categoryBreakdown,
       totalBrandDeals,
@@ -271,7 +316,7 @@ router.get('/users', async (req, res) => {
     ]);
 
     res.json({
-      users,
+      users: sanitizeUsers(users),
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -335,7 +380,7 @@ router.get('/users/:id', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (error) {
     console.error('[Admin API] Error fetching user detail:', error.message);
     res.status(500).json({ error: 'Failed to fetch user details' });
@@ -369,7 +414,7 @@ router.post('/users/:id/suspend', async (req, res) => {
 
     res.json({
       message: `User ${suspend ? 'suspended' : 'unsuspended'} successfully`,
-      user: updatedUser
+      user: sanitizeUser(updatedUser)
     });
   } catch (error) {
     console.error('[Admin API] Error toggling user suspension:', error.message);
@@ -798,7 +843,7 @@ router.get('/support/search', async (req, res) => {
       })
     ]);
 
-    res.json({ users, accounts });
+    res.json({ users: sanitizeUsers(users), accounts });
   } catch (error) {
     console.error('[Admin API] Support search error:', error.message);
     res.status(500).json({ error: 'Failed to execute support search' });

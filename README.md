@@ -82,7 +82,15 @@ Codeback syncs incoming Direct Messages via signature-verified Meta webhooks, qu
 - **Socket Force-Disconnect on Logout**: `disconnectUserSockets(userId)` terminates all active real-time connections when a user session is destroyed.
 - **Disconnected Instagram Account Safety**: Webhooks for disconnected accounts are cleanly skipped and logged without mutating state.
 - **BrandDeal Cross-Tenant Protection**: Prevents account re-linking conflicts when historical sponsorship deals exist under previous ownership.
-- **Production Webhook Signature Gates**: Structural code-level gates ensure webhook signature verification can never be bypassed in production (`NODE_ENV=production`).
+- **Production Webhook Signature Gates**: Structural code-level gates ensure webhook signature verification can never be bypassed in production (`NODE_ENV=production`), and requests are rejected outright if `INSTAGRAM_APP_SECRET` is unset.
+
+### 7. 🔒 Application Security Hardening
+- **Session-Only Authentication**: Identity is derived exclusively from the server-side session — no client-supplied `user_id` is ever trusted (a former debug fallback that allowed account takeover by id was removed).
+- **Hardened Admin Access**: Admin credentials come only from the environment (`ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`/`ADMIN_PASSWORD`) with **no hardcoded defaults**, constant-time comparison, and login rate limiting. First-user auto-admin promotion was removed.
+- **No Secret Leakage**: `passwordHash` and access tokens are stripped from all API responses (`sanitizeUser`).
+- **Strict CORS + CSRF Defense**: Credentialed requests are limited to an explicit origin allowlist (no wildcard reflection), a cross-origin request guard protects all state-changing routes, and session cookies use `SameSite=lax`.
+- **Security Headers & Rate Limiting**: CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and HSTS (production) on every response; in-memory rate limiting on auth and admin-login endpoints.
+- **Fail-Closed Secrets**: In production the server refuses to start with an unset/default `SESSION_SECRET` or a missing `INSTAGRAM_APP_SECRET`; token encryption uses a dedicated `TOKEN_ENCRYPTION_KEY` and never a public default.
 
 ---
 

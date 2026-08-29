@@ -48,6 +48,19 @@ The platform serves **any Instagram business or creator**:
 5. **BrandDeal Conflict Protection on Account Re-linking**: In `GET /auth/instagram/callback`, transferring an Instagram account to a different user is blocked with `409 Conflict` if existing `BrandDeal` rows belong to the previous owner.
 6. **Production Signature Verification Gate**: `SKIP_SIGNATURE_VERIFICATION` is strictly gated by `!isProduction`. In production mode (`NODE_ENV=production`), the backend crashes with a fatal error on boot if `SKIP_SIGNATURE_VERIFICATION=true` is set.
 
+### Application Security Hardening
+Additional platform hardening across auth, session, transport, and admin surfaces (`backend/src/lib/security.js`, `backend/src/lib/rateLimit.js`):
+
+1. **Session-only identity (no query-param auth)**: `requireAuth` and `/auth/*` derive identity **exclusively** from `req.session.userId`. A previous `?user_id=` debug fallback that let any request act as any account by id has been removed everywhere.
+2. **Admin credentials from environment only**: `POST /api/admin/login` has **no hardcoded default**. It requires `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH` (bcrypt, preferred) or `ADMIN_PASSWORD`, uses a constant-time comparison, is rate-limited, and returns `503` when unconfigured. First-user auto-promotion to `ADMIN` was removed.
+3. **No secret leakage in responses**: Admin user endpoints (`/users`, `/users/:id`, `/support/search`, `/stats`, login) strip `passwordHash` via `sanitizeUser`. Access tokens are never returned.
+4. **Strict CORS allowlist**: Credentialed cross-origin requests are honored only for `FRONTEND_URL` / `BACKEND_URL` / `ALLOWED_ORIGINS` (plus localhost in dev). Unknown origins receive no `Access-Control-Allow-Origin` header — the old reflect-any-origin behavior is gone.
+5. **CSRF defense-in-depth**: `originGuard` rejects state-changing requests (`POST/PUT/PATCH/DELETE`) whose Origin/Referer is present but not allowlisted; the session cookie is `SameSite=lax` (override via `COOKIE_SAMESITE`).
+6. **Security headers on every response**: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `Strict-Transport-Security` (production).
+7. **Rate limiting**: In-memory fixed-window limiter on `/auth/login`, `/auth/register`, and `/api/admin/login`; message pagination `take` is clamped to ≤ 100.
+8. **Fail-closed secrets**: In production the server refuses to boot if `SESSION_SECRET` is unset/default or `INSTAGRAM_APP_SECRET` is unset. Token encryption prefers a dedicated `TOKEN_ENCRYPTION_KEY` and never derives the key from a public default in production.
+9. **Webhook secret required**: Signature verification rejects requests when `INSTAGRAM_APP_SECRET` is empty instead of computing an attacker-known empty-key HMAC.
+
 ---
 
 ## 4. Conversational Intelligence & Anti-Loop Pacing
@@ -73,4 +86,7 @@ All test suites pass 100%:
 
 ## 6. Important Rules & Directives
 - **Maintain Session & Tenant Safety**: All queries must filter by `instagramAccount: { userId: req.userId }`.
+- **Session is the only identity source**: Never re-introduce a client-supplied `user_id`/id fallback for authentication — identity comes solely from `req.session.userId`.
+- **No secrets in responses**: Never return `passwordHash` or decrypted access tokens from any endpoint; route new user-facing payloads through `sanitizeUser`.
+- **No credential defaults**: Admin and signing/encryption secrets must come from the environment; do not add hardcoded fallbacks.
 - **Grounded AI Answers**: Never remove anti-hallucination system prompt constraints.

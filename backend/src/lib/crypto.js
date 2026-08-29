@@ -11,9 +11,15 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;     // 128-bit IV
 const TAG_LENGTH = 16;    // 128-bit auth tag
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 /**
- * Get the encryption key from environment variable.
- * Must be exactly 32 bytes (256 bits). If not set, we derive one from SESSION_SECRET.
+ * Get the encryption key. Prefer a dedicated 32-byte hex TOKEN_ENCRYPTION_KEY.
+ * For backward compatibility with tokens already encrypted from SESSION_SECRET,
+ * fall back to deriving the key from SESSION_SECRET — but NEVER from a hardcoded
+ * public default in production. The server startup gate (index.js) refuses to
+ * boot in production unless SESSION_SECRET is set to a strong, non-default value,
+ * so this fallback is never a publicly-known key in production.
  */
 function getKey() {
   const envKey = process.env.TOKEN_ENCRYPTION_KEY;
@@ -21,8 +27,16 @@ function getKey() {
     return Buffer.from(envKey, 'hex');
   }
 
-  // Fallback: derive a key from SESSION_SECRET using SHA-256
-  const secret = process.env.SESSION_SECRET || 'codeback-dev-fallback-key';
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    if (isProduction) {
+      throw new Error(
+        'Token encryption is not configured: set TOKEN_ENCRYPTION_KEY (32-byte hex) or SESSION_SECRET.'
+      );
+    }
+    // Development-only fallback (clearly non-secret). Not reachable in production.
+    return crypto.createHash('sha256').update('codeback-dev-fallback-key').digest();
+  }
   return crypto.createHash('sha256').update(secret).digest();
 }
 

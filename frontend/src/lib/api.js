@@ -45,10 +45,9 @@ export async function login({ email, password }) {
   return data;
 }
 
-/** Get the currently logged-in user's info */
-export async function getMe(userId) {
-  const url = userId ? `/auth/me?user_id=${encodeURIComponent(userId)}` : '/auth/me';
-  const { data } = await api.get(url);
+/** Get the currently logged-in user's info (identity is taken from the session cookie) */
+export async function getMe() {
+  const { data } = await api.get('/auth/me');
   return data;
 }
 

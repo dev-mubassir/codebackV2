@@ -75,6 +75,20 @@ router.post('/', async (req, res) => {
  * Verify the X-Hub-Signature-256 header to ensure the request came from Meta.
  */
 function verifySignature(rawBody, signatureHeader) {
+  const appSecret = process.env.INSTAGRAM_APP_SECRET;
+
+  // Without a configured secret we cannot verify anything. Never fall back to
+  // an empty HMAC key — that key is attacker-known and lets anyone forge a
+  // valid signature. Reject (except the explicit non-production test hatch).
+  if (!appSecret) {
+    if (process.env.SKIP_SIGNATURE_VERIFICATION === 'true' && !isProduction) {
+      console.warn('[Webhook] INSTAGRAM_APP_SECRET unset — allowed only because SKIP_SIGNATURE_VERIFICATION=true in non-production.');
+      return true;
+    }
+    console.error('[Webhook] Rejected: INSTAGRAM_APP_SECRET is not configured; cannot verify signatures.');
+    return false;
+  }
+
   if (!signatureHeader || !rawBody) {
     // Development/testing escape hatch — STRUCTURALLY BLOCKED in production
     if (process.env.SKIP_SIGNATURE_VERIFICATION === 'true' && !isProduction) {
@@ -86,7 +100,7 @@ function verifySignature(rawBody, signatureHeader) {
   }
 
   const expectedSignature = 'sha256=' + crypto
-    .createHmac('sha256', process.env.INSTAGRAM_APP_SECRET || '')
+    .createHmac('sha256', appSecret)
     .update(rawBody)
     .digest('hex');
 
