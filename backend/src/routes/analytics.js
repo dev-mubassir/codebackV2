@@ -1,14 +1,22 @@
 /**
- * Analytics routes — Real-world Instagram DM Sales & Business Intelligence.
- * 
- * Tracks:
- * 1. Total Inbound DMs (with interactive time-series sparkline)
- * 2. Hot Leads & Commercial Inquiries (with interactive time-series sparkline)
- * 3. Needs Attention & Important DMs
- * 4. Brand Deals & Sponsorship Collaborations
- * 5. AI Auto-Replied & Resolved Inquiries
- * 6. Spam & Security Threats Blocked
- * 7. Category-Adaptive Intelligence Breakdown tailored to the user's active business type
+ * Analytics routes — the numbers behind the dashboard's Analytics panel.
+ *
+ * Everything here is scoped to the accounts the requesting user owns, and
+ * everything except `needsAttention` is scoped to the selected date range.
+ * `needsAttention` is deliberately all-time: it is the live queue of open
+ * conversations waiting on the user, not an activity count.
+ *
+ * Returns:
+ * 1. totalDms        — inbound messages in the window, with a sparkline
+ * 2. hotLeads        — conversations with strong buying intent, with a sparkline
+ * 3. needsAttention  — open conversations flagged for the user (all time)
+ * 4. brandDeals      — sponsorship and collaboration conversations in the window
+ * 5. autoRepliesSent — replies actually sent on the user's behalf in the window
+ * 6. spamBlocked     — spam and scam conversations in the window
+ * 7. categoryMetrics — a breakdown matched to the user's business profile
+ *
+ * Display strings (labels, descriptions) are NOT built here. This endpoint
+ * returns keys and counts; frontend/src/content/copy.js decides the wording.
  */
 
 const express = require('express');
@@ -28,11 +36,13 @@ function formatMetricNumber(num) {
   return String(num);
 }
 
-// Helper to compute percentage change
+// Helper to compute percentage change.
+//
+// Returns null when the previous window was empty. A change from 0 to any
+// number has no percentage — reporting it as "+100%" made a first-ever
+// message look like a doubling. The UI hides the badge when this is null.
 function computePercentChange(current, previous) {
-  if (previous === 0) {
-    return current > 0 ? 100 : 0;
-  }
+  if (!previous) return null;
   const diff = ((current - previous) / previous) * 100;
   return Number(diff.toFixed(1));
 }
@@ -105,7 +115,7 @@ router.get('/summary', async (req, res) => {
       prevHotLeadCount,
       needsAttentionCount,
       brandDealsCount,
-      aiHandledMessagesCount,
+      autoRepliesSentCount,
       spamBlockedCount,
       allCurrentConversations,
     ] = await Promise.all([
@@ -160,7 +170,7 @@ router.get('/summary', async (req, res) => {
           ],
         },
       }),
-      // 6. Needs Attention / Important
+      // 6. Needs your reply — the live queue, deliberately all-time
       prisma.conversation.count({
         where: {
           ...conversationScope,
@@ -171,28 +181,41 @@ router.get('/summary', async (req, res) => {
           ],
         },
       }),
-      // 7. Brand Deals & Collaborations
+      // 7. Brand deals and collaborations in the window.
+      //    Was an all-time count sitting under a "Last 24 hours" selector, so
+      //    the number never moved when the range changed.
       prisma.conversation.count({
         where: {
           ...conversationScope,
+          lastMessageAt: { gte: currentSince },
           category: { in: ['brand_deal', 'collaboration'] },
         },
       }),
-      // 8. AI Handled & Auto-Replied
+      // 8. Replies actually sent on the user's behalf, in the window.
+      //
+      //    This previously counted `aiStatus: 'completed'`, which is the flag
+      //    set on an INBOUND message once it has been read and classified —
+      //    i.e. it counted analyses, not sends, while the card was labelled
+      //    "AI Auto-Replied". On a human_only account (the default) it showed
+      //    a large non-zero number next to a Settings page and an inbox that
+      //    both state nothing is ever sent automatically.
+      //
+      //    'auto_replied' is the status written in jobs/messageAnalysisJob.js
+      //    at the moment an outbound message is actually delivered to
+      //    Instagram, so it is the only honest source for this number.
       prisma.message.count({
         where: {
           conversation: conversationScope,
-          OR: [
-            { aiStatus: 'completed' },
-            { direction: 'outbound', suggestedReply: { not: null } },
-          ],
+          direction: 'outbound',
+          aiStatus: 'auto_replied',
           createdAt: { gte: currentSince },
         },
       }),
-      // 9. Spam & Threats Blocked
+      // 9. Spam and scams filtered, in the window (was all-time — see 7).
       prisma.conversation.count({
         where: {
           ...conversationScope,
+          lastMessageAt: { gte: currentSince },
           category: { in: ['spam', 'scam', 'abusive'] },
         },
       }),
@@ -213,14 +236,16 @@ router.get('/summary', async (req, res) => {
       }),
     ]);
 
-    // Generate human-readable time labels for each bucket
+    // Sparkline axis labels. Pinned to en-GB so they match the one date
+    // format used everywhere else (see frontend/src/content/format.js) rather
+    // than following whatever locale the server happens to run under.
     const bucketLabels = [];
     for (let i = 0; i < numBuckets; i++) {
       const bucketTime = new Date(currentSince.getTime() + i * bucketDurationMs);
       if (timeRange === '24h') {
-        bucketLabels.push(bucketTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+        bucketLabels.push(bucketTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }));
       } else {
-        bucketLabels.push(bucketTime.toLocaleDateString([], { month: 'short', day: 'numeric' }));
+        bucketLabels.push(bucketTime.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }));
       }
     }
 
@@ -252,10 +277,15 @@ router.get('/summary', async (req, res) => {
     const hotLeadsChange = computePercentChange(currentHotLeads, prevHotLeadCount);
 
     // ============================================
-    // Category-Specific Business Intelligence Adaptation
+    // Breakdown matched to the user's business profile.
+    //
+    // `icon` is a name from frontend components/Icon.js, never an emoji, and
+    // `label`/`hint` are plain sentence-case English. The panel heading itself
+    // is fixed copy on the frontend — it no longer changes per business type,
+    // because a heading that renamed itself ("Video Editor DM Intelligence")
+    // told the reader nothing the cards below did not already say.
     // ============================================
     let categoryMetrics = [];
-    let categoryTitle = 'Business Intelligence';
 
     // Count categories across conversations
     const countCategory = (cats) =>
@@ -270,60 +300,63 @@ router.get('/summary', async (req, res) => {
     const generalCount = countCategory(['general_question']);
 
     if (['video_editor', 'photo_editor', 'graphic_designer'].includes(primaryCategory)) {
-      categoryTitle = primaryCategory === 'video_editor' ? '🎬 Video Editor DM Intelligence' : '🎨 Creative & Design Intelligence';
       categoryMetrics = [
-        { label: 'Reel & Edit Inquiries', value: serviceProductCount, icon: '🎬', desc: 'Project briefs & editing requests' },
-        { label: 'Rates & Pricing Checks', value: pricingCount, icon: '💰', desc: 'Asking for rates & bundle packages' },
-        { label: 'Turnaround & Revisions', value: deliveryTurnaroundCount, icon: '⏱️', desc: 'Delivery timeline & revisions' },
-        { label: 'Hot Ready Buyers', value: currentHotLeads, icon: '🔥', desc: 'Commercial leads with high intent' },
+        { key: 'briefs', label: 'Project briefs', value: serviceProductCount, icon: 'briefcase', hint: 'People describing work they want done' },
+        { key: 'pricing', label: 'Rate questions', value: pricingCount, icon: 'tag', hint: 'People asking what you charge' },
+        { key: 'delivery', label: 'Turnaround questions', value: deliveryTurnaroundCount, icon: 'clock', hint: 'People asking how long it takes' },
+        { key: 'hot_leads', label: 'Hot leads', value: currentHotLeads, icon: 'flame', hint: 'Ready to book now' },
       ];
     } else if (['product_seller', 'used_devices', 'clothing', 'ecommerce'].includes(primaryCategory)) {
-      categoryTitle = primaryCategory === 'used_devices' ? '💻 Used Devices Sales Intelligence' : '📦 Product & Store Sales Intelligence';
       categoryMetrics = [
-        { label: 'Stock & Model Inquiries', value: serviceProductCount, icon: '📦', desc: 'Product specs, condition & sizes' },
-        { label: 'Price & Offer Requests', value: pricingCount, icon: '🏷️', desc: 'Price checks, discounts & deals' },
-        { label: 'Shipping & Delivery', value: deliveryTurnaroundCount, icon: '🚚', desc: 'Courier timeline & coverage' },
-        { label: 'Ready to Purchase', value: currentHotLeads, icon: '🔥', desc: 'Immediate buying intent leads' },
+        { key: 'stock', label: 'Stock questions', value: serviceProductCount, icon: 'package', hint: 'People asking about specs, sizes, or condition' },
+        { key: 'pricing', label: 'Price questions', value: pricingCount, icon: 'tag', hint: 'People asking what it costs' },
+        { key: 'delivery', label: 'Delivery questions', value: deliveryTurnaroundCount, icon: 'truck', hint: 'People asking where and when you ship' },
+        { key: 'hot_leads', label: 'Hot leads', value: currentHotLeads, icon: 'flame', hint: 'Ready to buy now' },
       ];
     } else if (primaryCategory === 'creator') {
-      categoryTitle = '⭐ Creator Sponsorship & Deal Intelligence';
       categoryMetrics = [
-        { label: 'Paid Brand Deals', value: dealsCount, icon: '💼', desc: 'Sponsorship offers & campaigns' },
-        { label: 'Rate Kit & Inquiries', value: pricingCount, icon: '📊', desc: 'Sponsorship rates & media kit' },
-        { label: 'Collabs & Gifting', value: countCategory(['collaboration']), icon: '🤝', desc: 'Barter & cross-promotions' },
-        { label: 'High Priority Deals', value: currentHotLeads, icon: '🔥', desc: 'High budget commercial sponsors' },
+        { key: 'deals', label: 'Brand deals', value: dealsCount, icon: 'handshake', hint: 'Sponsorship and collaboration offers' },
+        { key: 'pricing', label: 'Rate questions', value: pricingCount, icon: 'tag', hint: 'Brands asking for your rates' },
+        { key: 'collabs', label: 'Barter offers', value: countCategory(['collaboration']), icon: 'users', hint: 'Gifting and cross-promotion, no fee' },
+        { key: 'hot_leads', label: 'Hot leads', value: currentHotLeads, icon: 'flame', hint: 'Ready to sign now' },
       ];
     } else {
-      categoryTitle = '🏢 Service & Client Lead Intelligence';
       categoryMetrics = [
-        { label: 'Client Inquiries', value: serviceProductCount, icon: '💼', desc: 'Service & consultation requests' },
-        { label: 'Quote & Pricing Requests', value: pricingCount, icon: '💰', desc: 'Asking for proposals & rates' },
-        { label: 'Delivery & Milestone Qs', value: deliveryTurnaroundCount, icon: '⏱️', desc: 'Service timelines & policies' },
-        { label: 'Hot Commercial Leads', value: currentHotLeads, icon: '🔥', desc: 'Qualified prospective clients' },
+        { key: 'enquiries', label: 'Client enquiries', value: serviceProductCount, icon: 'briefcase', hint: 'People asking about your services' },
+        { key: 'pricing', label: 'Quote requests', value: pricingCount, icon: 'tag', hint: 'People asking for a price' },
+        { key: 'delivery', label: 'Timeline questions', value: deliveryTurnaroundCount, icon: 'clock', hint: 'People asking how long it takes' },
+        { key: 'hot_leads', label: 'Hot leads', value: currentHotLeads, icon: 'flame', hint: 'Ready to commit now' },
       ];
     }
 
     // ============================================
-    // Overall Intent Distribution (for horizontal segmented visualizer)
+    // Share of conversations, for the segmented bar.
+    //
+    // `distributionTotal` is the real denominator and is sent to the frontend
+    // so it can suppress percentages when the sample is too small to mean
+    // anything — "100%" against one conversation is noise, not a finding.
     // ============================================
-    const totalCategorized = Math.max(
-      1,
-      currentHotLeads + pricingCount + serviceProductCount + dealsCount + supportCount + spamCount + generalCount
-    );
+    const distributionTotal =
+      currentHotLeads + pricingCount + serviceProductCount + dealsCount + supportCount + spamCount + generalCount;
+    const share = (n) => (distributionTotal > 0 ? Math.round((n / distributionTotal) * 100) : 0);
 
     const intentDistribution = [
-      { key: 'hot_leads', label: '🔥 Hot Leads', count: currentHotLeads, pct: Math.round((currentHotLeads / totalCategorized) * 100), color: '#f59e0b' },
-      { key: 'pricing', label: '💰 Pricing & Rates', count: pricingCount, pct: Math.round((pricingCount / totalCategorized) * 100), color: '#10b981' },
-      { key: 'services_products', label: '📦 Services & Products', count: serviceProductCount, pct: Math.round((serviceProductCount / totalCategorized) * 100), color: '#3b82f6' },
-      { key: 'deals', label: '🤝 Deals & Collabs', count: dealsCount, pct: Math.round((dealsCount / totalCategorized) * 100), color: '#8b5cf6' },
-      { key: 'support', label: '🎧 Support & Delivery', count: supportCount + deliveryTurnaroundCount, pct: Math.round(((supportCount + deliveryTurnaroundCount) / totalCategorized) * 100), color: '#06b6d4' },
-      { key: 'spam', label: '🚫 Spam Filtered', count: spamCount, pct: Math.round((spamCount / totalCategorized) * 100), color: '#64748b' },
+      { key: 'hot_leads', label: 'Hot leads', count: currentHotLeads, pct: share(currentHotLeads), color: '#f59e0b' },
+      { key: 'pricing', label: 'Pricing', count: pricingCount, pct: share(pricingCount), color: '#10b981' },
+      { key: 'services_products', label: 'Products and services', count: serviceProductCount, pct: share(serviceProductCount), color: '#3b82f6' },
+      { key: 'deals', label: 'Brand deals', count: dealsCount, pct: share(dealsCount), color: '#8b5cf6' },
+      { key: 'support', label: 'Support and delivery', count: supportCount + deliveryTurnaroundCount, pct: share(supportCount + deliveryTurnaroundCount), color: '#06b6d4' },
+      { key: 'spam', label: 'Spam', count: spamCount, pct: share(spamCount), color: '#64748b' },
     ];
 
     res.json({
       timeRange,
       primaryCategory,
       businessTypes,
+      // The stored reply mode, so the dashboard can state what is actually
+      // happening rather than implying automatic sending is on. Defaults to
+      // the same value as the database column: no auto-sending.
+      replyMode: businessProfile.autoReplyMode || 'human_only',
       totalDms: {
         value: currentTotalDms,
         formatted: formatMetricNumber(currentTotalDms),
@@ -347,21 +380,23 @@ router.get('/summary', async (req, res) => {
         value: brandDealsCount,
         formatted: String(brandDealsCount),
       },
-      aiHandled: {
-        value: aiHandledMessagesCount,
-        formatted: String(aiHandledMessagesCount),
+      // Replies genuinely sent on the user's behalf. Zero unless reply mode
+      // is set to automatic — which is exactly what every other surface says.
+      autoRepliesSent: {
+        value: autoRepliesSentCount,
+        formatted: String(autoRepliesSentCount),
       },
       spamBlocked: {
         value: spamBlockedCount,
         formatted: String(spamBlockedCount),
       },
-      categoryTitle,
       categoryMetrics,
       intentDistribution,
+      distributionTotal,
     });
   } catch (error) {
     console.error('[Analytics API] Error generating summary:', error.message);
-    res.status(500).json({ error: 'Failed to generate analytics summary' });
+    res.status(500).json({ error: "Couldn't load analytics. Try refreshing." });
   }
 });
 
