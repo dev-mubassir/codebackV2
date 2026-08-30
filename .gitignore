@@ -72,7 +72,9 @@ strix_runs/
 .cloudflared/
 
 # Prisma
-prisma/migrations/
+# NOTE: migrations are deliberately NOT ignored. They are the schema's source
+# of truth and must ship in the image, or `prisma migrate deploy` has nothing
+# to apply in production and the deploy silently falls back to `db push`.
 
 # Turbo
 .turbo/

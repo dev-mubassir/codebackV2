@@ -10,6 +10,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
@@ -17,6 +18,8 @@ const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
 const { disconnectUserSockets } = require('../lib/socket');
 const { createRateLimiter } = require('../lib/rateLimit');
+const { startAuthenticatedSession, saveSession } = require('../lib/session');
+const { logAdminAction } = require('../lib/auditLogger');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -104,13 +107,8 @@ router.post('/register', registerLimiter, async (req, res) => {
       },
     });
 
-    // Set session
-    req.session.userId = user.id;
-    req.session.userEmail = user.email;
-
-    await new Promise((resolve, reject) => {
-      req.session.save((err) => (err ? reject(err) : resolve()));
-    });
+    // Set session on a FRESH session id — never the one the client presented.
+    await startAuthenticatedSession(req, { userId: user.id, userEmail: user.email });
 
     console.log(`[Auth] New user registered: ${user.email} (${user.id})`);
 
@@ -174,13 +172,8 @@ router.post('/login', loginLimiter, async (req, res) => {
       data: { lastSeenAt: new Date() },
     }).catch(() => {});
 
-    // Set session
-    req.session.userId = user.id;
-    req.session.userEmail = user.email;
-
-    await new Promise((resolve, reject) => {
-      req.session.save((err) => (err ? reject(err) : resolve()));
-    });
+    // Set session on a FRESH session id — never the one the client presented.
+    await startAuthenticatedSession(req, { userId: user.id, userEmail: user.email });
 
     console.log(`[Auth] User logged in: ${user.email} (${user.id})`);
 
@@ -222,13 +215,30 @@ router.post('/logout', (req, res) => {
 // GET /auth/instagram
 // Redirect user to Instagram OAuth consent screen
 // ============================================
-router.get('/instagram', (req, res) => {
+router.get('/instagram', async (req, res) => {
+  // CSRF binding: a single-use, unguessable value tying the browser that
+  // starts the flow to the browser that comes back to the callback. Without
+  // it, anyone can feed a victim's logged-in browser an authorization code
+  // of their choosing and silently attach their Instagram account to the
+  // victim's workspace.
+  const state = crypto.randomBytes(32).toString('hex');
+  req.session.oauthState = state;
+  req.session.oauthStateAt = Date.now();
+
+  try {
+    await saveSession(req);
+  } catch (err) {
+    console.error('[Auth] Failed to persist OAuth state:', err.message);
+    return res.redirect(`${process.env.FRONTEND_URL}?error=oauth_state_unavailable`);
+  }
+
   const authUrl = instagram.getAuthorizationUrl(
     process.env.INSTAGRAM_APP_ID,
-    process.env.REDIRECT_URI
+    process.env.REDIRECT_URI,
+    state
   );
 
-  console.log('[Auth] Redirecting to Instagram OAuth:', authUrl);
+  console.log('[Auth] Redirecting to Instagram OAuth');
   res.redirect(authUrl);
 });
 
@@ -238,7 +248,31 @@ router.get('/instagram', (req, res) => {
 // ============================================
 router.get('/instagram/callback', async (req, res) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
+
+    // CSRF check FIRST — before spending a Meta round-trip on an
+    // authorization code we have no reason to trust. The stored state is
+    // consumed here whatever the outcome, so a value can never be replayed.
+    const expectedState = req.session ? req.session.oauthState : null;
+    const issuedAt = req.session ? req.session.oauthStateAt : null;
+    if (req.session) {
+      delete req.session.oauthState;
+      delete req.session.oauthStateAt;
+    }
+
+    const STATE_TTL_MS = 10 * 60 * 1000;
+    const stateExpired = !issuedAt || Date.now() - issuedAt > STATE_TTL_MS;
+    const stateMatches =
+      typeof state === 'string' &&
+      typeof expectedState === 'string' &&
+      state.length === expectedState.length &&
+      crypto.timingSafeEqual(Buffer.from(state), Buffer.from(expectedState));
+
+    if (!stateMatches || stateExpired) {
+      console.warn('[Auth] Rejected OAuth callback: missing, stale, or mismatched state.');
+      await saveSession(req).catch(() => {});
+      return res.redirect(`${process.env.FRONTEND_URL}?error=invalid_oauth_state`);
+    }
 
     if (!code) {
       console.error('[Auth] No authorization code in callback');
@@ -289,27 +323,58 @@ router.get('/instagram/callback', async (req, res) => {
       // this row and are never touched here.
       const targetUserId = currentUserId || existingAccount.userId;
 
-      // FIX 3: If re-linking to a different user, check for existing BrandDeal rows tied to this account
+      // Cross-tenant re-link. Completing OAuth for an account that already
+      // belongs to someone else used to move the row — and therefore every
+      // Contact / Conversation / Message / AIAnalysis hanging off it — to
+      // whoever happened to be logged in. The old guard only counted
+      // BrandDeal rows, so an account with thousands of DMs and no brand
+      // deal transferred silently.
+      //
+      // Conversation history is the thing that must never move. If any
+      // exists, refuse; the tenants involved are not named in the response.
       if (targetUserId !== existingAccount.userId) {
-        const existingDealsCount = await prisma.brandDeal.count({
-          where: {
-            instagramAccountId: existingAccount.id,
-            userId: { not: targetUserId },
-          },
+        const conversationCount = await prisma.conversation.count({
+          where: { instagramAccountId: existingAccount.id },
         });
 
-        if (existingDealsCount > 0) {
+        if (conversationCount > 0) {
           console.warn(
-            `[Auth] ⚠️ Re-link BLOCKED: Instagram account @${existingAccount.igUsername} (${igUserId}) has ${existingDealsCount} BrandDeal records owned by User ${existingAccount.userId}. Cannot transfer ownership to User ${targetUserId} automatically.`
+            `[Auth] Re-link BLOCKED: IG account ${igUserId} holds ${conversationCount} conversation(s) owned by another workspace.`
           );
+
+          await logAdminAction(
+            targetUserId,
+            'ACCOUNT_RELINK_BLOCKED',
+            'INSTAGRAM_ACCOUNT',
+            existingAccount.id,
+            {
+              igUserId,
+              attemptedByUserId: targetUserId,
+              currentOwnerUserId: existingAccount.userId,
+              conversationCount,
+            },
+            req.ip
+          );
+
           if (req.accepts('json') && !req.accepts('html')) {
             return res.status(409).json({
-              error: 'Account re-link conflict',
-              message: 'This Instagram account has existing brand deal history under a different user. Re-linking is blocked and requires manual administrator review.',
+              error: 'Account already connected',
+              message: 'This Instagram account is already connected to another Codeback workspace.',
             });
           }
-          return res.redirect(`${process.env.FRONTEND_URL}?error=account_conflict_brand_deals`);
+          return res.redirect(`${process.env.FRONTEND_URL}?error=account_already_connected`);
         }
+
+        // No history to lose, so the transfer is allowed — but it is still a
+        // change of ownership and is recorded as one.
+        await logAdminAction(
+          targetUserId,
+          'ACCOUNT_RELINK_TRANSFERRED',
+          'INSTAGRAM_ACCOUNT',
+          existingAccount.id,
+          { igUserId, fromUserId: existingAccount.userId, toUserId: targetUserId },
+          req.ip
+        );
       }
 
       await prisma.instagramAccount.update({
@@ -382,16 +447,9 @@ router.get('/instagram/callback', async (req, res) => {
       console.error('[Auth] Webhook subscription failed:', err.response?.data || err.message);
     }
 
-    // Step 7: Set session cookie so the user is "logged in"
-    req.session.userId = user.id;
-    req.session.igUsername = profile.username;
-
-    await new Promise((resolve, reject) => {
-      req.session.save((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    // Step 7: Set session cookie so the user is "logged in", on a FRESH
+    // session id — completing OAuth is a privilege transition like any login.
+    await startAuthenticatedSession(req, { userId: user.id, igUsername: profile.username });
 
     console.log('[Auth] Login complete. Redirecting to dashboard.');
     res.redirect(`${process.env.FRONTEND_URL}/dashboard`);

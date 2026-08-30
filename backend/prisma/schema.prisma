@@ -7,19 +7,22 @@
 // Billing:      subscriptions (provider-agnostic abstraction)
 // Platform ops: admin_logs, webhook_logs
 //
-// NOTE: SQLite does not support native enums, so status/category/priority
-// fields are plain Strings validated at the application layer (see
-// backend/src/lib/constants.js for the canonical allowed values). This
-// mirrors the existing convention already used in this schema and keeps a
-// straightforward path to PostgreSQL later (swap the datasource + optionally
-// promote these Strings to real enums).
+// NOTE: status/category/priority fields are plain Strings validated at the
+// application layer (see backend/src/lib/constants.js for the canonical
+// allowed values). They stayed Strings through the SQLite -> PostgreSQL move
+// so the migration carried no data rewrite; promoting them to real Postgres
+// enums is a separate, optional change.
+//
+// Datasource is PostgreSQL. Migrations live in prisma/migrations and are the
+// schema's source of truth — apply them with `prisma migrate deploy`, never
+// `prisma db push`, which would drift production silently.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -189,6 +192,13 @@ model Conversation {
   // the account was in smart mode.
   autoReplyEnabled   Boolean?  @map("auto_reply_enabled")
   autoReplyPrompt    String?   @map("auto_reply_prompt")                  // custom prompt/rules for this specific chat
+  // Mutex for the auto-reply send path. The gate counts prior auto-replies,
+  // then awaits an AI call, then sends — so without a claim two concurrent
+  // analysis jobs both read the pre-send counts and both send, and the real
+  // customer receives two DMs. A worker takes the claim with a conditional
+  // updateMany (atomic) and releases it in a finally. A stale claim left by a
+  // crashed process expires, so auto-reply cannot wedge permanently.
+  autoReplyClaimedAt DateTime? @map("auto_reply_claimed_at")
 
   lastMessage        String?   @map("last_message")
   lastMessageAt      DateTime? @map("last_message_at")
@@ -206,6 +216,7 @@ model Conversation {
   // One conversation per contact per IG account
   @@unique([instagramAccountId, contactId])
   @@index([instagramAccountId, lastMessageAt])
+  @@index([contactId])
   @@index([priority])
   @@index([category])
   @@index([customerType])
@@ -310,7 +321,11 @@ model ConversationSummary {
 // ============================================
 model BrandDeal {
   id                 String   @id @default(uuid())
-  conversationId     String   @map("conversation_id")
+  // One evolving deal per conversation. Without the unique constraint,
+  // concurrent analyses both miss the findFirst and both create a row, so the
+  // creator gets two "new brand deal" notifications and double usage billing
+  // for one deal. services/brandDealService.js upserts against this.
+  conversationId     String   @unique @map("conversation_id")
   instagramAccountId String   @map("instagram_account_id")
   userId             String   @map("user_id")
 
@@ -334,7 +349,7 @@ model BrandDeal {
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
-  @@index([conversationId])
+  @@index([instagramAccountId])
   @@map("brand_deals")
 }
 
@@ -358,6 +373,7 @@ model ReplyGeneration {
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+  @@index([userId])
   @@map("reply_generations")
 }
 
@@ -463,6 +479,7 @@ model AdminLog {
 
   adminUser User @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
 
+  @@index([adminUserId])
   @@map("admin_logs")
 }
 
@@ -475,11 +492,21 @@ model WebhookLog {
   igUserId           String?  @map("ig_user_id")
   eventType          String   @map("event_type")   // "message", "reaction", "read", "error"
   status             String   // "SUCCESS", "FAILED", "SKIPPED"
+  // Raw webhook body, minus tokens/secrets. This contains the CUSTOMER's
+  // message text, so it is personal data belonging to a third party, not
+  // just operational telemetry. Two rules follow from that:
+  //   1. it is nulled 30 days after receipt (jobs/retentionJob.js), keeping
+  //      the metadata row for debugging but dropping the message bodies;
+  //   2. it dies with the account it belongs to — see onDelete below.
   payload            String?  // JSON string (sanitized)
   errorMessage       String?  @map("error_message")
   createdAt          DateTime @default(now()) @map("created_at")
 
-  instagramAccount InstagramAccount? @relation(fields: [instagramAccountId], references: [id], onDelete: SetNull)
+  // Cascade, not SetNull. Under SetNull, deleting a user or purging an
+  // account left orphaned rows whose payload still held their customers'
+  // DM text — directly contradicting what DELETE /auth/account promises and
+  // what the published privacy policy now states.
+  instagramAccount InstagramAccount? @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
 
   @@index([instagramAccountId])
   @@index([status, createdAt])

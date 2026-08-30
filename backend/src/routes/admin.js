@@ -17,6 +17,7 @@ const instagram = require('../lib/instagram');
 const { encrypt, decrypt } = require('../lib/crypto');
 const { getAIStats } = require('../services/aiService');
 const { createRateLimiter } = require('../lib/rateLimit');
+const { startAuthenticatedSession } = require('../lib/session');
 
 // Strip password hashes (and any other secrets) before returning user rows.
 function sanitizeUser(user) {
@@ -44,18 +45,27 @@ const adminLoginLimiter = createRateLimiter({
 // ============================================
 
 // POST /api/admin/login — Dedicated admin credentials from the environment.
-// Credentials MUST be configured via env (no hardcoded defaults). Prefer
-// ADMIN_PASSWORD_HASH (a bcrypt hash); ADMIN_PASSWORD (plaintext env) is
-// supported as a fallback.
+//
+// ADMIN_PASSWORD_HASH (a bcrypt hash) is the only accepted form in
+// production. Plaintext ADMIN_PASSWORD remains available for local
+// development only, and the server refuses to start if it is set in
+// production (see the startup gate in src/index.js).
+//
+// This matters more than a normal credential: an admin session can
+// impersonate any tenant (POST /api/admin/users/:id/impersonate), so a single
+// leaked environment variable is silent read access to every tenant's
+// customer DMs.
 router.post('/login', adminLoginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
 
+  const isProduction = process.env.NODE_ENV === 'production';
   const adminUsername = process.env.ADMIN_USERNAME;
-  const adminPassword = process.env.ADMIN_PASSWORD;
   const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+  // Never consult the plaintext variable in production, even if it is set.
+  const adminPassword = isProduction ? null : process.env.ADMIN_PASSWORD;
 
   if (!adminUsername || (!adminPassword && !adminPasswordHash)) {
-    console.error('[Admin Login] Admin credentials are not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD).');
+    console.error('[Admin Login] Admin credentials are not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD_HASH.');
     return res.status(503).json({ error: 'Admin login is not configured on this server.' });
   }
 
@@ -90,24 +100,40 @@ router.post('/login', adminLoginLimiter, async (req, res) => {
     });
   }
 
-  req.session.isAdmin = true;
-  req.session.adminUsername = adminUsername;
-  req.session.adminUserId = adminUser.id;
-  // NOTE: We intentionally do NOT set req.session.userId here.
-  // Admin and user sessions share the same cookie. Setting userId
-  // would overwrite a regular user's session in another tab.
+  // Elevating to admin is a privilege transition, so it gets a FRESH session
+  // id (see lib/session.js).
+  //
+  // regenerate() discards all existing session data, so any regular-user
+  // login already on this cookie is carried across explicitly. Admin and user
+  // sessions share one cookie, and dropping userId here would silently log a
+  // signed-in user out of the main app the moment they opened the admin
+  // panel — the behaviour scripts/test-isolation.js asserts against.
+  //
+  // NOTE: we still never SET userId from admin credentials. Admin identity
+  // lives only in isAdmin/adminUserId.
+  const carriedUserId = req.session ? req.session.userId : undefined;
+  const carriedUserEmail = req.session ? req.session.userEmail : undefined;
+  const carriedIgUsername = req.session ? req.session.igUsername : undefined;
 
-  return req.session.save((err) => {
-    if (err) {
-      console.error('[Admin Login] Session save error:', err);
-      return res.status(500).json({ error: 'Failed to initialize session' });
-    }
-    return res.json({
-      success: true,
-      message: 'Admin authenticated successfully',
-      username: adminUsername,
-      user: sanitizeUser(adminUser),
+  try {
+    await startAuthenticatedSession(req, {
+      isAdmin: true,
+      adminUsername,
+      adminUserId: adminUser.id,
+      ...(carriedUserId ? { userId: carriedUserId } : {}),
+      ...(carriedUserEmail ? { userEmail: carriedUserEmail } : {}),
+      ...(carriedIgUsername ? { igUsername: carriedIgUsername } : {}),
     });
+  } catch (err) {
+    console.error('[Admin Login] Session save error:', err);
+    return res.status(500).json({ error: 'Failed to initialize session' });
+  }
+
+  return res.json({
+    success: true,
+    message: 'Admin authenticated successfully',
+    username: adminUsername,
+    user: sanitizeUser(adminUser),
   });
 });
 
@@ -280,11 +306,11 @@ router.get('/users', async (req, res) => {
 
     const whereClause = search ? {
       OR: [
-        { name: { contains: search } },
-        { email: { contains: search } },
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
         {
           instagramAccounts: {
-            some: { igUsername: { contains: search } }
+            some: { igUsername: { contains: search, mode: 'insensitive' } }
           }
         }
       ]
@@ -486,6 +512,12 @@ router.post('/users/:id/impersonate', async (req, res) => {
 router.post('/impersonate/exit', async (req, res) => {
   try {
     const originalAdminId = req.session?.adminOriginalUserId;
+    // Captured before the session fields are cleared. The exit record used to
+    // log the ADMIN's own id as the target, which made it impossible to pair
+    // a start with its end and so to bound which tenant was accessed and for
+    // how long — the whole point of auditing impersonation.
+    const impersonatedUserId = req.session?.impersonatedUserId || null;
+
     if (originalAdminId) {
       req.session.userId = originalAdminId;
       delete req.session.adminOriginalUserId;
@@ -495,8 +527,8 @@ router.post('/impersonate/exit', async (req, res) => {
         originalAdminId,
         'USER_IMPERSONATE_EXIT',
         'USER',
-        originalAdminId,
-        { status: 'Exited impersonation mode' },
+        impersonatedUserId,
+        { status: 'Exited impersonation mode', impersonatedUserId, adminUserId: originalAdminId },
         req.ip
       );
     }
@@ -519,9 +551,9 @@ router.get('/accounts', async (req, res) => {
     const whereClause = {};
     if (search) {
       whereClause.OR = [
-        { igUsername: { contains: search } },
-        { igName: { contains: search } },
-        { user: { name: { contains: search } } }
+        { igUsername: { contains: search, mode: 'insensitive' } },
+        { igName: { contains: search, mode: 'insensitive' } },
+        { user: { name: { contains: search, mode: 'insensitive' } } }
       ];
     }
 
@@ -810,8 +842,8 @@ router.get('/support/search', async (req, res) => {
       prisma.user.findMany({
         where: {
           OR: [
-            { name: { contains: query } },
-            { email: { contains: query } },
+            { name: { contains: query, mode: 'insensitive' } },
+            { email: { contains: query, mode: 'insensitive' } },
           ]
         },
         take: 5,
@@ -824,9 +856,9 @@ router.get('/support/search', async (req, res) => {
       prisma.instagramAccount.findMany({
         where: {
           OR: [
-            { igUsername: { contains: query } },
-            { igName: { contains: query } },
-            { igUserId: { contains: query } },
+            { igUsername: { contains: query, mode: 'insensitive' } },
+            { igName: { contains: query, mode: 'insensitive' } },
+            { igUserId: { contains: query, mode: 'insensitive' } },
           ]
         },
         take: 5,

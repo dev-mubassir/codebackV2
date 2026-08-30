@@ -204,6 +204,13 @@ export default function LandingPage() {
             </div>
             <span className={styles.footerName}>Codeback</span>
           </div>
+          {/* Meta App Review requires the privacy policy and data deletion
+              URLs to be publicly reachable without logging in. */}
+          <nav className={styles.footerLinks} aria-label="Legal">
+            <a href="/privacy" className={styles.footerLink}>Privacy Policy</a>
+            <a href="/terms" className={styles.footerLink}>Terms of Service</a>
+            <a href="/data-deletion" className={styles.footerLink}>Delete My Data</a>
+          </nav>
           <p className={styles.footerCopy}>
             &copy; {new Date().getFullYear()} Codeback. All rights reserved.
           </p>

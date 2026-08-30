@@ -349,86 +349,23 @@ async function main() {
   check('Webhook event for disconnected account logged as skipped_disconnected', Boolean(skippedLog));
 
   // ===============================
-  // TEST GROUP 4: BrandDeal Account Re-Linking Protection (FIX 3)
+  // TEST GROUP 4: Account Re-Linking Protection
   // ===============================
-  console.log('\n--- TEST GROUP 4: BrandDeal Account Re-Linking Protection ---\n');
-
-  // Step 1: User A owns accountA with an existing BrandDeal row
-  await prisma.instagramAccount.update({
-    where: { id: accountA.id },
-    data: { userId: userA.id, connectionStatus: 'CONNECTED' },
-  });
-
-  const contactA = await prisma.contact.findFirst({ where: { instagramAccountId: accountA.id } });
-  const convA = await prisma.conversation.findFirst({ where: { instagramAccountId: accountA.id } });
-
-  if (convA) {
-    await prisma.brandDeal.deleteMany({ where: { instagramAccountId: accountA.id } });
-    await prisma.brandDeal.create({
-      data: {
-        conversationId: convA.id,
-        instagramAccountId: accountA.id,
-        userId: userA.id,
-        brandName: 'Nike Sponsorship Deal',
-        status: 'new',
-      },
-    });
-  }
-
-  // Step 2 & 3: User B attempts to re-link accountA via real OAuth callback with Accept: application/json
-  const relinkConflictRes = await httpJson(
-    'GET',
-    `/auth/instagram/callback?code=test_code_${accountA.igUserId}`,
-    null,
-    sessionB,
-    { Accept: 'application/json' }
-  );
-
-  check('Conflict re-link attempt responds with 409 status', relinkConflictRes.status === 409, relinkConflictRes.status);
-  check(
-    '409 response includes expected error details',
-    relinkConflictRes.data?.error === 'Account re-link conflict' &&
-      relinkConflictRes.data?.message?.includes('existing brand deal history'),
-    relinkConflictRes.data
-  );
-
-  // Step 4: Assert instagramAccount.userId in DB is STILL User A (transfer blocked)
-  const accountCheckAfterBlock = await prisma.instagramAccount.findUnique({
-    where: { id: accountA.id },
-  });
-  check('Instagram account ownership remained with User A (transfer blocked)', accountCheckAfterBlock.userId === userA.id);
-
-  // Step 5: Negative case — User A owns a clean account with NO BrandDeal history
-  const cleanAccount = await prisma.instagramAccount.upsert({
-    where: { igUserId: 'socket-clean-relink-acc' },
-    update: { userId: userA.id, connectionStatus: 'CONNECTED' },
-    create: {
-      userId: userA.id,
-      igUserId: 'socket-clean-relink-acc',
-      igUsername: 'socket_clean_creator',
-      accessToken: encrypt('token-clean-relink'),
-    },
-  });
-
-  // Ensure no BrandDeal exists for this clean account
-  await prisma.brandDeal.deleteMany({ where: { instagramAccountId: cleanAccount.id } });
-
-  // User B attempts to re-link this clean account
-  const cleanRelinkRes = await httpJson(
-    'GET',
-    `/auth/instagram/callback?code=test_code_${cleanAccount.igUserId}`,
-    null,
-    sessionB,
-    { Accept: 'application/json' }
-  );
-
-  check('Clean re-link attempt succeeds (302 redirect or 200)', cleanRelinkRes.status === 302 || cleanRelinkRes.status === 200, cleanRelinkRes.status);
-
-  const cleanAccountCheck = await prisma.instagramAccount.findUnique({
-    where: { igUserId: 'socket-clean-relink-acc' },
-  });
-  check('Clean account ownership successfully transferred to User B', cleanAccountCheck.userId === userB.id);
-
+  //
+  // MOVED to tests/oauth-chain.test.js (vitest).
+  //
+  // This group used to drive GET /auth/instagram/callback with the
+  // `test_code_<igUserId>` mock-OAuth backdoor in lib/instagram.js. That
+  // backdoor let anyone mint a token for an ARBITRARY Instagram account with
+  // no call to Meta, so it was removed outright rather than gated behind an
+  // env flag. With it gone there is no way to reach the callback from an
+  // out-of-process script, because a real authorization code is required.
+  //
+  // The replacement suite covers strictly more than this did: refusal when
+  // the account holds conversation history (not just brand deals — that was
+  // the original bug), a non-leaky error body, the audit-log entry, the
+  // permitted zero-history transfer, and the owner reconnecting their own
+  // account. Run it with `npm test`.
   // ===============================
   // TEST GROUP 5: Force-Disconnect Sockets on Logout
   // ===============================

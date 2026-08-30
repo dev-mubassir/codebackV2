@@ -18,18 +18,21 @@ const { SUBSCRIPTION_STATUSES } = require('../lib/constants');
 const TRIAL_LENGTH_MS = 14 * 24 * 60 * 60 * 1000;
 
 async function getOrCreateSubscription(userId) {
-  let subscription = await prisma.subscription.findUnique({ where: { userId } });
-  if (!subscription) {
-    subscription = await prisma.subscription.create({
-      data: {
-        userId,
-        plan: 'free',
-        status: 'trial',
-        trialEndsAt: new Date(Date.now() + TRIAL_LENGTH_MS),
-      },
-    });
-  }
-  return subscription;
+  const existing = await prisma.subscription.findUnique({ where: { userId } });
+  if (existing) return existing;
+
+  // upsert, not create — concurrent callers would otherwise race and one
+  // would fail with P2002 on the unique userId.
+  return prisma.subscription.upsert({
+    where: { userId },
+    update: {},
+    create: {
+      userId,
+      plan: 'free',
+      status: 'trial',
+      trialEndsAt: new Date(Date.now() + TRIAL_LENGTH_MS),
+    },
+  });
 }
 
 /** Returns true if the account currently has access to paid functionality. */

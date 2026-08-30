@@ -32,6 +32,7 @@ const brandDealRoutes = require('./routes/brandDeals');
 const notificationRoutes = require('./routes/notifications');
 const settingsRoutes = require('./routes/settings');
 const subscriptionRoutes = require('./routes/subscription');
+const dataDeletionRoutes = require('./routes/dataDeletion');
 
 const { setIO } = require('./lib/socket');
 const { startWorkers } = require('./jobs');
@@ -105,6 +106,22 @@ if (SESSION_SECRET.length < 32) {
 
 if (isProduction && !process.env.INSTAGRAM_APP_SECRET) {
   console.error('[Server] FATAL: INSTAGRAM_APP_SECRET must be set in production (webhook signatures cannot be verified without it). Refusing to start.');
+  process.exit(1);
+}
+
+// An admin session can impersonate any tenant, so the admin credential is
+// effectively a master key to every customer's DMs. A plaintext password in
+// an environment variable is readable from the hosting dashboard, a log dump,
+// or any shell on the container — so production requires the bcrypt hash and
+// refuses to start if the plaintext form is present at all.
+if (isProduction && process.env.ADMIN_PASSWORD) {
+  console.error('[Server] FATAL: ADMIN_PASSWORD (plaintext) must not be set in production. Use ADMIN_PASSWORD_HASH instead:');
+  console.error('           node -e "console.log(require(\'bcryptjs\').hashSync(process.argv[1], 12))" \'your-password\'');
+  console.error('           ...then unset ADMIN_PASSWORD.');
+  process.exit(1);
+}
+if (isProduction && process.env.ADMIN_USERNAME && !process.env.ADMIN_PASSWORD_HASH) {
+  console.error('[Server] FATAL: ADMIN_USERNAME is set but ADMIN_PASSWORD_HASH is not. Admin login would be unusable in production. Refusing to start.');
   process.exit(1);
 }
 
@@ -291,10 +308,14 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Handle OAuth callback if REDIRECT_URI is exactly the ngrok root
+// Handle OAuth callback if REDIRECT_URI is exactly the ngrok root.
+// `state` must be forwarded too, or the callback's CSRF check can never pass.
 app.get('/', (req, res) => {
   if (req.query.code) {
-    return res.redirect(`/auth/instagram/callback?code=${req.query.code}`);
+    const qs = new URLSearchParams();
+    qs.set('code', req.query.code);
+    if (req.query.state) qs.set('state', req.query.state);
+    return res.redirect(`/auth/instagram/callback?${qs.toString()}`);
   }
   res.send('Codeback Backend is running');
 });
@@ -305,6 +326,10 @@ app.use('/auth', authRoutes);
 // Webhook routes (Instagram webhook - mounted on both /webhook and /webhooks/instagram)
 app.use('/webhook', webhookRoutes);
 app.use('/webhooks/instagram', webhookRoutes);
+
+// Meta Data Deletion Request Callback (unauthenticated by design — the
+// signed_request HMAC is the authentication). Review-critical surface.
+app.use('/data-deletion', dataDeletionRoutes);
 
 // Admin panel routes (must be mounted before /api)
 app.use('/api/admin', adminRoutes);
