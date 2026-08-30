@@ -95,7 +95,7 @@ router.post('/instagram', async (req, res) => {
   const appSecret = process.env.INSTAGRAM_APP_SECRET;
   if (!appSecret) {
     console.error('[DataDeletion] INSTAGRAM_APP_SECRET is not configured; cannot verify requests.');
-    return res.status(503).json({ error: 'Data deletion is not configured on this server.' });
+    return res.status(503).json({ error: 'Data deletion is not set up on this server.' });
   }
 
   const signedRequest = req.body?.signed_request;

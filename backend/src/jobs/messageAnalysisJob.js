@@ -40,6 +40,31 @@ const AUTO_REPLY_CLAIM_TTL_MS = 2 * 60 * 1000;
 const STALLED_ANALYSIS_MS = 15 * 60 * 1000;
 
 /**
+ * The reply mode actually in force for a tenant.
+ *
+ * FAILS CLOSED. Both gates below used `businessProfile?.autoReplyMode ||
+ * 'smart'`, so a user with no BusinessProfile row — or one whose row has not
+ * been saved yet — resolved to 'smart', the single mode that sends a DM on
+ * their behalf. The database column defaults to 'human_only' precisely so that
+ * automatic sending is opt-in, and this fallback quietly inverted that for
+ * exactly the accounts least likely to have finished setup: brand-new signups
+ * and reviewer test accounts. Meanwhile the dashboard, the inbox, and the
+ * landing page all state that nothing is sent without approval.
+ *
+ * Anything that is not the literal string 'smart' means do not send. An
+ * unrecognised or empty value therefore fails closed too, not just null.
+ *
+ * Keep in sync with prisma/schema.prisma BusinessProfile.autoReplyMode and
+ * services/businessProfileService.js DEFAULT_PROFILE.
+ */
+const DEFAULT_REPLY_MODE = 'human_only';
+
+function effectiveReplyMode(businessProfile) {
+  const stored = businessProfile?.autoReplyMode;
+  return typeof stored === 'string' && stored.trim() ? stored : DEFAULT_REPLY_MODE;
+}
+
+/**
  * Take the per-conversation auto-reply claim.
  *
  * A single conditional UPDATE ... WHERE is atomic, so exactly one racing
@@ -345,7 +370,7 @@ async function processMessageAnalysis(job) {
     // The per-conversation override is three-state and can only ever SUBTRACT:
     //   null -> inherit the mode, true -> opt in, false -> opt out even under smart.
     // It cannot re-enable sending for a tenant who chose suggest_only/human_only.
-    const autoReplyMode = businessProfile?.autoReplyMode || 'smart';
+    const autoReplyMode = effectiveReplyMode(businessProfile);
     const modeAllowsAutoSend = autoReplyMode === 'smart';
     const isAutoReplyActive = modeAllowsAutoSend && conversation.autoReplyEnabled !== false;
 
@@ -391,7 +416,7 @@ async function maybeAutoReply({
     // Stage 1: Check Mode Setting.
     // Re-asserted here (not just at the caller's gate) so no future call site
     // can reach the send path for a tenant who opted out of automatic sending.
-    const mode = businessProfile?.autoReplyMode || 'smart';
+    const mode = effectiveReplyMode(businessProfile);
     if (mode !== 'smart') {
       console.log(`[AutoReply] Mode is '${mode}' for user ${userId} — auto-send disabled, skipping.`);
       return;
@@ -660,4 +685,8 @@ module.exports = {
   processMessageAnalysis,
   maybeAutoReply,
   sweepStalledAnalyses,
+  // Exported so the fail-closed behaviour can be asserted directly, without
+  // standing up a whole analysis run.
+  effectiveReplyMode,
+  DEFAULT_REPLY_MODE,
 };

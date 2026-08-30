@@ -1,22 +1,23 @@
 import Link from 'next/link';
+import { meta, legal } from '@/content/copy';
+import { SUPPORT_EMAIL } from '@/content/contact';
 import styles from '../legal/legal.module.css';
 
 export const metadata = {
-  title: 'Terms of Service — Codeback',
-  description: 'The terms governing use of Codeback.',
+  title: meta.terms.title,
+  description: meta.terms.description,
 };
 
 const LAST_UPDATED = '30 August 2026';
-const SUPPORT_EMAIL = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || 'set NEXT_PUBLIC_SUPPORT_EMAIL';
 
 export default function TermsPage() {
   return (
     <main className={styles.page}>
       <div className={styles.container}>
-        <Link href="/" className={styles.backLink}>← Back to Codeback</Link>
+        <Link href="/" className={styles.backLink}>{legal.backToHome}</Link>
 
-        <h1 className={styles.title}>Terms of Service</h1>
-        <p className={styles.updated}>Last updated: {LAST_UPDATED}</p>
+        <h1 className={styles.title}>{legal.termsTitle}</h1>
+        <p className={styles.updated}>{legal.lastUpdated}: {LAST_UPDATED}</p>
 
         <section className={styles.section}>
           <h2>1. Agreement</h2>
