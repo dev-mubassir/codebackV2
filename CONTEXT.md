@@ -24,17 +24,17 @@ The platform serves **any Instagram business or creator**:
   - Dynamically updates the 24-hour messaging window to `{ status: 'open', canReply: true, hoursRemaining: 24 }`.
 
 ### Live Smart Folder Counters & Classification Logic
-- `matchesFolder(conv, folderId)` classifies conversations cleanly across all folders:
-  - `🔥 Hot Leads`: Matches `hot_lead` category, high purchase intent (`>= 80%`), or hot lead customer type.
-  - `🎯 Leads & Inquiries`: Aggregates all commercial inquiries (services, products, pricing, turnaround, delivery, and leads).
-  - `💰 Customers`: Verified past buyers and returning customers.
-  - `❓ Questions`: General product/service and FAQ inquiries.
-  - `🎧 Support`: After-sales support requests and delivery follow-ups.
-  - `👤 Needs Human`: Inquiries flagged for manual creator negotiation or when auto-reply limits are reached.
-  - `🚫 Spam & Scams`: Filtered spam bots, phishing attempts, and abusive messages.
-  - `● Unread`: Any conversation with `unread: true`.
-  - `🔥 Important`: Critical/high priority conversations or priorityScore `>= 70`.
-- All sidebar folder counts update instantly in real time via Socket.io without page reload.
+- `matchesFolder(conv, folderId)` classifies conversations across all folders. Folder **ids are unchanged** (they are URL parameters — `/inbox?filter=important` still works); only the labels moved to `lib/categories.js`:
+  - `all` / `unread`: everything, or `unread: true`.
+  - `important` → **"Needs your reply"**: `needsAttention`, `needsHuman`, critical/high priority, or `priorityScore >= 70`.
+  - `hot_leads`: `hot_lead` category, `purchaseIntent >= 80`, or hot-lead customer type.
+  - `leads` → **"Leads and questions"**: every commercial inquiry — services, products, pricing, availability, delivery.
+  - `customers`, `questions`, `support`: returning buyers, FAQs, after-sales follow-ups.
+  - `brand_deal` → **"Brand deals"**: `brand_deal` **or** `collaboration`. Sponsorships and collabs are one concept in the UI.
+  - `spam`: spam, scam, and abusive.
+- **The `needs_human` folder was removed from the sidebar.** Its predicate (`needsHuman || needsAttention`) is a strict subset of `important`, so it listed the same conversations under a second name. `matchesFolder` still handles the id, so an old bookmark or link resolves rather than 404s.
+- Folder icons are names from `app/components/Icon.js`, never emoji.
+- All counts update in real time via Socket.io without a page reload.
 
 ---
 
@@ -68,7 +68,27 @@ Additional platform hardening across auth, session, transport, and admin surface
 
 ---
 
-## 4. Conversational Intelligence & Anti-Loop Pacing
+## 4. Reply Modes (Fail-Closed)
+
+`BusinessProfile.autoReplyMode` has three stored values, and **only the literal string `smart` may ever send a message**:
+
+| Stored | Displayed | Sends without the owner? |
+|---|---|---|
+| `human_only` *(schema default)* | Manual | Never |
+| `suggest_only` | Suggested replies | Never — drafts only |
+| `smart` | Automatic | Yes, for safe qualifying questions |
+
+1. **One resolver, failing closed.** `effectiveReplyMode(businessProfile)` in `jobs/messageAnalysisJob.js` is the single source for both gates (the caller gate and the re-assertion inside `maybeAutoReply`). It returns `human_only` for a null profile, a missing field, an empty string, or whitespace.
+   Both gates previously read `businessProfile?.autoReplyMode || 'smart'`. The schema column defaults to `human_only` precisely so automatic sending is opt-in, and that fallback **inverted it for any user whose `BusinessProfile` row was missing or unsaved** — the state of a brand-new signup or an App Review test account. Because the landing page, dashboard, and inbox all state that nothing is sent without approval, this was a misrepresentation, not only a defect.
+   Keeping the two gates independent is how the bug survived: the comment directly above the first gate already documented the correct behaviour while the code contradicted it. **Do not re-inline the fallback at either call site.**
+2. **Anything not `smart` means do not send**, so an unrecognised or future mode fails closed rather than being guessed at.
+3. **The per-conversation override can only subtract.** `Conversation.autoReplyEnabled` is three-state: `null` inherits the mode, `true` opts in, `false` opts out even under `smart`. It can never re-enable sending for a tenant who chose `suggest_only` or `human_only`.
+4. **Analysis always runs.** Classification, priority scoring, brand-deal extraction, summaries, notifications, and live inbox updates happen in every mode. Only the send is withheld.
+5. Covered by `tests/auto-reply-fail-closed.test.js`, which asserts the resolver directly and end to end through the real send path, including the inverse case so the gate cannot be trivially satisfied by being off.
+
+---
+
+## 4a. Conversational Intelligence & Anti-Loop Pacing
 
 ### Anti-Loop & Conversational Guards (`messageAnalysisJob.js`)
 1. **Closing / Acknowledgment Filter**: Detects when customers send short ending messages (`ok`, `okay`, `k`, `thanks`, `thank you`, `got it`, `sure`, `cool`, `noted`, `will check`, `bye`) and skips auto-replying so AI never creates an annoying endless loop.
@@ -94,7 +114,31 @@ Additional platform hardening across auth, session, transport, and admin surface
 
 ---
 
-## 4c. Database & Migrations
+## 4c. Product Copy & Display Layer
+
+Every human-readable string resolves through `frontend/src/content/`. **Storage and API payloads are never changed to suit display.**
+
+| Module | Responsibility |
+|---|---|
+| `copy.js` | Static UI strings by surface: `common`, `nav`, `dashboard`, `inbox`, `settings`, `account`, `auth`, `admin`, `errors`, `empty`, `toast`, `confirm`, `validation`, `meta` |
+| `labels.js` | Enum → label, with `titleCase()` fallback so an unmapped value renders as "Hot Lead", never `hot_lead` |
+| `templates.js` | The thirteen starter business profiles, structurally parallel |
+| `format.js` | One date format (`29 Aug 2026`), one currency format, pluralisation, percentage suppression |
+| `contact.js` | Public support address; **throws at production build time** when `NEXT_PUBLIC_SUPPORT_EMAIL` is unset |
+
+1. **Enum values are display-mapped at render time only.** `hot_lead`, `IGNORE_SPAM`, `human_only`, `NEEDS_RECONNECT`, `auto_replied` are stored and transmitted exactly as-is. `labels.js` never round-trips a label back into storage.
+2. **Backend endpoints return keys and counts, not display strings.** `GET /api/analytics/summary` sends `categoryMetrics` entries carrying an icon *name* and a plain label; it no longer builds emoji headings or per-business-type titles.
+3. **A card's label must describe what its query measures.** Where they disagree, change the label — unless the query is the bug. Two were:
+   - `autoRepliesSent` counted `aiStatus: 'completed'`, the flag set on an **inbound** message once classified. It now counts `direction: 'outbound', aiStatus: 'auto_replied'`, written only when a message is actually delivered to Instagram.
+   - Brand deals and spam were all-time counts under a date-range selector and never moved. Both are now scoped to the window. `needsAttention` stays all-time deliberately — it is a live queue, not an activity count, and its sublabel says so.
+4. **No fabricated numbers.** A metric with a hardcoded fallback that looks live is hidden, not shown. `computePercentChange` returns `null` (not `100`) when the prior window was empty, and shares are suppressed below 10 conversations because "100%" of one is noise.
+5. **Hidden, never deleted.** Removed UI is commented out with a `REMOVED-BY-COPY-AUDIT:` marker stating why and how to restore. Three exist: the inbox "Match Confidence" metric (a constant `?? 0.95` that rendered as a live 95%), the account page's duplicate "AI Business Context" card, and the settings Master ON/OFF buttons that fought with the select bound to the same field.
+6. **Emoji are not UI furniture.** Icons come from `app/components/Icon.js`. Emoji survive only inside content a user typed.
+7. **Form fields read `--form-text`.** One token sizes every input, textarea, and select. iOS keeps 16px via an `@supports (-webkit-touch-callout: none)` carve-out, because Safari zooms the page on a focused field below that size.
+
+---
+
+## 4d. Database & Migrations
 
 - The Prisma datasource is **`postgresql`** in every environment, including tests. `DATABASE_URL` must be a Postgres connection string; a `file:` URL fails at client construction.
 - **Migrations in `backend/prisma/migrations/` are the source of truth and are committed.** They were previously in `.gitignore`, which meant they could never reach the deploy image and `prisma migrate deploy` would have been a permanent no-op, silently falling back to `db push`.
@@ -105,7 +149,7 @@ Additional platform hardening across auth, session, transport, and admin surface
 
 ## 5. Test Suites & Verification Results
 
-### Primary suite — `cd backend && npm test` (Vitest, 44 passing)
+### Primary suite — `cd backend && npm test` (Vitest, 58 passing)
 Runs against a throwaway PostgreSQL and applies `prisma migrate deploy` in setup, so every run also proves the committed migrations still apply to an empty database.
 
 | File | Covers |
@@ -116,6 +160,7 @@ Runs against a throwaway PostgreSQL and applies `prisma migrate deploy` in setup
 | `tests/auto-reply-concurrency.test.js` | Two racing jobs send one reply, not two; atomic analysis writes; stalled-analysis sweeper |
 | `tests/data-deletion.test.js` | `signed_request` verification, forged/tampered rejection, cascade deletion, 30-day retention |
 | `tests/scopes-and-admin.test.js` | Requested scopes, admin hash enforcement, impersonation auditability |
+| `tests/auto-reply-fail-closed.test.js` | A missing/unsaved `BusinessProfile` never resolves to an auto-sending mode; asserted as a pure function and end to end, plus the inverse |
 
 Needs a Postgres instance (`TEST_DATABASE_URL` to override):
 ```bash
@@ -129,6 +174,9 @@ docker exec codeback-pg psql -U postgres -c "CREATE DATABASE codeback_test;"
 
 ### Legacy hand-run scripts
 `backend/scripts/*.js` need a running server and a live database, are not part of `npm test`, and are not run in CI — so their pass counts are not tracked here.
+
+### Seeding a tenant to click through
+Dashboard, inbox, and admin cards only render meaningfully with data, and a passing build does not catch a runtime error in a card that appears only when rows exist. `node scripts/seed-review-tenant.js` creates one `@test.codeback` tenant with eight conversations across every category, a brand deal, and notifications; reply mode is left at the schema default so the dashboard banner reads *Manual*. Remove with `node scripts/cleanup-test-data.js --confirm`, which matches only that domain.
 
 `test-socket-isolation.js` TEST GROUP 4 (account re-linking) was **removed** and reimplemented in `tests/oauth-chain.test.js`: it drove the OAuth callback via the mock-OAuth backdoor, which no longer exists. The replacement covers strictly more cases.
 
@@ -149,6 +197,11 @@ docker exec codeback-pg psql -U postgres -c "CREATE DATABASE codeback_test;"
 - **Anything that sends a DM must hold the conversation claim.** New auto-send call sites go through the same `claimAutoReply()` / `finally`-release pattern, or they will duplicate messages to real customers under concurrency.
 - **Migrations, not `db push`.** Schema changes ship as committed migrations applied with `migrate deploy`.
 - **Keep the privacy policy and the code in sync.** The 30-day retention window, the data actually collected, and the third-party AI disclosure are load-bearing claims. Changing behaviour means changing `/privacy` in the same commit.
+- **Auto-send defaults must fail closed.** Never write `autoReplyMode || 'smart'`. Both gates call `effectiveReplyMode()`; a missing profile resolves to `human_only`. A new send path that re-inlines the fallback reintroduces automatic sending for every account that has not finished setup.
+- **New user-facing strings go in `frontend/src/content/`,** not inline in a component. New enum values get a `labels.js` entry; the title-casing fallback is a safety net, not the destination.
+- **A card's label must match its query.** If they diverge, fix the label — or the query, if the query is the bug — but never ship the two disagreeing. Percentages state their denominator and are suppressed below the minimum sample.
+- **Never ship a metric with a hardcoded fallback that reads as live data.** Hide it behind a `REMOVED-BY-COPY-AUDIT` marker instead.
+- **Enum values are display-mapped, never renamed in storage.** Changing a stored value is a migration, not a copy edit.
 
 ### Review-critical surfaces (frozen once App Review is submitted)
 Changing any of these mid-review can invalidate it. Flag every change so the demo screencast can be re-recorded:
@@ -164,3 +217,9 @@ Changing any of these mid-review can invalidate it. Flag every change so the dem
 - **No Instagram token refresh.** Long-lived tokens expire around day 60 and nothing renews them or notifies the tenant; `notifyConnectionProblem()` exists but is never called.
 - **Prompt injection**: customer DM text reaches the model with only `"` escaped; output shape is validated but provenance is not.
 - **Unbounded queries** on `GET /api/conversations` and `/api/analytics/summary`.
+- **Nested `<button>` in the inbox conversation list.** The per-row delete button sits inside the row button, which React reports as a hydration error on every inbox load. Pre-dates the copy work; clicks still function.
+- **The admin impersonation banner never renders.** `setImpersonating` is never called and `GET /api/admin/me` returns no impersonation flag, so an admin viewing a tenant's data sees no indicator. Owned by the admin-hardening task.
+- **`/admin` has no per-route `<title>`.** `admin/layout.js` is a client component and cannot export `metadata`; it inherits the root title. Needs a wrapper layout.
+- **`aiStats` is process-local.** The admin "Message processing" counters live in one process's memory, reset on every restart, and undercount across instances. The panel subtitle says so, but the numbers are not trustworthy for anything but a rough sanity check.
+- **`GET /api/admin/me` grants admin on a plain user session with `role === 'ADMIN'`,** a second authorisation path alongside the dedicated admin session. Reported, not changed.
+- **Cloudflare caches Turbopack dev chunks for 4 hours.** `/_next/static/chunks/*` are served with `max-age=14400`, but Turbopack **reuses chunk filenames** across rebuilds, so the tunnel serves stale JS under a name whose content changed. Code edits can appear not to land. Exclude `/_next/static/` from the dev tunnel's cache rules.
