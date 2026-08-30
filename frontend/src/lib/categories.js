@@ -1,102 +1,95 @@
 /**
- * Shared, extensible category + priority metadata for the inbox UI.
+ * Inbox metadata — category and priority display, plus the folder list.
  *
- * Supports Creators, Video/Photo Editors, Product Sellers, Freelancers, Local Businesses,
- * Coaches, E-Commerce, Agencies, and more.
+ * Wording lives in content/labels.js so one edit changes it everywhere.
+ * This module only adds what is specific to the inbox: which icon to draw and
+ * which badge class to apply. `icon` is a name from components/Icon.js, never
+ * an emoji.
  */
 
-export const CATEGORY_META = {
-  // Sales & Leads
-  hot_lead: { label: 'Hot Lead', icon: '🔥', badgeClass: 'badgeBrandCollab' },
-  lead: { label: 'Lead', icon: '🎯', badgeClass: 'badgeBusiness' },
-  product_inquiry: { label: 'Product Inquiry', icon: '📦', badgeClass: 'badgeBusiness' },
-  service_inquiry: { label: 'Service Inquiry', icon: '💼', badgeClass: 'badgeBusiness' },
-  pricing_inquiry: { label: 'Pricing Question', icon: '🏷️', badgeClass: 'badgeBusiness' },
-  availability_inquiry: { label: 'Availability', icon: '📅', badgeClass: 'badgeQuestion' },
-  delivery_inquiry: { label: 'Shipping / Delivery', icon: '🚚', badgeClass: 'badgeQuestion' },
+import {
+  categoryLabel,
+  normalizeCategoryId as normalizeId,
+  priorityLabel,
+  riskLabel,
+} from '@/content/labels';
 
-  // Relationship & Support
-  customer: { label: 'Customer', icon: '💰', badgeClass: 'badgeBusiness' },
-  support_request: { label: 'Support', icon: '🎧', badgeClass: 'badgeQuestion' },
-  general_question: { label: 'Question', icon: '❓', badgeClass: 'badgeQuestion' },
+export { normalizeId as normalizeCategoryId };
 
-  // Creator & Partnerships
-  brand_deal: { label: 'Brand Deal', icon: '🔥', badgeClass: 'badgeBrandCollab' },
-  collaboration: { label: 'Collaboration', icon: '🤝', badgeClass: 'badgeBusiness' },
-
-  // Social & Non-commercial
-  fan: { label: 'Fan / Social', icon: '❤️', badgeClass: 'badgeFan' },
-
-  // Security & Negative
-  spam: { label: 'Spam', icon: '🚫', badgeClass: 'badgeSpam' },
-  scam: { label: '🚨 Potential Scam', icon: '🚨', badgeClass: 'badgeSpam' },
-  abusive: { label: 'Abusive', icon: '⚠️', badgeClass: 'badgeSpam' },
-
-  // Fallback
-  other: { label: 'Other', icon: '💬', badgeClass: 'badgeOther' },
+const CATEGORY_PRESENTATION = {
+  hot_lead: { icon: 'flame', badgeClass: 'badgeBrandCollab' },
+  lead: { icon: 'target', badgeClass: 'badgeBusiness' },
+  product_inquiry: { icon: 'package', badgeClass: 'badgeBusiness' },
+  service_inquiry: { icon: 'briefcase', badgeClass: 'badgeBusiness' },
+  pricing_inquiry: { icon: 'tag', badgeClass: 'badgeBusiness' },
+  availability_inquiry: { icon: 'calendar', badgeClass: 'badgeQuestion' },
+  delivery_inquiry: { icon: 'truck', badgeClass: 'badgeQuestion' },
+  customer: { icon: 'wallet', badgeClass: 'badgeBusiness' },
+  support_request: { icon: 'headphones', badgeClass: 'badgeQuestion' },
+  general_question: { icon: 'helpCircle', badgeClass: 'badgeQuestion' },
+  brand_deal: { icon: 'handshake', badgeClass: 'badgeBrandCollab' },
+  collaboration: { icon: 'handshake', badgeClass: 'badgeBrandCollab' },
+  fan: { icon: 'heart', badgeClass: 'badgeFan' },
+  spam: { icon: 'ban', badgeClass: 'badgeSpam' },
+  scam: { icon: 'shieldAlert', badgeClass: 'badgeSpam' },
+  abusive: { icon: 'alertTriangle', badgeClass: 'badgeSpam' },
+  other: { icon: 'messageCircle', badgeClass: 'badgeOther' },
 };
 
-const LEGACY_ALIASES = {
-  'Brand/Collab': 'brand_deal',
-  Business: 'service_inquiry',
-  business_inquiry: 'service_inquiry',
-  Question: 'general_question',
-  question: 'general_question',
-  Fan: 'fan',
-  Spam: 'spam',
-  Other: 'other',
-  support: 'support_request',
-};
+const DEFAULT_PRESENTATION = { icon: 'messageCircle', badgeClass: 'badgeOther' };
 
-const DEFAULT_META = { label: 'Other', icon: '💬', badgeClass: 'badgeOther' };
-
-export function normalizeCategoryId(category) {
-  if (!category) return 'other';
-  if (CATEGORY_META[category]) return category;
-  if (LEGACY_ALIASES[category]) return LEGACY_ALIASES[category];
-  return 'other';
-}
-
-/** Always returns a renderable { label, icon, badgeClass } — never undefined. */
+/** Always returns a renderable descriptor — never undefined, never a raw enum. */
 export function getCategoryMeta(category) {
-  const id = normalizeCategoryId(category);
-  return CATEGORY_META[id] || DEFAULT_META;
+  const id = normalizeId(category);
+  const { label, description, tone } = categoryLabel(id);
+  const presentation = CATEGORY_PRESENTATION[id] || DEFAULT_PRESENTATION;
+  return { id, label, description, tone, ...presentation };
 }
 
-// Filter tabs shown in the inbox sidebar
+/** Folders in the inbox sidebar. */
 export const INBOX_FILTERS = [
-  { id: 'all', label: 'All', icon: '📥' },
-  { id: 'unread', label: 'Unread', icon: '●' },
-  { id: 'important', label: 'Important', icon: '🔥' },
-  { id: 'hot_leads', label: 'Hot Leads', icon: '🔥' },
-  { id: 'leads', label: 'Leads & Inquiries', icon: '🎯' },
-  { id: 'customers', label: 'Customers', icon: '💰' },
-  { id: 'questions', label: 'Questions', icon: '❓' },
-  { id: 'support', label: 'Support', icon: '🎧' },
-  { id: 'brand_deal', label: 'Brand Deals / Collabs', icon: '🤝' },
-  { id: 'needs_human', label: 'Needs Human', icon: '👤' },
-  { id: 'spam', label: 'Spam & Scams', icon: '🚫' },
+  { id: 'all', label: 'All', icon: 'inbox' },
+  { id: 'unread', label: 'Unread', icon: 'messageSquare' },
+  { id: 'important', label: 'Needs your reply', icon: 'alertTriangle' },
+  { id: 'hot_leads', label: 'Hot leads', icon: 'flame' },
+  { id: 'leads', label: 'Leads and questions', icon: 'target' },
+  { id: 'customers', label: 'Customers', icon: 'wallet' },
+  { id: 'questions', label: 'General questions', icon: 'helpCircle' },
+  { id: 'support', label: 'Support', icon: 'headphones' },
+  { id: 'brand_deal', label: 'Brand deals', icon: 'handshake' },
+  { id: 'spam', label: 'Spam and scams', icon: 'ban' },
 ];
 
-export const PRIORITY_META = {
-  critical: { label: 'Critical', dotClass: 'priorityCritical' },
-  high: { label: 'High', dotClass: 'priorityHigh' },
-  normal: { label: 'Normal', dotClass: 'priorityNormal' },
-  low: { label: 'Low', dotClass: 'priorityLow' },
+const PRIORITY_DOT_CLASS = {
+  critical: 'priorityCritical',
+  high: 'priorityHigh',
+  normal: 'priorityNormal',
+  low: 'priorityLow',
 };
 
 export function getPriorityMeta(priority) {
-  return PRIORITY_META[priority] || PRIORITY_META.normal;
+  const id = PRIORITY_DOT_CLASS[priority] ? priority : 'normal';
+  const { label, description, tone } = priorityLabel(id);
+  return { id, label, description, tone, dotClass: PRIORITY_DOT_CLASS[id] };
 }
 
-export const RISK_META = {
-  LOW: { label: 'Low Risk', badgeClass: 'riskLow', color: 'var(--color-success)' },
-  MEDIUM: { label: 'Medium Risk', badgeClass: 'riskMedium', color: 'var(--color-warning)' },
-  HIGH: { label: 'High Risk', badgeClass: 'riskHigh', color: 'var(--color-error)' },
-  CRITICAL: { label: 'Critical Risk', badgeClass: 'riskCritical', color: 'var(--color-error-strong)' },
+const RISK_COLOR = {
+  LOW: 'var(--color-success)',
+  MEDIUM: 'var(--color-warning)',
+  HIGH: 'var(--color-error)',
+  CRITICAL: 'var(--color-error-strong)',
+};
+
+const RISK_BADGE_CLASS = {
+  LOW: 'riskLow',
+  MEDIUM: 'riskMedium',
+  HIGH: 'riskHigh',
+  CRITICAL: 'riskCritical',
 };
 
 export function getRiskMeta(riskLevel) {
-  const upper = String(riskLevel || 'LOW').toUpperCase();
-  return RISK_META[upper] || RISK_META.LOW;
+  const id = String(riskLevel || 'LOW').toUpperCase();
+  const key = RISK_COLOR[id] ? id : 'LOW';
+  const { label, tone } = riskLabel(key);
+  return { id: key, label, tone, badgeClass: RISK_BADGE_CLASS[key], color: RISK_COLOR[key] };
 }

@@ -10,9 +10,19 @@ import {
   clearChat, deleteConversation,
 } from '@/lib/api';
 import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
+import Icon from '@/app/components/Icon';
+import { inbox as t, common, errors, empty, confirm as confirmCopy, nav } from '@/content/copy';
+import {
+  customerTypeLabel,
+  recommendedActionLabel,
+  brandDealStatusLabel,
+  replyModeSendsAutomatically,
+} from '@/content/labels';
+import { formatTime, formatTimeAgo, formatCurrency } from '@/content/format';
 import styles from './inbox.module.css';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+// Stored values, unchanged. Display wording comes from content/labels.js.
 const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];
 
 /** Classification filter matching logic for smart folders */
@@ -402,7 +412,7 @@ function InboxPageContent() {
       setConversations(prev => prev.map(c => c.id === selectedConv ? { ...c, autoReplyEnabled: res.autoReplyEnabled, autoReplyPrompt: res.autoReplyPrompt } : c));
     } catch (err) {
       console.error('Failed to toggle auto-reply:', err);
-      alert('Failed to update auto-reply status');
+      alert(errors.toggleAutomation);
     }
   }
 
@@ -416,6 +426,11 @@ function InboxPageContent() {
       router.push('/login');
     }
   }
+
+  // Reply mode is the single source of truth for whether anything is sent
+  // without the user. The compose footer, the per-conversation badge, and the
+  // banner below all read it, so no two of them can disagree.
+  const sendsAutomatically = replyModeSendsAutomatically(user?.businessProfile?.autoReplyMode);
 
   const activeConvData = conversations.find(c => c.id === selectedConv);
   const activeCategory = analysis?.category || activeConvData?.category || 'other';
@@ -467,7 +482,7 @@ function InboxPageContent() {
       const result = await generateReply(selectedConv, instructions);
       setDraftText(result.text || '');
     } catch (err) {
-      setSendError(err.response?.data?.error || 'AI reply generation is unavailable right now. You can still write your own reply below.');
+      setSendError(err.response?.data?.error || errors.generateReply);
     } finally {
       setGenerating(false);
     }
@@ -485,7 +500,7 @@ function InboxPageContent() {
       setDraftText('');
       setConversations(prev => prev.map(c => (c.id === selectedConv ? { ...c, lastMessage: result.message.content, unread: false, needsAttention: false } : c)));
     } catch (err) {
-      setSendError(err.response?.data?.error || 'Failed to send message.');
+      setSendError(err.response?.data?.error || errors.sendReply);
     } finally {
       setSending(false);
     }
@@ -512,7 +527,7 @@ function InboxPageContent() {
       setConversations(prev => prev.map(c => (c.id === selectedConv ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false } : c)));
       setShowClearModal(false);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to clear chat messages');
+      alert(err.response?.data?.error || errors.clearChat);
     } finally {
       setActionLoading(false);
     }
@@ -536,7 +551,7 @@ function InboxPageContent() {
       setShowDeleteModal(false);
       setConvToDelete(null);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to delete conversation');
+      alert(err.response?.data?.error || errors.deleteConversation);
     } finally {
       setActionLoading(false);
     }
@@ -544,7 +559,7 @@ function InboxPageContent() {
 
   if (loading) {
     return (
-      <div className={styles.loadingScreen}>
+      <div className={styles.loadingScreen} aria-busy="true" aria-label={common.loading}>
         <div className="spinner spinner-lg" />
       </div>
     );
@@ -557,30 +572,30 @@ function InboxPageContent() {
         <div className={styles.globalNavLeft}>
           <button className={styles.navBrand} onClick={() => router.push('/dashboard')}>
             <div className={styles.navBrandIcon}>
-              <img src="/logo.png" alt="Codeback Logo" className={styles.navBrandImg} />
+              <img src="/logo.png" alt="" className={styles.navBrandImg} />
             </div>
             <span className={styles.navBrandText}>Codeback</span>
           </button>
           <span className={styles.navBreadcrumb}>/</span>
-          <span className={styles.navCurrentPage}>Inbox</span>
+          <span className={styles.navCurrentPage}>{t.title}</span>
         </div>
 
         <div className={styles.globalNavActions}>
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/dashboard')}>
-            📊 Dashboard
+            <Icon name="dashboard" size={14} /> {nav.dashboard}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/notifications')} style={{ position: 'relative' }}>
-            🔔 Notifications
+            <Icon name="bell" size={14} /> {nav.notifications}
             {notifUnreadCount > 0 && <span className={styles.bellBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/settings')}>
-            ⚙️ Settings
+            <Icon name="settings" size={14} /> {nav.settings}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={() => router.push('/profile')} id="inbox-profile-header-btn">
-            👤 Profile
+            <Icon name="user" size={14} /> {nav.account}
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={handleLogout} title="Log out">
-            🚪 Logout
+          <button className="btn btn-ghost btn-sm" onClick={handleLogout}>
+            <Icon name="logOut" size={14} /> {nav.logOut}
           </button>
         </div>
       </header>
@@ -592,7 +607,7 @@ function InboxPageContent() {
         <aside className={styles.filterSidebar}>
           {/* Account Filter Section */}
           <div className={styles.filterSection}>
-            <span className={styles.filterSectionTitle}>Accounts</span>
+            <span className={styles.filterSectionTitle}>{t.accounts}</span>
             <div className={styles.filterItemList}>
               <button
                 className={`${styles.filterItemBtn} ${selectedAccountId === '' ? styles.filterItemBtnActive : ''}`}
@@ -600,8 +615,8 @@ function InboxPageContent() {
                 id="filter-account-all"
               >
                 <div className={styles.filterItemLeft}>
-                  <span className={styles.filterItemIcon}>🌐</span>
-                  <span className={styles.filterItemLabel}>All Accounts</span>
+                  <span className={styles.filterItemIcon}><Icon name="globe" size={14} /></span>
+                  <span className={styles.filterItemLabel}>{t.allAccounts}</span>
                 </div>
                 <span className={styles.filterItemCount}>{conversations.length}</span>
               </button>
@@ -613,7 +628,7 @@ function InboxPageContent() {
                   id={`filter-account-${acc.id}`}
                 >
                   <div className={styles.filterItemLeft}>
-                    <span className={styles.filterItemIcon}>📸</span>
+                    <span className={styles.filterItemIcon}><Icon name="instagram" size={14} /></span>
                     <span className={styles.filterItemLabel}>@{acc.igUsername || 'account'}</span>
                   </div>
                 </button>
@@ -623,7 +638,7 @@ function InboxPageContent() {
 
           {/* Smart Filter Folders / Categories */}
           <div className={styles.filterSection}>
-            <span className={styles.filterSectionTitle}>Inbox Folders</span>
+            <span className={styles.filterSectionTitle}>{t.folders}</span>
             <div className={styles.filterItemList}>
               {INBOX_FILTERS.map(f => {
                 const isActive = selectedFilter === f.id;
@@ -636,7 +651,7 @@ function InboxPageContent() {
                     id={`filter-tab-${f.id}`}
                   >
                     <div className={styles.filterItemLeft}>
-                      <span className={styles.filterItemIcon}>{f.icon}</span>
+                      <span className={styles.filterItemIcon}><Icon name={f.icon} size={14} /></span>
                       <span className={styles.filterItemLabel}>{f.label}</span>
                     </div>
                     {count > 0 && <span className={styles.filterItemCount}>{count}</span>}
@@ -651,17 +666,17 @@ function InboxPageContent() {
             <button
               className={styles.sidebarProfileBtn}
               onClick={() => router.push('/profile')}
-              title="Manage Profile & Account"
+              title={nav.account}
               id="inbox-sidebar-profile-btn"
             >
               <div className={styles.sidebarProfileAvatar}>
                 {(user?.name || user?.email || 'U')[0].toUpperCase()}
               </div>
               <div className={styles.sidebarProfileMeta}>
-                <span className={styles.sidebarProfileName}>{user?.name || 'My Profile'}</span>
-                <span className={styles.sidebarProfileSub}>Profile & Account</span>
+                <span className={styles.sidebarProfileName}>{user?.name || nav.account}</span>
+                <span className={styles.sidebarProfileSub}>{nav.accountSubtitle}</span>
               </div>
-              <span className={styles.sidebarProfileArrow}>⚙️</span>
+              <span className={styles.sidebarProfileArrow}><Icon name="chevronRight" size={14} /></span>
             </button>
           </div>
         </aside>
@@ -677,7 +692,7 @@ function InboxPageContent() {
                 className={`${styles.mobileFilterChip} ${selectedAccountId === '' ? styles.mobileFilterChipActive : ''}`}
                 onClick={() => handleAccountChange('')}
               >
-                🌐 All ({conversations.length})
+                <Icon name="globe" size={12} /> {t.allAccounts} ({conversations.length})
               </button>
               {accounts.map(acc => (
                 <button
@@ -685,7 +700,7 @@ function InboxPageContent() {
                   className={`${styles.mobileFilterChip} ${selectedAccountId === acc.id ? styles.mobileFilterChipActive : ''}`}
                   onClick={() => handleAccountChange(acc.id)}
                 >
-                  📸 @{acc.igUsername || 'account'}
+                  <Icon name="instagram" size={12} /> @{acc.igUsername || 'account'}
                 </button>
               ))}
               <div className={styles.mobileChipDivider} />
@@ -697,7 +712,7 @@ function InboxPageContent() {
                     className={`${styles.mobileFilterChip} ${selectedFilter === f.id ? styles.mobileFilterChipActive : ''}`}
                     onClick={() => handleFilterChange(f.id)}
                   >
-                    <span>{f.icon}</span> {f.label} {count > 0 ? `(${count})` : ''}
+                    <Icon name={f.icon} size={12} /> {f.label} {count > 0 ? `(${count})` : ''}
                   </button>
                 );
               })}
@@ -705,9 +720,7 @@ function InboxPageContent() {
           </div>
 
           <div className={styles.convPanelHeader}>
-            <h3 className={styles.convPanelTitle}>
-              Conversations
-            </h3>
+            <h3 className={styles.convPanelTitle}>{t.conversations}</h3>
             <span className={styles.convPanelBadge}>
               {filteredConversations.length}
             </span>
@@ -716,9 +729,9 @@ function InboxPageContent() {
           <div className={styles.convList}>
             {filteredConversations.length === 0 ? (
               <div className={styles.emptyConvs}>
-                <div className={styles.emptyConvsIcon}>📥</div>
-                <h4>No conversations found</h4>
-                <p>No messages matching this folder.</p>
+                <div className={styles.emptyConvsIcon}><Icon name="inbox" size={32} strokeWidth={1.5} /></div>
+                <h4>{conversations.length === 0 ? empty.conversationsAll.title : empty.conversations.title}</h4>
+                <p>{conversations.length === 0 ? empty.conversationsAll.body : empty.conversations.body}</p>
               </div>
             ) : (
               filteredConversations.map((conv) => {
@@ -740,7 +753,7 @@ function InboxPageContent() {
                         </div>
                       )}
                       {conv.messagingWindow?.status === 'open' && (
-                        <span className={styles.windowDot} title="24h window open" />
+                        <span className={styles.windowDot} title={t.windowOpen} />
                       )}
                     </div>
                     <div className={styles.convInfo}>
@@ -763,9 +776,10 @@ function InboxPageContent() {
                               setConvToDelete(conv);
                               setShowDeleteModal(true);
                             }}
-                            title="Delete conversation"
+                            aria-label={t.deleteConversation}
+                            title={t.deleteConversation}
                           >
-                            🗑️
+                            <Icon name="trash" size={13} />
                           </button>
                         </div>
                       </div>
@@ -774,10 +788,10 @@ function InboxPageContent() {
                       <div className={styles.convPreviewRow}>
                         <span
                           className={`${styles.priorityIndicator} ${styles[prio.dotClass]}`}
-                          title={`Priority: ${prio.label} (${conv.priorityScore || 0}/100)`}
+                          title={`${prio.label} priority — scored ${conv.priorityScore || 0} out of 100`}
                         />
                         <p className={styles.convPreview}>
-                          {conv.lastMessage || 'No messages'}
+                          {conv.lastMessage || empty.messages.title}
                         </p>
                       </div>
 
@@ -785,17 +799,17 @@ function InboxPageContent() {
                       <div className={styles.convBadgesRow}>
                         {conv.customerType && conv.customerType !== 'unknown' && (
                           <span className={`badge ${styles.customerBadge}`}>
-                            {conv.customerType.replace('_', ' ')}
+                            {customerTypeLabel(conv.customerType).label}
                           </span>
                         )}
-                        {conv.autoReplyEnabled && (
-                          <span className={`badge ${styles.autoReplyListBadge}`} title="AI Auto-Reply active for this conversation">
-                            ⚡ Auto
+                        {conv.autoReplyEnabled && sendsAutomatically && (
+                          <span className={`badge ${styles.autoReplyListBadge}`} title={t.autoReplyOn}>
+                            <Icon name="zap" size={11} /> {t.autoReplyOn}
                           </span>
                         )}
                         {conv.category && (
                           <span className={`badge ${styles.categoryBadge}`}>
-                            {meta.icon} {meta.label}
+                            <Icon name={meta.icon} size={11} /> {meta.label}
                           </span>
                         )}
                       </div>
@@ -817,12 +831,12 @@ function InboxPageContent() {
                   <button
                     className={styles.backBtnMobile}
                     onClick={() => setMobileShowChat(false)}
-                    aria-label="Back to conversations"
+                    aria-label={common.back}
                   >
-                    ←
+                    <Icon name="arrowLeft" size={18} />
                   </button>
                   {contactInfo?.profilePicUrl ? (
-                    <img src={contactInfo.profilePicUrl} alt={contactInfo.username} className="avatar avatar-md" />
+                    <img src={contactInfo.profilePicUrl} alt="" className="avatar avatar-md" />
                   ) : (
                     <div className="avatar avatar-md">
                       {(contactInfo?.username || '?')[0].toUpperCase()}
@@ -834,14 +848,17 @@ function InboxPageContent() {
                         {contactInfo?.username || contactInfo?.name || 'Unknown'}
                       </h2>
                       <span className={`badge ${styles.categoryBadge}`}>
-                        {activeCategoryMeta.icon} {activeCategoryMeta.label}
+                        <Icon name={activeCategoryMeta.icon} size={11} /> {activeCategoryMeta.label}
                       </span>
-                      <span className={`badge ${styles.priorityBadge}`}>
-                        {activePriorityMeta.label} ({activeConvData?.priorityScore || 0})
+                      <span
+                        className={`badge ${styles.priorityBadge}`}
+                        title={`Scored ${activeConvData?.priorityScore || 0} out of 100`}
+                      >
+                        {activePriorityMeta.label} priority
                       </span>
-                      {activeConvData?.customerType && (
+                      {activeConvData?.customerType && activeConvData.customerType !== 'unknown' && (
                         <span className="badge" style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--color-primary)' }}>
-                          {activeConvData.customerType.replace('_', ' ')}
+                          {customerTypeLabel(activeConvData.customerType).label}
                         </span>
                       )}
                     </div>
@@ -856,10 +873,10 @@ function InboxPageContent() {
                     <button
                       className={styles.actionBtn}
                       onClick={() => setShowClearModal(true)}
-                      title="Clear all messages in this chat"
+                      title={confirmCopy.clearChat.body}
                       id="clear-chat-btn"
                     >
-                      🧹 Clear Chat
+                      <Icon name="eraser" size={13} /> {t.clearChat}
                     </button>
                     <button
                       className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
@@ -867,10 +884,10 @@ function InboxPageContent() {
                         setConvToDelete(activeConvData);
                         setShowDeleteModal(true);
                       }}
-                      title="Delete this entire conversation"
+                      title={confirmCopy.deleteConversation.body}
                       id="delete-chat-btn"
                     >
-                      🗑️ Delete
+                      <Icon name="trash" size={13} /> {common.delete}
                     </button>
                   </div>
 
@@ -882,18 +899,19 @@ function InboxPageContent() {
                       className="btn btn-secondary btn-sm"
                       id="open-instagram-chat-btn"
                     >
-                      ↗ Instagram
+                      <Icon name="externalLink" size={13} /> {t.openInInstagram}
                     </a>
                   )}
                 </div>
               </div>
 
-              {/* Needs Human Attention Alert */}
+              {/* Needs your reply */}
               {activeConvData?.needsHuman && (
                 <div className={styles.humanAttentionBanner}>
-                  <span>⚠️</span>
+                  <Icon name="alertTriangle" size={16} />
                   <div>
-                    <strong>Needs Human Attention:</strong> {activeConvData?.aiExplanation || 'Customer inquiry requiring direct human follow-up.'}
+                    <strong>{t.needsReplyBanner.title}:</strong>{' '}
+                    {activeConvData?.aiExplanation || t.needsReplyBanner.fallback}
                   </div>
                 </div>
               )}
@@ -903,34 +921,37 @@ function InboxPageContent() {
                 aiSummaryHidden ? (
                   <div className={styles.intelligenceCardCollapsed}>
                     <div className={styles.collapsedLeft}>
-                      <span className={styles.intelligenceBadge}>⚡ AI Summary</span>
+                      <span className={styles.intelligenceBadge}>
+                        <Icon name="sparkle" size={12} /> {t.insights.title}
+                      </span>
                       {activeConvData?.intent && (
                         <span className={styles.collapsedIntent}>
-                          Intent: <strong>{activeConvData.intent}</strong>
+                          {t.insights.intent}: <strong>{titleCaseIntent(activeConvData.intent)}</strong>
                         </span>
                       )}
                     </div>
                     <button
                       className={styles.toggleSummaryBtn}
                       onClick={() => setAiSummaryHidden(false)}
-                      title="Expand AI Summary and Lead Metrics"
                     >
-                      👁️ Show AI Summary
+                      <Icon name="eye" size={13} /> {t.insights.show}
                     </button>
                   </div>
                 ) : (
                   <div className={styles.intelligenceCard}>
                     <div className={styles.intelligenceHeader}>
                       <div className={styles.intelligenceTitleRow}>
-                        <span className={styles.intelligenceBadge}>⚡ AI DM Intelligence</span>
+                        <span className={styles.intelligenceBadge}>
+                          <Icon name="sparkle" size={12} /> {t.insights.title}
+                        </span>
                         {activeConvData?.intent && (
                           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            Intent: <strong>{activeConvData.intent}</strong>
+                            {t.insights.intent}: <strong>{titleCaseIntent(activeConvData.intent)}</strong>
                           </span>
                         )}
                         {activeConvData?.customerType && activeConvData.customerType !== 'unknown' && (
                           <span className="badge" style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(124, 58, 237, 0.08)', color: 'var(--color-primary)' }}>
-                            {activeConvData.customerType.replace('_', ' ')}
+                            {customerTypeLabel(activeConvData.customerType).label}
                           </span>
                         )}
                       </div>
@@ -938,38 +959,51 @@ function InboxPageContent() {
                         <button
                           className={styles.toggleSummaryBtn}
                           onClick={() => setAiSummaryHidden(true)}
-                          title="Hide AI Summary for full chat view"
                         >
-                          👁️ Hide
+                          <Icon name="eyeOff" size={13} /> {t.insights.hide}
                         </button>
                       </div>
                     </div>
 
                     <div className={styles.intelligenceMetrics}>
-                      <div className={styles.metricItem}>
-                        <span className={styles.metricLabel}>Lead Quality</span>
+                      <div className={styles.metricItem} title={t.insights.scoreHint}>
+                        <span className={styles.metricLabel}>{t.insights.leadQuality}</span>
                         <span className={styles.metricValue}>{activeConvData?.leadQuality ?? analysis?.latestAnalysis?.leadQuality ?? 0}/100</span>
                       </div>
-                      <div className={styles.metricItem}>
-                        <span className={styles.metricLabel}>Purchase Intent</span>
+                      <div className={styles.metricItem} title={t.insights.scoreHint}>
+                        <span className={styles.metricLabel}>{t.insights.purchaseIntent}</span>
                         <span className={styles.metricValue}>{activeConvData?.purchaseIntent ?? analysis?.latestAnalysis?.purchaseIntent ?? 0}/100</span>
                       </div>
+                      {/* REMOVED-BY-COPY-AUDIT: "Match Confidence" rendered
+                          `Math.round((analysis?.confidence ?? 0.95) * 100)`.
+                          The API never returns `analysis.confidence` at the top
+                          level, so the fallback always won and every
+                          conversation displayed a fabricated, constant "95%"
+                          that looked like a live measurement. Restore by
+                          re-adding this block once the endpoint returns a real
+                          confidence value with no hardcoded default.
                       <div className={styles.metricItem}>
-                        <span className={styles.metricLabel}>Match Confidence</span>
+                        <span className={styles.metricLabel}>Match confidence</span>
                         <span className={styles.metricValue}>{Math.round((analysis?.confidence ?? 0.95) * 100)}%</span>
                       </div>
+                      */}
                       <div className={styles.metricItem}>
-                        <span className={styles.metricLabel}>Recommended Action</span>
+                        <span className={styles.metricLabel}>{t.insights.suggestedAction}</span>
                         <span className={styles.metricValue} style={{ color: 'var(--color-primary)' }}>
-                          {activeConvData?.recommendedAction ?? analysis?.latestAnalysis?.recommendedAction ?? 'REVIEW'}
+                          {recommendedActionLabel(
+                            activeConvData?.recommendedAction ?? analysis?.latestAnalysis?.recommendedAction
+                          ).label}
                         </span>
                       </div>
                     </div>
 
                     {(analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason) && (
                       <div className={styles.recommendationBanner}>
-                        <span>✨</span>
-                        <span><strong>AI Summary:</strong> {analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason}</span>
+                        <Icon name="sparkle" size={14} />
+                        <span>
+                          <strong>{t.insights.summary}:</strong>{' '}
+                          {analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -981,36 +1015,41 @@ function InboxPageContent() {
                 <div className={styles.brandDealCard}>
                   <div className={styles.brandDealHeader}>
                     <div className={styles.brandDealTitleRow}>
-                      <span className={styles.brandDealIcon}>🔥</span>
-                      <strong>Brand Deal Extraction</strong>
+                      <span className={styles.brandDealIcon}><Icon name="handshake" size={14} /></span>
+                      <strong>{t.brandDeal.title}</strong>
                     </div>
                     <select
                       className="select btn-sm"
                       value={analysis.brandDeal.status}
                       onChange={(e) => handleBrandDealStatusChange(e.target.value)}
+                      aria-label={t.brandDeal.statusLabel}
                       style={{ width: 'auto', padding: '4px 28px 4px 10px', fontSize: '12px' }}
                     >
-                      {BRAND_DEAL_STATUSES.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
+                      {BRAND_DEAL_STATUSES.map(s => (
+                        <option key={s} value={s}>{brandDealStatusLabel(s).label}</option>
+                      ))}
                     </select>
                   </div>
                   <div className={styles.brandDealGrid}>
                     <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>Brand</span>
-                      <span className={styles.brandDealValue}>{analysis.brandDeal.brandName || 'Unknown'}</span>
+                      <span className={styles.brandDealLabel}>{t.brandDeal.brand}</span>
+                      <span className={styles.brandDealValue}>{analysis.brandDeal.brandName || common.notSet}</span>
                     </div>
                     <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>Budget</span>
+                      <span className={styles.brandDealLabel}>{t.brandDeal.budget}</span>
                       <span className={styles.brandDealValue}>
-                        {analysis.brandDeal.budgetAmount ? `${analysis.brandDeal.budgetAmount} ${analysis.brandDeal.budgetCurrency || ''}`.trim() : 'Unknown'}
+                        {analysis.brandDeal.budgetAmount
+                          ? formatCurrency(analysis.brandDeal.budgetAmount, analysis.brandDeal.budgetCurrency)
+                          : common.notSet}
                       </span>
                     </div>
                     <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>Deliverables</span>
-                      <span className={styles.brandDealValue}>{analysis.brandDeal.deliverables || 'Unknown'}</span>
+                      <span className={styles.brandDealLabel}>{t.brandDeal.deliverables}</span>
+                      <span className={styles.brandDealValue}>{analysis.brandDeal.deliverables || common.notSet}</span>
                     </div>
                     <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>Deadline</span>
-                      <span className={styles.brandDealValue}>{analysis.brandDeal.deadline || 'Unknown'}</span>
+                      <span className={styles.brandDealLabel}>{t.brandDeal.deadline}</span>
+                      <span className={styles.brandDealValue}>{analysis.brandDeal.deadline || common.notSet}</span>
                     </div>
                   </div>
                 </div>
@@ -1020,7 +1059,7 @@ function InboxPageContent() {
               <div className={styles.messagesContainer}>
                 {messages.length === 0 ? (
                   <div className={styles.noMessages}>
-                    <p>No messages in this conversation</p>
+                    <p>{empty.messages.body}</p>
                   </div>
                 ) : (
                   messages.map((msg) => (
@@ -1033,16 +1072,16 @@ function InboxPageContent() {
                       {msg.attachmentUrl && (
                         <div className={styles.messageAttachment}>
                           {msg.messageType === 'image' ? (
-                            <img src={msg.attachmentUrl} alt="Attachment" />
+                            <img src={msg.attachmentUrl} alt="Attachment sent in this conversation" />
                           ) : (
                             <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                              📎 {msg.messageType} attachment
+                              <Icon name="paperclip" size={12} /> Attachment
                             </a>
                           )}
                         </div>
                       )}
                       <span className={styles.messageTime}>
-                        {formatMessageTime(msg.igTimestamp || msg.createdAt)}
+                        {formatTime(msg.igTimestamp || msg.createdAt)}
                       </span>
                     </div>
                   ))
@@ -1054,13 +1093,13 @@ function InboxPageContent() {
               <div className={styles.composeBar}>
                 {messagingWindow?.status === 'closed' && (
                   <div className={styles.windowClosedWarning}>
-                    ⚠️ Outside the 24-hour messaging window. This contact must message you again before you can reply.
+                    <Icon name="alertTriangle" size={14} /> {t.windowClosed}
                   </div>
                 )}
 
                 <div className={styles.composeToolbar}>
                   <span className={styles.composeHint}>
-                    {copied ? '✓ Copied to clipboard' : 'Draft your response or let AI write one for you.'}
+                    {copied ? common.copied : t.compose.hint}
                   </span>
                   <div className={styles.composeToolbarActions}>
                     <button
@@ -1068,11 +1107,17 @@ function InboxPageContent() {
                       onClick={() => handleGenerateReply(Boolean(draftText))}
                       disabled={generating}
                     >
-                      {generating ? 'Generating…' : draftText ? '🔁 Regenerate' : '✨ Draft Reply with AI'}
+                      {generating ? (
+                        t.compose.generating
+                      ) : draftText ? (
+                        <><Icon name="refresh" size={13} /> {t.compose.regenerate}</>
+                      ) : (
+                        <><Icon name="sparkle" size={13} /> {t.compose.draft}</>
+                      )}
                     </button>
                     {draftText && (
                       <button className="btn btn-ghost btn-sm" onClick={() => handleCopyReply(draftText)}>
-                        📋 Copy
+                        <Icon name="copy" size={13} /> {common.copy}
                       </button>
                     )}
                   </div>
@@ -1080,14 +1125,19 @@ function InboxPageContent() {
 
                 <textarea
                   className={styles.composeTextarea}
-                  placeholder="Type a message to reply..."
+                  placeholder={t.compose.placeholder}
+                  aria-label={t.compose.placeholder}
                   value={draftText}
                   onChange={(e) => setDraftText(e.target.value)}
                 />
 
                 <div className={styles.composeFooter}>
+                  {/* Reads the account's stored reply mode rather than asserting
+                      a fixed claim. The old text said drafts are never sent
+                      automatically, which was false for an account set to
+                      automatic. */}
                   <span className={styles.composeHint}>
-                    AI drafts are never sent automatically. You review before sending.
+                    {sendsAutomatically ? t.compose.footerAutomatic : t.compose.footerManual}
                   </span>
                   <button
                     className="btn btn-primary"
@@ -1095,7 +1145,8 @@ function InboxPageContent() {
                     disabled={!draftText.trim() || sending || !canSend}
                     id="send-reply-btn"
                   >
-                    {sending ? 'Sending…' : 'Send Message ➤'}
+                    {sending ? common.sending : t.compose.send}
+                    <Icon name="send" size={14} />
                   </button>
                 </div>
                 {sendError && <div className={styles.sendError}>{sendError}</div>}
@@ -1105,12 +1156,10 @@ function InboxPageContent() {
             /* No conversation selected */
             <div className={styles.emptyChat}>
               <div className={styles.emptyChatIcon}>
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
+                <Icon name="messageSquare" size={48} strokeWidth={1.5} />
               </div>
-              <h2>Select a conversation</h2>
-              <p>Choose a contact from the inbox list on the left to view message history and send replies.</p>
+              <h2>{t.selectPrompt.title}</h2>
+              <p>{t.selectPrompt.body}</p>
             </div>
           )}
         </main>
@@ -1121,13 +1170,12 @@ function InboxPageContent() {
         <div className={styles.modalOverlay} onClick={() => !actionLoading && setShowClearModal(false)}>
           <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <span className={styles.modalIcon}>🧹</span>
-              <h3 className={styles.modalTitle}>Clear Chat Messages?</h3>
+              <span className={styles.modalIcon}><Icon name="eraser" size={20} /></span>
+              <h3 className={styles.modalTitle}>{confirmCopy.clearChat.title}</h3>
             </div>
             <p className={styles.modalBody}>
-              Are you sure you want to clear all message history with <strong>@{contactInfo?.username || contactInfo?.name || 'this contact'}</strong>?
-              <br /><br />
-              All previous messages will be removed from Codeback. The contact, lead profile, and auto-reply rules will be kept.
+              Every message with <strong>@{contactInfo?.username || contactInfo?.name || 'this contact'}</strong> is
+              removed from Codeback. The contact, lead details, and automation settings stay.
             </p>
             <div className={styles.modalActions}>
               <button
@@ -1135,7 +1183,7 @@ function InboxPageContent() {
                 onClick={() => setShowClearModal(false)}
                 disabled={actionLoading}
               >
-                Cancel
+                {common.cancel}
               </button>
               <button
                 className="btn btn-primary btn-md"
@@ -1143,7 +1191,7 @@ function InboxPageContent() {
                 disabled={actionLoading}
                 id="confirm-clear-chat-btn"
               >
-                {actionLoading ? 'Clearing…' : 'Clear Messages'}
+                {actionLoading ? common.loading : confirmCopy.clearChat.action}
               </button>
             </div>
           </div>
@@ -1155,13 +1203,13 @@ function InboxPageContent() {
         <div className={styles.modalOverlay} onClick={() => !actionLoading && setShowDeleteModal(false)}>
           <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <span className={styles.modalIcon}>🗑️</span>
-              <h3 className={styles.modalTitle}>Delete Full Conversation?</h3>
+              <span className={styles.modalIcon}><Icon name="trash" size={20} /></span>
+              <h3 className={styles.modalTitle}>{confirmCopy.deleteConversation.title}</h3>
             </div>
             <p className={styles.modalBody}>
-              Are you sure you want to permanently delete the conversation with <strong>@{convToDelete?.contact?.username || convToDelete?.contact?.name || contactInfo?.username || 'this contact'}</strong>?
-              <br /><br />
-              This will permanently remove the conversation thread, message history, AI analysis, and extracted deal details from your inbox.
+              This deletes the whole conversation with{' '}
+              <strong>@{convToDelete?.contact?.username || convToDelete?.contact?.name || contactInfo?.username || 'this contact'}</strong> —
+              the message history, the insights, and any extracted deal details. It cannot be undone.
             </p>
             <div className={styles.modalActions}>
               <button
@@ -1172,7 +1220,7 @@ function InboxPageContent() {
                 }}
                 disabled={actionLoading}
               >
-                Cancel
+                {common.cancel}
               </button>
               <button
                 className={`btn btn-md ${styles.btnDanger}`}
@@ -1180,7 +1228,7 @@ function InboxPageContent() {
                 disabled={actionLoading}
                 id="confirm-delete-conv-btn"
               >
-                {actionLoading ? 'Deleting…' : 'Delete Entire Chat'}
+                {actionLoading ? common.deleting : confirmCopy.deleteConversation.action}
               </button>
             </div>
           </div>
@@ -1190,33 +1238,23 @@ function InboxPageContent() {
   );
 }
 
-// ---- Helper: Format time ago ----
-function formatTimeAgo(dateStr) {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'now';
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 7) return `${diffDays}d`;
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-// ---- Helper: Format message timestamp ----
-function formatMessageTime(dateStr) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+/**
+ * `intent` is free text written by the analysis step, e.g.
+ * `price_inquiry_reel_editing`. It is stored as written; this only makes it
+ * readable at the point it is rendered.
+ */
+function titleCaseIntent(value) {
+  if (!value) return '';
+  return String(value)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .replace(/^\w/, (c) => c.toUpperCase());
 }
 
 export default function InboxPage() {
   return (
     <Suspense fallback={
-      <div className={styles.loadingScreen}>
+      <div className={styles.loadingScreen} aria-busy="true" aria-label={common.loading}>
         <div className="spinner spinner-lg" />
       </div>
     }>

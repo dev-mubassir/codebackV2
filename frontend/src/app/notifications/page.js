@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getMe, getNotifications, markNotificationRead, markAllNotificationsRead } from '@/lib/api';
 import AppShell from '@/app/components/AppShell';
+import Icon from '@/app/components/Icon';
+import { nav, common, empty, errors, toast } from '@/content/copy';
+import { formatDateTime } from '@/content/format';
 import styles from './notifications.module.css';
 
 /**
@@ -55,29 +58,25 @@ export default function NotificationsPage() {
       {/* Page Header */}
       <div className={styles.pageHeader}>
         <div>
-          <h1 className={styles.pageTitle}>🔔 Notifications</h1>
-          <p className={styles.pageSubtitle}>
-            Important updates regarding brand deals, high priority messages, and connection health.
-          </p>
+          <h1 className={styles.pageTitle}>{nav.notifications}</h1>
+          <p className={styles.pageSubtitle}>{empty.notifications.body}</p>
         </div>
         {notifications.some(n => !n.isRead) && (
           <button className="btn btn-secondary btn-sm" onClick={handleMarkAllRead}>
-            Mark all as read
+            Mark all read
           </button>
         )}
       </div>
 
       {loading ? (
-        <div className={styles.loadingContainer}>
+        <div className={styles.loadingContainer} aria-busy="true" aria-label={common.loading}>
           <div className="spinner spinner-lg" />
         </div>
       ) : notifications.length === 0 ? (
         <div className={styles.emptyState}>
-          <div className={styles.emptyIcon}>🔔</div>
-          <h3 className={styles.emptyTitle}>No notifications yet</h3>
-          <p className={styles.emptyDesc}>
-            We&apos;ll notify you here when AI detects high-priority brand deals or critical conversations.
-          </p>
+          <div className={styles.emptyIcon}><Icon name="bell" size={32} strokeWidth={1.5} /></div>
+          <h3 className={styles.emptyTitle}>{empty.notifications.title}</h3>
+          <p className={styles.emptyDesc}>{empty.notifications.body}</p>
         </div>
       ) : (
         <div className={styles.list}>
@@ -91,10 +90,10 @@ export default function NotificationsPage() {
               <div className={styles.itemBody}>
                 <div className={styles.itemTitle}>{n.title}</div>
                 {n.body && <div className={styles.itemMessage}>{n.body}</div>}
-                <div className={styles.itemTime}>{new Date(n.createdAt).toLocaleString()}</div>
+                <div className={styles.itemTime}>{formatDateTime(n.createdAt)}</div>
               </div>
               {n.conversationId && (
-                <span className={styles.itemArrow}>→</span>
+                <span className={styles.itemArrow}><Icon name="arrowRight" size={14} /></span>
               )}
             </button>
           ))}

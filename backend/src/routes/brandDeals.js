@@ -1,5 +1,5 @@
 /**
- * Brand deal routes — the signature "🔥 Brand Deal" feature. Strictly
+ * Brand deal routes. Strictly
  * tenant-scoped: every query filters by the logged-in user's own userId.
  */
 
@@ -40,7 +40,7 @@ router.get('/', async (req, res) => {
     res.json(brandDeals);
   } catch (error) {
     console.error('[BrandDeals] Error listing brand deals:', error.message);
-    res.status(500).json({ error: 'Failed to fetch brand deals' });
+    res.status(500).json({ error: "Couldn't load your brand deals. Refresh to try again." });
   }
 });
 
@@ -59,11 +59,11 @@ router.get('/:id', async (req, res) => {
       },
     });
 
-    if (!brandDeal) return res.status(404).json({ error: 'Brand deal not found' });
+    if (!brandDeal) return res.status(404).json({ error: 'That brand deal no longer exists.' });
     res.json(brandDeal);
   } catch (error) {
     console.error('[BrandDeals] Error fetching brand deal:', error.message);
-    res.status(500).json({ error: 'Failed to fetch brand deal' });
+    res.status(500).json({ error: "Couldn't load that brand deal. Try again." });
   }
 });
 
@@ -79,13 +79,13 @@ router.patch('/:id', async (req, res) => {
     }
 
     const existing = await prisma.brandDeal.findFirst({ where: { id: req.params.id, userId: req.userId } });
-    if (!existing) return res.status(404).json({ error: 'Brand deal not found' });
+    if (!existing) return res.status(404).json({ error: 'That brand deal no longer exists.' });
 
     const updated = await prisma.brandDeal.update({ where: { id: existing.id }, data: { status } });
     res.json(updated);
   } catch (error) {
     console.error('[BrandDeals] Error updating brand deal:', error.message);
-    res.status(500).json({ error: 'Failed to update brand deal' });
+    res.status(500).json({ error: "Couldn't update that brand deal. Try again." });
   }
 });
 

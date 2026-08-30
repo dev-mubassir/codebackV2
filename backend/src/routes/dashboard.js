@@ -19,7 +19,7 @@ const AWAY_THRESHOLD_MS = 10 * 60 * 1000; // only show "while you were away" if 
 router.get('/summary', async (req, res) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: 'Log in to continue.' });
 
     const accounts = await prisma.instagramAccount.findMany({
       where: { userId: req.userId },
@@ -130,7 +130,7 @@ router.get('/summary', async (req, res) => {
     });
   } catch (error) {
     console.error('[Dashboard] Error building summary:', error.message);
-    res.status(500).json({ error: 'Failed to load dashboard summary' });
+    res.status(500).json({ error: "Couldn't load your dashboard. Refresh to try again." });
   }
 });
 

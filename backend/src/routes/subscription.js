@@ -25,7 +25,7 @@ router.get('/subscription', async (req, res) => {
     res.json(subscription);
   } catch (error) {
     console.error('[Subscription] Error fetching subscription:', error.message);
-    res.status(500).json({ error: 'Failed to fetch subscription' });
+    res.status(500).json({ error: "Couldn't load your plan. Refresh to try again." });
   }
 });
 
@@ -58,7 +58,7 @@ router.get('/usage', async (req, res) => {
     });
   } catch (error) {
     console.error('[Subscription] Error fetching usage:', error.message);
-    res.status(500).json({ error: 'Failed to fetch usage' });
+    res.status(500).json({ error: "Couldn't load your usage. Refresh to try again." });
   }
 });
 

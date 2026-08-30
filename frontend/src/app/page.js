@@ -4,7 +4,12 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getMe } from '@/lib/api';
+import Icon from '@/app/components/Icon';
+import { marketing, auth, common } from '@/content/copy';
 import styles from './page.module.css';
+
+/** Paired by position with marketing.features.items in content/copy.js. */
+const FEATURE_ICONS = ['briefcase', 'target', 'shield', 'sparkle', 'user', 'lock'];
 
 export default function LandingPage() {
   const router = useRouter();
@@ -26,7 +31,7 @@ export default function LandingPage() {
 
   if (checking) {
     return (
-      <div className={styles.loadingScreen}>
+      <div className={styles.loadingScreen} aria-busy="true" aria-label={common.loading}>
         <div className="spinner spinner-lg" />
       </div>
     );
@@ -38,17 +43,17 @@ export default function LandingPage() {
       <nav className={styles.topNav}>
         <div className={styles.topNavBrand}>
           <div className={styles.topNavLogo}>
-            <img src="/logo.png" alt="Codeback Logo" className={styles.brandLogoImg} />
+            <img src="/logo.png" alt="" className={styles.brandLogoImg} />
           </div>
           <span className={styles.topNavName}>Codeback</span>
         </div>
         <div className={styles.topNavLinks}>
           <a href="#features" className={styles.topNavLink}>Features</a>
           <Link href="/login" className="btn btn-secondary btn-sm" id="landing-login-btn">
-            Sign In
+            {auth.login.submit}
           </Link>
           <Link href="/register" className={`btn btn-primary btn-sm ${styles.topNavCta}`} id="landing-register-btn">
-            Start Free Trial →
+            {auth.register.submit}
           </Link>
         </div>
       </nav>
@@ -58,40 +63,38 @@ export default function LandingPage() {
         <div className={styles.heroContent}>
           <div className={styles.heroBadge}>
             <span className={styles.heroBadgeDot} />
-            AI Customer Intelligence & Lead Qualification
+            {marketing.hero.badge}
           </div>
           <h1 className={styles.heroTitle}>
-            Turn Instagram DMs into<br />
-            <span className={styles.heroAccent}>Revenue & Happy Clients.</span>
+            {marketing.hero.titleLine1}<br />
+            <span className={styles.heroAccent}>{marketing.hero.titleAccent}</span>
           </h1>
-          <p className={styles.heroDescription}>
-            For Video Editors, Product Sellers, Agencies, Freelancers & Creators. Codeback grounds AI in your real business facts to qualify hot leads, block scams, and safely auto-reply 24/7.
-          </p>
+          <p className={styles.heroDescription}>{marketing.hero.description}</p>
 
           <div className={styles.heroCtas}>
             <Link href="/register" className="btn btn-primary btn-lg" id="hero-get-started-btn">
-              Get Started for Free →
+              {marketing.hero.primaryCta}
             </Link>
             <Link href="/login" className="btn btn-secondary btn-lg" id="hero-signin-btn">
-              Sign In
+              {marketing.hero.secondaryCta}
             </Link>
           </div>
 
+          {/* These were "100% Anti-Hallucination Grounding", "< 2s Lead Intent
+              Classification", and "24/7 Intelligent Safe Auto-Reply" — three
+              hardcoded figures presented as measurements, none of which the
+              product measures or can support. They now state plainly what the
+              product does, with no number implied to be data. */}
           <div className={styles.heroStats}>
-            <div className={styles.heroStat}>
-              <span className={styles.statValue}>100%</span>
-              <span className={styles.statLabel}>Anti-Hallucination Grounding</span>
-            </div>
-            <div className={styles.statDivider} />
-            <div className={styles.heroStat}>
-              <span className={styles.statValue}>&lt; 2s</span>
-              <span className={styles.statLabel}>Lead Intent Classification</span>
-            </div>
-            <div className={styles.statDivider} />
-            <div className={styles.heroStat}>
-              <span className={styles.statValue}>24/7</span>
-              <span className={styles.statLabel}>Intelligent Safe Auto-Reply</span>
-            </div>
+            {marketing.stats.map((stat, idx) => (
+              <div key={stat.value} style={{ display: 'contents' }}>
+                {idx > 0 && <div className={styles.statDivider} />}
+                <div className={styles.heroStat}>
+                  <span className={styles.statValue}>{stat.value}</span>
+                  <span className={styles.statLabel}>{stat.label}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -102,7 +105,7 @@ export default function LandingPage() {
             <span className={styles.mockupDot} style={{ background: 'var(--color-warning)' }} />
             <span className={styles.mockupDot} style={{ background: 'var(--color-success)' }} />
             <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginLeft: '8px', fontWeight: 600 }}>
-              Codeback AI DM Workspace
+              {common.productName}
             </span>
           </div>
           <div className={styles.mockupBody}>
@@ -124,13 +127,13 @@ export default function LandingPage() {
             </div>
             <div className={styles.mockupChat}>
               <div className={styles.mockupAiSummary}>
-                ✨ AI Summary: High-intent lead inquiring about 10-Reel monthly bundle pricing.
+                Summary: asking about the price of a ten-reel monthly pack.
               </div>
               <div className={styles.mockupMsgIn}>
                 Hey! Love your edits. How much for a 10-Reel monthly package with 48h turnaround?
               </div>
               <div className={styles.mockupMsgOut}>
-                Hey Sarah! Our 10-Reel Growth Pack is ₹7,500 with a standard 48-hour delivery and 2 rounds of revisions included. Would you like to share your footage link?
+                Hi Sarah — the ten-reel monthly pack is INR 7,500, delivered in 48 hours with two rounds of revisions. Can you share the footage link?
               </div>
             </div>
           </div>
@@ -139,59 +142,19 @@ export default function LandingPage() {
 
       {/* Features Grid */}
       <section className={styles.features} id="features">
-        <h2 className={styles.sectionTitle}>Engineered for Real Businesses</h2>
-        <p className={styles.sectionSubtitle}>
-          Everything you need to convert Instagram conversations into loyal paying customers.
-        </p>
+        <h2 className={styles.sectionTitle}>{marketing.features.title}</h2>
+        <p className={styles.sectionSubtitle}>{marketing.features.subtitle}</p>
 
         <div className={styles.featureGrid}>
-          <div className={styles.featureCard}>
-            <div className={styles.featureIcon}>🏢</div>
-            <h3 className={styles.featureTitle}>Business Knowledge Base</h3>
-            <p className={styles.featureDesc}>
-              Train your AI on your exact pricing, packages, turnaround times, and FAQs. AI never invents facts or makes unauthorized promises.
-            </p>
-          </div>
-
-          <div className={styles.featureCard}>
-            <div className={styles.featureIcon}>🎯</div>
-            <h3 className={styles.featureTitle}>Lead Qualification & Scoring</h3>
-            <p className={styles.featureDesc}>
-              Instantly identify Hot Leads, Potential Buyers, and Returning Customers. Automatically prioritizes revenue-generating messages at the top of your inbox.
-            </p>
-          </div>
-
-          <div className={styles.featureCard}>
-            <div className={styles.featureIcon}>🛡️</div>
-            <h3 className={styles.featureTitle}>AI Safety & Spam Protection</h3>
-            <p className={styles.featureDesc}>
-              Automatically filter phishing links, password/OTP requests, fake payment proof, and spam bots to keep your inbox clean and secure.
-            </p>
-          </div>
-
-          <div className={styles.featureCard}>
-            <div className={styles.featureIcon}>⚡</div>
-            <h3 className={styles.featureTitle}>Per-Chat Intelligent Auto-Reply</h3>
-            <p className={styles.featureDesc}>
-              Enable safe 24/7 auto-reply for specific customers or conversations. AI answers questions using your verified pricing and business rules.
-            </p>
-          </div>
-
-          <div className={styles.featureCard}>
-            <div className={styles.featureIcon}>👤</div>
-            <h3 className={styles.featureTitle}>Human Escalation Engine</h3>
-            <p className={styles.featureDesc}>
-              Frustrated customers, custom requests, and complex negotiations are automatically escalated to you with a summary of what the customer needs.
-            </p>
-          </div>
-
-          <div className={styles.featureCard}>
-            <div className={styles.featureIcon}>🔒</div>
-            <h3 className={styles.featureTitle}>Enterprise-Grade Privacy</h3>
-            <p className={styles.featureDesc}>
-              Strict tenant isolation, AES-256-GCM encrypted tokens, and HMAC-SHA256 validated webhooks keep your Instagram data protected.
-            </p>
-          </div>
+          {marketing.features.items.map((item, idx) => (
+            <div key={item.title} className={styles.featureCard}>
+              <div className={styles.featureIcon}>
+                <Icon name={FEATURE_ICONS[idx]} size={22} strokeWidth={1.75} />
+              </div>
+              <h3 className={styles.featureTitle}>{item.title}</h3>
+              <p className={styles.featureDesc}>{item.body}</p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -200,19 +163,19 @@ export default function LandingPage() {
         <div className={styles.footerContent}>
           <div className={styles.footerBrand}>
             <div className={styles.footerLogo}>
-              <img src="/logo.png" alt="Codeback Logo" className={styles.footerLogoImg} />
+              <img src="/logo.png" alt="" className={styles.footerLogoImg} />
             </div>
             <span className={styles.footerName}>Codeback</span>
           </div>
           {/* Meta App Review requires the privacy policy and data deletion
               URLs to be publicly reachable without logging in. */}
           <nav className={styles.footerLinks} aria-label="Legal">
-            <a href="/privacy" className={styles.footerLink}>Privacy Policy</a>
-            <a href="/terms" className={styles.footerLink}>Terms of Service</a>
-            <a href="/data-deletion" className={styles.footerLink}>Delete My Data</a>
+            <a href="/privacy" className={styles.footerLink}>{marketing.footer.privacy}</a>
+            <a href="/terms" className={styles.footerLink}>{marketing.footer.terms}</a>
+            <a href="/data-deletion" className={styles.footerLink}>{marketing.footer.dataDeletion}</a>
           </nav>
           <p className={styles.footerCopy}>
-            &copy; {new Date().getFullYear()} Codeback. All rights reserved.
+            &copy; {new Date().getFullYear()} {common.productName}. All rights reserved.
           </p>
         </div>
       </footer>

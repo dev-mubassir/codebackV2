@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
     res.json({ notifications, unreadCount });
   } catch (error) {
     console.error('[Notifications] Error listing notifications:', error.message);
-    res.status(500).json({ error: 'Failed to fetch notifications' });
+    res.status(500).json({ error: "Couldn't load your notifications. Refresh to try again." });
   }
 });
 
@@ -41,8 +41,8 @@ router.post('/:id/read', async (req, res) => {
       where: { id: req.params.id, userId: req.userId },
       data: { isRead: true },
     });
-    if (result.count === 0) return res.status(404).json({ error: 'Notification not found' });
-    res.json({ message: 'Notification marked as read' });
+    if (result.count === 0) return res.status(404).json({ error: 'That notification no longer exists.' });
+    res.json({ message: 'Marked as read' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update notification' });
   }

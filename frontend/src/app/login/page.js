@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login } from '@/lib/api';
+import Icon from '@/app/components/Icon';
+import { auth, validation } from '@/content/copy';
 import styles from './login.module.css';
 
 export default function LoginPage() {
@@ -26,7 +28,7 @@ export default function LoginPage() {
         router.push('/dashboard');
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Invalid email or password. Please try again.');
+      setError(err.response?.data?.error || validation.loginFailed);
     } finally {
       setLoading(false);
     }
@@ -36,16 +38,14 @@ export default function LoginPage() {
     <div className={styles.authContainer}>
       <div className={styles.authCard}>
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}>⚡</div>
-          <h1 className={styles.authTitle}>Log in to Codeback</h1>
-          <p className={styles.authSubtitle}>
-            AI Customer Intelligence & Smart DM Assistant for Instagram
-          </p>
+          <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
+          <h1 className={styles.authTitle}>{auth.login.title}</h1>
+          <p className={styles.authSubtitle}>{auth.login.subtitle}</p>
         </div>
 
         {error && (
-          <div className={styles.errorBanner}>
-            <span>⚠️</span>
+          <div className={styles.errorBanner} role="alert">
+            <Icon name="alertTriangle" size={14} />
             <span>{error}</span>
           </div>
         )}
@@ -53,13 +53,13 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className={styles.authForm}>
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="email">
-              Email Address
+              {auth.login.emailLabel}
             </label>
             <input
               id="email"
               type="email"
               className="input"
-              placeholder="you@company.com"
+              placeholder={auth.login.emailPlaceholder}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -69,7 +69,7 @@ export default function LoginPage() {
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="password">
-              Password
+              {auth.login.passwordLabel}
             </label>
             <input
               id="password"
@@ -88,14 +88,14 @@ export default function LoginPage() {
             disabled={loading}
             id="login-submit-btn"
           >
-            {loading ? 'Logging in…' : 'Sign In'}
+            {loading ? auth.login.submitting : auth.login.submit}
           </button>
         </form>
 
         <div className={styles.authFooter}>
-          Don&apos;t have an account yet?
+          {auth.login.footer}
           <Link href="/register" className={styles.authLink}>
-            Create Account
+            {auth.login.footerAction}
           </Link>
         </div>
       </div>

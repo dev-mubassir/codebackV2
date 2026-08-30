@@ -25,12 +25,12 @@ const { logAdminAction } = require('../lib/auditLogger');
 const loginLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  message: 'Too many login attempts. Please try again in a few minutes.',
+  message: 'Too many login attempts. Wait a few minutes and try again.',
 });
 const registerLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 20,
-  message: 'Too many accounts created from this IP. Please try again later.',
+  message: 'Too many accounts created from this network. Wait a few minutes and try again.',
 });
 
 // Helper to sanitize user object
@@ -49,19 +49,19 @@ router.post('/register', registerLimiter, async (req, res) => {
     const { name, email, password, confirmPassword } = req.body || {};
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
-      return res.status(400).json({ error: 'Please enter a valid full name (at least 2 characters)' });
+      return res.status(400).json({ error: 'Enter a full name of at least 2 characters.' });
     }
 
     if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return res.status(400).json({ error: 'Please enter a valid email address' });
+      return res.status(400).json({ error: 'Enter a valid email address.' });
     }
 
     if (!password || typeof password !== 'string' || password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      return res.status(400).json({ error: 'Use at least 6 characters.' });
     }
 
     if (password !== confirmPassword) {
-      return res.status(400).json({ error: 'Passwords do not match' });
+      return res.status(400).json({ error: 'Those passwords do not match.' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -72,7 +72,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     });
 
     if (existing) {
-      return res.status(409).json({ error: 'An account with this email already exists. Please log in.' });
+      return res.status(409).json({ error: 'An account already uses that email address. Log in instead.' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -113,12 +113,12 @@ router.post('/register', registerLimiter, async (req, res) => {
     console.log(`[Auth] New user registered: ${user.email} (${user.id})`);
 
     res.status(201).json({
-      message: 'Account created successfully',
+      message: 'Account created',
       user: sanitizeUser(user),
     });
   } catch (error) {
     console.error('[Auth] Registration error:', error.message);
-    res.status(500).json({ error: 'Failed to create account. Please try again.' });
+    res.status(500).json({ error: "Couldn't create your account. Try again in a moment." });
   }
 });
 
@@ -131,7 +131,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const { email, password } = req.body || {};
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      return res.status(400).json({ error: 'Enter your email address and password.' });
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -154,16 +154,16 @@ router.post('/login', loginLimiter, async (req, res) => {
     });
 
     if (!user || !user.passwordHash) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'That email or password is not right.' });
     }
 
     const isMatch = await bcrypt.compare(String(password), user.passwordHash);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'That email or password is not right.' });
     }
 
     if (user.isSuspended) {
-      return res.status(403).json({ error: 'Your account has been suspended. Please contact support.' });
+      return res.status(403).json({ error: 'This account is suspended. Contact support.' });
     }
 
     // Update last seen
@@ -178,12 +178,12 @@ router.post('/login', loginLimiter, async (req, res) => {
     console.log(`[Auth] User logged in: ${user.email} (${user.id})`);
 
     res.json({
-      message: 'Logged in successfully',
+      message: 'Logged in',
       user: sanitizeUser(user),
     });
   } catch (error) {
     console.error('[Auth] Login error:', error.message);
-    res.status(500).json({ error: 'Failed to log in. Please try again.' });
+    res.status(500).json({ error: "Couldn't log you in. Try again in a moment." });
   }
 });
 
@@ -203,11 +203,11 @@ router.post('/logout', (req, res) => {
         console.error('[Auth] Error destroying session on logout:', err);
       }
       res.clearCookie('codeback.sid');
-      return res.json({ message: 'Logged out successfully' });
+      return res.json({ message: 'Logged out' });
     });
   } else {
     res.clearCookie('codeback.sid');
-    return res.json({ message: 'Logged out successfully' });
+    return res.json({ message: 'Logged out' });
   }
 });
 
@@ -359,7 +359,7 @@ router.get('/instagram/callback', async (req, res) => {
           if (req.accepts('json') && !req.accepts('html')) {
             return res.status(409).json({
               error: 'Account already connected',
-              message: 'This Instagram account is already connected to another Codeback workspace.',
+              message: 'That Instagram account is already connected to another Codeback account.',
             });
           }
           return res.redirect(`${process.env.FRONTEND_URL}?error=account_already_connected`);
@@ -470,7 +470,7 @@ router.get('/me', async (req, res) => {
   const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return res.status(401).json({ error: 'Log in to continue.' });
   }
 
   try {
@@ -496,7 +496,7 @@ router.get('/me', async (req, res) => {
 
     if (!user) {
       req.session.destroy();
-      return res.status(401).json({ error: 'User not found' });
+      return res.status(401).json({ error: 'Log in to continue.' });
     }
 
     res.json({
@@ -512,7 +512,7 @@ router.get('/me', async (req, res) => {
     });
   } catch (error) {
     console.error('[Auth] Error fetching user:', error.message);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Couldn't load your account. Refresh to try again." });
   }
 });
 
@@ -524,7 +524,7 @@ router.put('/profile', async (req, res) => {
   const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return res.status(401).json({ error: 'Log in to continue.' });
   }
 
   try {
@@ -535,7 +535,7 @@ router.put('/profile', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Log in to continue.' });
     }
 
     const updateData = {};
@@ -547,16 +547,16 @@ router.put('/profile', async (req, res) => {
     // Password change
     if (newPassword) {
       if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+        return res.status(400).json({ error: 'Use at least 6 characters.' });
       }
 
       if (user.passwordHash) {
         if (!currentPassword) {
-          return res.status(400).json({ error: 'Please enter your current password' });
+          return res.status(400).json({ error: 'Enter your current password.' });
         }
         const match = await bcrypt.compare(currentPassword, user.passwordHash);
         if (!match) {
-          return res.status(400).json({ error: 'Incorrect current password' });
+          return res.status(400).json({ error: 'That current password is not right.' });
         }
       }
 
@@ -574,12 +574,12 @@ router.put('/profile', async (req, res) => {
     });
 
     res.json({
-      message: 'Profile updated successfully',
+      message: 'Your details were saved',
       user: sanitizeUser(updatedUser),
     });
   } catch (error) {
     console.error('[Auth] Error updating profile:', error.message);
-    res.status(500).json({ error: 'Failed to update profile' });
+    res.status(500).json({ error: "Couldn't save your details. Try again." });
   }
 });
 
@@ -591,7 +591,7 @@ router.delete('/account', async (req, res) => {
   const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return res.status(401).json({ error: 'Log in to continue.' });
   }
 
   try {
@@ -600,7 +600,7 @@ router.delete('/account', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Log in to continue.' });
     }
 
     // Delete user from database (cascades to all user data)
@@ -614,11 +614,11 @@ router.delete('/account', async (req, res) => {
     req.session.destroy((err) => {
       if (err) console.error('[Auth] Error destroying session on account delete:', err);
       res.clearCookie('codeback.sid');
-      res.json({ message: 'Account permanently deleted' });
+      res.json({ message: 'Account deleted' });
     });
   } catch (error) {
     console.error('[Auth] Error deleting account:', error.message);
-    res.status(500).json({ error: 'Failed to delete account' });
+    res.status(500).json({ error: "Couldn't delete your account. Try again, or contact support." });
   }
 });
 

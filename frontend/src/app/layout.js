@@ -1,12 +1,24 @@
 import "./globals.css";
+import { meta } from "@/content/copy";
 
 export const metadata = {
-  title: "Codeback — AI-Powered Instagram DM Assistant",
-  description: "Manage your Instagram Direct Messages from a unified inbox. Connect your Professional account and respond to DMs in real-time.",
+  title: meta.root.title,
+  description: meta.root.description,
   icons: {
     icon: "/favicon.png",
     shortcut: "/favicon.ico",
     apple: "/apple-touch-icon.png",
+  },
+  openGraph: {
+    title: meta.root.title,
+    description: meta.root.description,
+    siteName: "Codeback",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: meta.root.title,
+    description: meta.root.description,
   },
 };
 

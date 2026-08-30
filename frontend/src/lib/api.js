@@ -237,7 +237,7 @@ export async function markAllNotificationsRead() {
   return data;
 }
 
-// ---- Creator AI Settings ----
+// ---- Reply settings ----
 
 export async function getAISettings() {
   const { data } = await api.get('/api/settings/ai');

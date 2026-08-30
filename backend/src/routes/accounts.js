@@ -51,7 +51,7 @@ router.get('/', async (req, res) => {
     res.json(accounts);
   } catch (error) {
     console.error('[Accounts] Error fetching accounts:', error.message);
-    res.status(500).json({ error: 'Failed to fetch accounts' });
+    res.status(500).json({ error: "Couldn't load your connected accounts. Refresh to try again." });
   }
 });
 
@@ -75,7 +75,7 @@ router.delete('/:id', async (req, res) => {
     });
 
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' });
+      return res.status(404).json({ error: 'That account no longer exists.' });
     }
 
     if (purge) {
@@ -83,7 +83,7 @@ router.delete('/:id', async (req, res) => {
       // conversations, messages, AI analyses, brand deals, etc.
       await prisma.instagramAccount.delete({ where: { id: id } });
       console.log('[Accounts] Purged account and all historical data:', account.igUsername);
-      return res.json({ message: 'Account and all historical data permanently deleted' });
+      return res.json({ message: 'Account and its history deleted' });
     }
 
     await prisma.instagramAccount.update({
@@ -92,10 +92,10 @@ router.delete('/:id', async (req, res) => {
     });
 
     console.log('[Accounts] Disconnected account (history preserved):', account.igUsername);
-    res.json({ message: 'Account disconnected. Your conversation history has been preserved and will reappear if you reconnect.' });
+    res.json({ message: 'Account disconnected. Your conversation history is kept and returns if you reconnect.' });
   } catch (error) {
     console.error('[Accounts] Error disconnecting account:', error.message);
-    res.status(500).json({ error: 'Failed to disconnect account' });
+    res.status(500).json({ error: "Couldn't disconnect that account. Try again." });
   }
 });
 

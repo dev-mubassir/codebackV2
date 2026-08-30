@@ -18,7 +18,7 @@ async function requireAdmin(req, res, next) {
   }
 
   if (!req.session || !req.session.userId) {
-    return res.status(401).json({ error: 'Unauthorized. Admin session required.' });
+    return res.status(401).json({ error: 'Log in to the admin panel to continue.' });
   }
 
   try {
@@ -29,11 +29,11 @@ async function requireAdmin(req, res, next) {
 
     if (!user) {
       req.session.destroy();
-      return res.status(401).json({ error: 'User not found.' });
+      return res.status(401).json({ error: 'That account no longer exists.' });
     }
 
     if (user.isSuspended) {
-      return res.status(403).json({ error: 'Your account has been suspended by an administrator.' });
+      return res.status(403).json({ error: 'This account is suspended. Contact support.' });
     }
 
     // Configured admin emails or usernames
@@ -67,10 +67,10 @@ async function requireAdmin(req, res, next) {
       return next();
     }
 
-    return res.status(403).json({ error: 'Forbidden. Access restricted to Super Admins.' });
+    return res.status(403).json({ error: 'This area is restricted to administrators.' });
   } catch (error) {
     console.error('[AdminAuth] Error verifying admin access:', error.message);
-    res.status(500).json({ error: 'Internal server error during authorization.' });
+    res.status(500).json({ error: "Couldn't confirm your access. Try again." });
   }
 }
 

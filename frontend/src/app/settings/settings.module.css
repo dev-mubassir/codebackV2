@@ -178,7 +178,7 @@
 .chatSearchInput {
   width: 100%;
   padding: 8px 12px;
-  font-size: var(--text-xs);
+  font-size: var(--form-text);
   background: var(--bg-surface-secondary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -466,3 +466,70 @@
   }
 }
 
+
+/* ---- Copy audit additions ---- */
+
+/* One three-way reply-mode control, replacing the ON/OFF pair that fought
+   with the select bound to the same field. */
+.modeOptions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.modeOption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.modeOption:hover {
+  border-color: var(--color-primary);
+}
+
+.modeOptionActive {
+  border-color: var(--color-primary);
+  background: rgba(124, 58, 237, 0.06);
+}
+
+.modeOptionTop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.modeOptionLabel {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.modeOptionDesc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* Explains why a control on this screen will not do anything yet. */
+.inlineNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 12px 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-secondary);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}

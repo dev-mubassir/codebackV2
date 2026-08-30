@@ -1,6 +1,10 @@
 /**
- * Notification helper — creates persisted, creator-facing notifications for
+ * Notification helper — creates persisted, user-facing notifications for
  * genuinely important events, and pushes them over Socket.io in real time.
+ *
+ * These titles and bodies are WRITTEN TO THE DATABASE and rendered verbatim on
+ * /notifications, so they are product copy, not log lines: sentence case, no
+ * emoji, second person, and no raw enum values.
  *
  * By design this does NOT create a notification for every analyzed message
  * (that would spam the creator for routine fan messages). Live per-message
@@ -27,8 +31,10 @@ async function createNotification(userId, { type, title, body = null, conversati
 function notifyBrandDeal(userId, { conversationId, brandDealId, brandName, contactUsername }) {
   return createNotification(userId, {
     type: 'new_brand_deal',
-    title: `🔥 New brand deal from ${brandName || `@${contactUsername || 'someone'}`}`,
-    body: brandName ? `${brandName} reached out about a potential collaboration.` : 'A potential brand collaboration was detected.',
+    title: `New brand deal from ${brandName || `@${contactUsername || 'someone'}`}`,
+    body: brandName
+      ? `${brandName} got in touch about working together.`
+      : 'Someone got in touch about working together.',
     conversationId,
     brandDealId,
   });
@@ -37,8 +43,8 @@ function notifyBrandDeal(userId, { conversationId, brandDealId, brandName, conta
 function notifyHighPriority(userId, { conversationId, contactUsername, reason }) {
   return createNotification(userId, {
     type: 'high_priority_conversation',
-    title: `⚠️ Conversation needs your attention`,
-    body: reason || `@${contactUsername || 'Someone'} sent a message that looks important.`,
+    title: 'A conversation needs your reply',
+    body: reason || `@${contactUsername || 'Someone'} sent something worth answering yourself.`,
     conversationId,
   });
 }
@@ -46,8 +52,8 @@ function notifyHighPriority(userId, { conversationId, contactUsername, reason })
 function notifyImportantCustomer(userId, { conversationId, contactUsername, reason }) {
   return createNotification(userId, {
     type: 'important_customer',
-    title: `💰 Possible customer opportunity`,
-    body: reason || `@${contactUsername || 'Someone'} may be interested in buying from you.`,
+    title: 'Someone looks ready to buy',
+    body: reason || `@${contactUsername || 'Someone'} may be about to buy from you.`,
     conversationId,
   });
 }
@@ -55,8 +61,8 @@ function notifyImportantCustomer(userId, { conversationId, contactUsername, reas
 function notifyConnectionProblem(userId, { instagramAccountId, igUsername, reason }) {
   return createNotification(userId, {
     type: 'instagram_connection_problem',
-    title: `⚠️ Instagram connection issue`,
-    body: `@${igUsername || 'your account'}: ${reason || 'Please reconnect your Instagram account.'}`,
+    title: 'Reconnect your Instagram account',
+    body: `@${igUsername || 'your account'} — ${reason || 'Codeback stops receiving new messages until you reconnect.'}`,
     conversationId: null,
   }).then((n) => {
     emitToUser(userId, 'instagram_connection_problem', { instagramAccountId, igUsername, reason });

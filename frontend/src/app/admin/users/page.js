@@ -2,6 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { getAdminUsers, toggleUserSuspension, deleteUserAdmin, impersonateUser } from '@/lib/api';
+import Icon from '@/app/components/Icon';
+import { admin as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
+import { roleLabel } from '@/content/labels';
+import { formatDate, formatCount } from '@/content/format';
 import styles from '../admin.module.css';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
@@ -13,6 +17,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [error, setError] = useState('');
 
   const loadUsers = useCallback(async (page = 1, searchQuery = search) => {
     setLoading(true);
@@ -21,7 +26,7 @@ export default function AdminUsersPage() {
       setUsers(data.users);
       setPagination(data.pagination);
     } catch (err) {
-      console.error('Failed to load users:', err);
+      setError(errors.admin.users);
     } finally {
       setLoading(false);
     }
@@ -37,14 +42,15 @@ export default function AdminUsersPage() {
   }
 
   async function handleToggleSuspend(user) {
-    const actionText = user.isSuspended ? 'unsuspend' : 'suspend';
-    if (!confirm(`Are you sure you want to ${actionText} user "${user.name || user.id}"?`)) return;
+    const dialog = user.isSuspended ? confirmCopy.adminRestoreUser : confirmCopy.adminSuspendUser;
+    const who = user.name || user.email || user.id;
+    if (!confirm(`${dialog.title.replace('this customer', who)}\n\n${dialog.body}`)) return;
 
     try {
       await toggleUserSuspension(user.id, !user.isSuspended);
       await loadUsers(pagination.page);
     } catch (err) {
-      alert('Failed to update suspension status');
+      setError(errors.admin.suspend);
     }
   }
 
@@ -56,17 +62,17 @@ export default function AdminUsersPage() {
       setSelectedUser(null);
       await loadUsers(pagination.page);
     } catch (err) {
-      alert('Failed to delete user');
+      setError(errors.admin.deleteUser);
     }
   }
 
   async function handleImpersonate(userId) {
-    if (!confirm('Start impersonating this user? You will be redirected to their dashboard view.')) return;
+    if (!confirm(`${confirmCopy.adminImpersonate.title}\n\n${confirmCopy.adminImpersonate.body}`)) return;
     try {
       const data = await impersonateUser(userId);
       window.location.href = data.redirectUrl || '/dashboard';
     } catch (err) {
-      alert('Failed to impersonate user');
+      setError(errors.admin.impersonate);
     }
   }
 
@@ -78,11 +84,12 @@ export default function AdminUsersPage() {
           <input
             type="text"
             className={styles.searchInput}
-            placeholder="Search by name, email, or @username..."
+            placeholder={t.users.searchPlaceholder}
+            aria-label={t.users.searchPlaceholder}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <button type="submit" className="btn btn-secondary btn-sm">Search</button>
+          <button type="submit" className="btn btn-secondary btn-sm">{common.search}</button>
         </form>
 
         <div>
@@ -92,53 +99,58 @@ export default function AdminUsersPage() {
             rel="noopener noreferrer"
             className="btn btn-secondary btn-sm"
           >
-            📥 Export CSV
+            <Icon name="download" size={13} /> {t.users.exportCsv}
           </a>
         </div>
       </div>
 
-      {/* Users Table */}
+      {error && (
+        <div className={`${styles.alertBox} ${styles.alertBoxWarning}`} role="alert">
+          <span className={styles.alertText}>{error}</span>
+        </div>
+      )}
+
       <div className={styles.tableContainer}>
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>User</th>
-              <th>Status / Role</th>
-              <th>Connected IG Accounts</th>
-              <th>Joined Date</th>
-              <th style={{ textAlign: 'right' }}>Actions</th>
+              <th>{t.users.columns.user}</th>
+              <th>{t.users.columns.status}</th>
+              <th>{t.users.columns.accounts}</th>
+              <th>{t.users.columns.joined}</th>
+              <th style={{ textAlign: 'right' }}>{t.users.columns.actions}</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="5" style={{ textAlign: 'center', padding: '32px' }}>
+                <td colSpan="5" style={{ textAlign: 'center', padding: '32px' }} aria-busy="true">
                   <div className="spinner spinner-lg" style={{ margin: '0 auto' }} />
                 </td>
               </tr>
             ) : users.length === 0 ? (
               <tr>
                 <td colSpan="5" style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '32px' }}>
-                  No users found.
+                  {search ? t.users.empty : empty.adminUsers.body}
                 </td>
               </tr>
             ) : (
               users.map(u => (
                 <tr key={u.id}>
                   <td>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.name || 'Unnamed User'}</div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{u.email || u.id}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.name || t.users.unnamed}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{u.email || t.users.noEmail}</div>
                   </td>
                   <td>
                     {u.isSuspended ? (
-                      <span className={styles.badgeSuspended}>SUSPENDED</span>
+                      <span className={styles.badgeSuspended}>{t.users.suspended}</span>
                     ) : (
-                      <span className={styles.badgeValid}>{u.role}</span>
+                      <span className={styles.badgeValid}>{roleLabel(u.role).label}</span>
                     )}
                   </td>
                   <td>
                     {u.instagramAccounts?.length === 0 ? (
-                      <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>No accounts connected</span>
+                      <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>{t.users.noAccounts}</span>
                     ) : (
                       <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                         {u.instagramAccounts.map(acc => (
@@ -149,29 +161,26 @@ export default function AdminUsersPage() {
                       </div>
                     )}
                   </td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
-                    {new Date(u.createdAt).toLocaleDateString()}
-                  </td>
+                  <td>{formatDate(u.createdAt)}</td>
                   <td style={{ textAlign: 'right' }}>
                     <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => handleImpersonate(u.id)}
-                        title="Impersonate user for support"
                       >
-                        👁 Impersonate
+                        <Icon name="eye" size={13} /> {t.users.impersonate}
                       </button>
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => handleToggleSuspend(u)}
                       >
-                        {u.isSuspended ? 'Unsuspend' : 'Suspend'}
+                        {u.isSuspended ? t.users.unsuspend : t.users.suspend}
                       </button>
                       <button
                         className="btn btn-danger btn-sm"
                         onClick={() => { setSelectedUser(u); setShowDeleteModal(true); }}
                       >
-                        Delete
+                        {t.users.delete}
                       </button>
                     </div>
                   </td>
@@ -184,21 +193,24 @@ export default function AdminUsersPage() {
 
       {/* Pagination Bar */}
       <div className={styles.pagination}>
-        <span>Page {pagination.page} of {pagination.totalPages} ({pagination.totalCount} total users)</span>
+        <span>
+          {t.users.paginationLabel} {pagination.page} {t.users.paginationOf} {pagination.totalPages} —{' '}
+          {formatCount(pagination.totalCount)} total
+        </span>
         <div style={{ display: 'flex', gap: '6px' }}>
           <button
             className="btn btn-secondary btn-sm"
             disabled={pagination.page <= 1}
             onClick={() => loadUsers(pagination.page - 1)}
           >
-            Previous
+            {common.previous}
           </button>
           <button
             className="btn btn-secondary btn-sm"
             disabled={pagination.page >= pagination.totalPages}
             onClick={() => loadUsers(pagination.page + 1)}
           >
-            Next
+            {common.next}
           </button>
         </div>
       </div>
@@ -207,14 +219,14 @@ export default function AdminUsersPage() {
       {showDeleteModal && selectedUser && (
         <div className={styles.modalOverlay}>
           <div className={styles.modalContent}>
-            <h3 className={styles.modalTitle}>Delete User Account</h3>
+            <h3 className={styles.modalTitle}>{confirmCopy.adminDeleteUser.title}</h3>
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Are you sure you want to permanently delete user <strong>{selectedUser.name || selectedUser.id}</strong>?
-              This will also disconnect all connected Instagram accounts and remove their conversations.
+              This erases <strong>{selectedUser.name || selectedUser.email || selectedUser.id}</strong>, their connected
+              Instagram accounts, and every conversation. It cannot be undone.
             </p>
             <div className={styles.modalActions}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowDeleteModal(false)}>Cancel</button>
-              <button className="btn btn-danger btn-sm" onClick={handleConfirmDelete}>Permanently Delete</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowDeleteModal(false)}>{common.cancel}</button>
+              <button className="btn btn-danger btn-sm" onClick={handleConfirmDelete}>{confirmCopy.adminDeleteUser.action}</button>
             </div>
           </div>
         </div>

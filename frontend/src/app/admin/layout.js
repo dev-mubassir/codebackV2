@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getAdminMe, adminLogout, exitImpersonation } from '@/lib/api';
+import Icon from '@/app/components/Icon';
+import { admin as t, common, errors } from '@/content/copy';
 import styles from './admin.module.css';
 
 export default function AdminLayout({ children }) {
@@ -30,7 +32,11 @@ export default function AdminLayout({ children }) {
           router.push('/admin/login');
         } else {
           setAuthenticated(true);
-          setAdminUsername(adminData.username || 'Admin');
+          setAdminUsername(adminData.username || t.panelTitle);
+          // NOTE: `impersonating` is never set to true anywhere — GET
+          // /api/admin/me does not return an impersonation flag, so this
+          // banner has never rendered. Wiring it up is impersonation
+          // behaviour, which is owned elsewhere; reported, not changed here.
         }
       } catch (err) {
         setAuthenticated(false);
@@ -56,7 +62,7 @@ export default function AdminLayout({ children }) {
       await exitImpersonation();
       window.location.href = '/admin';
     } catch (err) {
-      alert('Failed to exit impersonation');
+      alert(errors.admin.exitImpersonate);
     }
   }
 
@@ -66,18 +72,18 @@ export default function AdminLayout({ children }) {
 
   if (loading || !authenticated) {
     return (
-      <div className={styles.adminLayout} style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <div className={styles.adminLayout} style={{ alignItems: 'center', justifyContent: 'center' }} aria-busy="true" aria-label={common.loading}>
         <div className="spinner spinner-lg" />
       </div>
     );
   }
 
   const navItems = [
-    { label: 'Dashboard', path: '/admin', icon: '📊' },
-    { label: 'Users', path: '/admin/users', icon: '👥' },
-    { label: 'IG Accounts', path: '/admin/accounts', icon: '📱' },
-    { label: 'Support Desk', path: '/admin/support', icon: '🎧' },
-    { label: 'Settings', path: '/admin/settings', icon: '⚙️' },
+    { label: t.nav.dashboard, path: '/admin', icon: 'dashboard' },
+    { label: t.nav.users, path: '/admin/users', icon: 'users' },
+    { label: t.nav.accounts, path: '/admin/accounts', icon: 'instagram' },
+    { label: t.nav.support, path: '/admin/support', icon: 'lifeBuoy' },
+    { label: t.nav.settings, path: '/admin/settings', icon: 'settings' },
   ];
 
   return (
@@ -85,8 +91,10 @@ export default function AdminLayout({ children }) {
       {/* Impersonation Warning Banner */}
       {impersonating && (
         <div className={styles.impersonationBanner}>
-          <span>⚠️ IMPERSONATING USER — SUPPORT OVERRIDE ACTIVE</span>
-          <button onClick={handleExitImpersonation}>EXIT IMPERSONATION</button>
+          <span>
+            <Icon name="alertTriangle" size={14} /> {t.impersonation.banner}
+          </span>
+          <button onClick={handleExitImpersonation}>{t.impersonation.exit}</button>
         </div>
       )}
 
@@ -94,8 +102,8 @@ export default function AdminLayout({ children }) {
       <aside className={styles.sidebar} style={{ marginTop: impersonating ? '38px' : '0' }}>
         <div className={styles.sidebarHeader}>
           <Link href="/admin" className={styles.brand}>
-            <span className={styles.brandBadge}>ADMIN</span>
-            <span className={styles.brandTitle}>CODEBACK</span>
+            <span className={styles.brandBadge}>{t.login.eyebrow}</span>
+            <span className={styles.brandTitle}>{common.productName}</span>
           </Link>
         </div>
 
@@ -108,7 +116,7 @@ export default function AdminLayout({ children }) {
                 href={item.path}
                 className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
               >
-                <span>{item.icon}</span>
+                <Icon name={item.icon} size={15} />
                 <span>{item.label}</span>
               </Link>
             );
@@ -116,15 +124,15 @@ export default function AdminLayout({ children }) {
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <div style={{ fontWeight: '600', color: 'white', marginBottom: '8px' }}>
-            👤 {adminUsername || 'Admin'}
+          <div style={{ fontWeight: '600', color: 'white', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Icon name="user" size={14} /> {adminUsername || t.panelTitle}
           </div>
           <button
             onClick={handleAdminLogout}
             className="btn btn-secondary btn-sm"
             style={{ width: '100%' }}
           >
-            🔒 Log Out Admin
+            <Icon name="logOut" size={13} /> {t.logOut}
           </button>
         </div>
       </aside>
@@ -133,11 +141,11 @@ export default function AdminLayout({ children }) {
       <main className={styles.main} style={{ marginTop: impersonating ? '38px' : '0' }}>
         <header className={styles.header}>
           <h1 className={styles.headerTitle}>
-            {navItems.find(n => n.path === pathname)?.label || 'Admin Control Panel'}
+            {navItems.find(n => n.path === pathname)?.label || t.panelTitle}
           </h1>
           <div>
             <Link href="/dashboard" className="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
-              ↗ Open App
+              <Icon name="externalLink" size={13} /> {t.openApp}
             </Link>
           </div>
         </header>

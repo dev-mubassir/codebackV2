@@ -53,6 +53,32 @@ const COMMERCIAL_QUESTION_INDICATORS = [
   '?', 'where do i', 'can i', 'do you', 'how do i', 'what is', 'when will',
 ];
 
+// ============================================
+// Output style contract
+//
+// `summary`, `reasoning`, and generated reply text are all rendered verbatim
+// in the product — in the inbox insights panel, in notification bodies, and in
+// the message itself. Without an explicit contract the model narrates its own
+// reasoning ("The user appears to be inquiring about..."), which reads nothing
+// like the rest of the interface.
+//
+// This governs tone, length, and vocabulary only. It never changes what is
+// classified, the JSON shape, or any threshold.
+// ============================================
+const OUTPUT_STYLE_CONTRACT = `=== OUTPUT STYLE (applies to every text field you return) ===
+- Write for the business owner reading their own inbox. Use "they" for the customer.
+- Sentence case. No headings, no bullet points, no markdown, no emoji.
+- Present tense. State what is true now, not what you did to work it out.
+- Never narrate your own process. Do not write "the message appears to", "I have
+  classified", "based on the context", "it seems likely", or "this conversation
+  suggests". Lead with the fact.
+- Never use these words: hallucination, grounding, prompt, token, model,
+  inference, embedding, classifier, LLM, payload, endpoint, valid, invalid,
+  null, undefined, true, false.
+- Never quote a price, date, or policy that is not written in the business
+  context above.
+- Plain words over jargon. If a shorter word works, use it.`;
+
 // In-memory AI call monitoring
 const aiStats = {
   totalCalls: 0,
@@ -98,8 +124,8 @@ function classifyByKeywords(messageText) {
         requiresHumanAttention: true,
         shouldAutoReply: false,
         recommendedAction: 'BLOCK_OR_WARN_USER',
-        summary: 'Security Threat: Potential scam/phishing message blocked.',
-        reason: `Flagged for security threat / phishing keyword: "${kw}"`,
+        summary: 'This looks like a scam. Do not share codes, passwords, or payment details.',
+        reason: 'The message matches a known phishing pattern.',
         brandDeal: null,
       };
     }
@@ -123,8 +149,8 @@ function classifyByKeywords(messageText) {
         requiresHumanAttention: false,
         shouldAutoReply: false,
         recommendedAction: 'IGNORE_SPAM',
-        summary: 'Promotional spam filtered by keyword engine.',
-        reason: `Matched spam promotion pattern: "${kw}"`,
+        summary: 'Unsolicited promotion. Safe to ignore.',
+        reason: 'The message matches a known bulk-promotion pattern.',
         brandDeal: null,
       };
     }
@@ -151,8 +177,8 @@ function classifyByKeywords(messageText) {
           requiresHumanAttention: false,
           shouldAutoReply: false,
           recommendedAction: 'AWAIT_CUSTOMER_INQUIRY',
-          summary: 'Casual social greeting or praise (no commercial question detected).',
-          reason: 'Message consists of casual greetings, compliments, or emojis without business inquiries.',
+          summary: 'A friendly hello with no question in it.',
+          reason: 'The message is a greeting or compliment, with nothing to answer.',
           brandDeal: null,
         };
       }
@@ -502,7 +528,7 @@ async function callAIWithFailover({ prompt, isJson = true, timeout = 14000 }) {
     } catch (err) {
       lastError = err;
       aiStats.providerFailovers++;
-      console.warn(`[AIService] ⚠️ Provider "${provider.name}" failed: ${err.message}. Failover continuing...`);
+      console.warn(`[AIService] Provider "${provider.name}" failed: ${err.message}. Trying the next one.`);
     }
   }
 
@@ -533,8 +559,8 @@ async function analyzeConversation({
       confidence: 0,
       needsCreatorAttention: false,
       shouldAutoReply: false,
-      summary: null,
-      reason: null,
+      summary: 'Nothing to read in this message.',
+      reason: 'The message has no text — it may be an attachment or a reaction.',
       recommendedAction: 'REVIEW',
       brandDeal: null,
       model: 'keyword-engine',
@@ -565,8 +591,9 @@ async function analyzeConversation({
   const businessContext = formatBusinessProfileContext(businessProfile);
   const contextBlock = buildContextBlock(recentMessages, businessProfile?.businessName || 'Business Owner');
 
-  const prompt = `You are a high-accuracy AI Instagram Customer Intelligence and DM Assistant for a business.
-Your job is to understand what the business does, analyze the incoming Instagram conversation, qualify leads, detect risks/scams, and determine the exact customer intent.
+  const prompt = `You read Instagram messages sent to a business and work out what the sender wants, how commercially serious they are, and whether anything about the message is unsafe.
+
+${OUTPUT_STYLE_CONTRACT}
 
 === BUSINESS CONTEXT ===
 ${businessContext}
@@ -617,8 +644,8 @@ Return ONLY valid JSON in this exact shape:
   "confidence": 0.0-1.0,
   "should_auto_reply": true or false,
   "requires_human_attention": true or false,
-  "summary": "1 sentence summarizing conversation status",
-  "reasoning": "1-2 sentences explaining why this was classified and what the customer wants",
+  "summary": "Exactly one sentence, 20 words or fewer, naming what they want and where the conversation stands. Written for the business owner, present tense, no preamble.",
+  "reasoning": "One sentence, 25 words or fewer, giving the single strongest reason for this classification. State the reason itself, not that you are giving a reason.",
   "recommended_action": "e.g. ANSWER_PRICING | SEND_PORTFOLIO | HUMAN_ESCALATION | IGNORE_SPAM",
   "brand_deal": {
     "brand_name": string or null,
@@ -669,8 +696,10 @@ Return ONLY valid JSON in this exact shape:
       confidence: 0,
       needsCreatorAttention: false,
       shouldAutoReply: false,
-      summary: null,
-      reason: null,
+      // Shown in the inbox when analysis fails or times out. Says what
+      // happened and what to do, rather than leaving the panel blank.
+      summary: 'This conversation has not been read yet.',
+      reason: 'Codeback could not review it just now. It will try again shortly — read it yourself in the meantime.',
       recommendedAction: 'REVIEW_CONVERSATION',
       brandDeal: null,
       model: null,
@@ -700,18 +729,35 @@ async function generateReply({
   const contextBlock = buildContextBlock(recentMessages, businessProfile?.businessName || 'Business Owner');
   const tone = businessProfile?.tone || preferences?.tone || 'friendly';
 
-  // Anti-hallucination & safety guidelines
+  // This output is sent to a real customer as a real Instagram message, so the
+  // style contract is stricter here than anywhere else: it defines the length,
+  // the structure, and what may never be stated.
   const safetyGuidelines = `
-=== STRICT ANTI-HALLUCINATION & PROFESSIONAL SAFETY RULES ===
-1. Use ONLY verified facts from the Business Context above (prices, turnaround times, warranty, policies, delivery locations).
-2. NEVER INVENT prices, discounts, delivery dates, or policies not explicitly listed in the Business Context.
-3. If specific pricing/details are missing, politely ask the customer for their requirements or location rather than making up numbers.
-4. Angry / Frustrated Customers: Be empathetic, calm, and de-escalate. NEVER argue, insult, or accept financial/legal liability.
-5. Tone: ${tone}. Be natural, professional, concise (1-3 sentences maximum for Instagram DM), and directly helpful.
-6. Do NOT include markdown code blocks or quotes around the reply. Return pure text only.
+=== WHAT YOU MAY SAY ===
+1. Use ONLY the facts written in the business context above — prices, turnaround
+   times, warranty, policies, delivery areas, payment methods.
+2. Never invent a price, discount, delivery date, or policy. If the answer is
+   not in the business context, ask them for what you need instead of guessing.
+3. If they are angry, stay calm and acknowledge the problem. Never argue, never
+   blame them, and never accept financial or legal responsibility.
+
+=== HOW TO WRITE IT ===
+4. Tone: ${tone}.
+5. Two sentences, three at the very most. This is an Instagram message, not an
+   email. No greeting line, no sign-off, no subject.
+6. Answer their actual question in the first sentence. If you need something
+   from them, ask for exactly one thing in the last sentence.
+7. Sentence case. No markdown, no bullet points, no headings, no emoji, no
+   surrounding quotes.
+8. Never use these words: hallucination, grounding, prompt, token, model,
+   inference, embedding, classifier, LLM, payload, endpoint, valid, invalid,
+   null, undefined.
+9. Never mention that this reply was generated, drafted, or assisted. Write as
+   the business.
+10. Return the message text only, with nothing before or after it.
 `;
 
-  const prompt = `You are drafting a professional, safe Instagram DM reply for this business.
+  const prompt = `Write the next Instagram message this business should send.
 
 === BUSINESS CONTEXT ===
 ${businessContext}
@@ -749,15 +795,18 @@ async function summarizeConversation({ recentMessages = [], previousSummary = nu
   const last3 = recentMessages.slice(-3);
   const contextBlock = buildContextBlock(last3, businessProfile?.businessName || 'Business Owner');
 
-  const prompt = `Summarize the last 3 messages of this Instagram DM inquiry for a business owner.
-${previousSummary ? `Previous: "${previousSummary}"\n` : ''}
+  const prompt = `Summarise this Instagram conversation for the business owner who has to answer it.
+
+${OUTPUT_STYLE_CONTRACT}
+
+${previousSummary ? `What you wrote last time: "${previousSummary}"\n` : ''}
 Latest messages:
 ${contextBlock || '(no messages)'}
 
 Return ONLY valid JSON:
 {
-  "summary": "1-2 brief sentences summarizing customer request and current status",
-  "stage": "short status phrase"
+  "summary": "One or two sentences, 30 words or fewer in total. Say what they want and what is outstanding. Start with the customer's request, not with the word 'The customer'.",
+  "stage": "Three words or fewer naming where this stands, e.g. 'Waiting on price', 'Ready to book', 'Needs your answer'. Sentence case."
 }`;
 
   try {
@@ -771,7 +820,14 @@ Return ONLY valid JSON:
       failed: false,
     };
   } catch (error) {
-    return { summary: previousSummary || null, stage: null, failed: true, errorMessage: error.message };
+    // Keep the last good summary if there is one; otherwise say plainly that
+    // there is not one yet rather than rendering an empty panel.
+    return {
+      summary: previousSummary || 'No summary yet.',
+      stage: previousSummary ? null : 'Not read yet',
+      failed: true,
+      errorMessage: error.message,
+    };
   }
 }
 

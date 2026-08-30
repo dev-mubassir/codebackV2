@@ -1,5 +1,9 @@
 /**
- * Canonical, extensible constants for Codeback's Generalized AI DM Intelligence & CRM.
+ * Canonical constants for conversation classification and priority scoring.
+ *
+ * The VALUES here are stored in the database and sent in API payloads, so they
+ * never change. Their human labels live in frontend/src/content/labels.js and
+ * are resolved at render time only.
  *
  * Supports Creators, Video/Photo Editors, Product Sellers, Freelancers, Local Businesses,
  * Coaches, E-Commerce, Agencies, and more.
