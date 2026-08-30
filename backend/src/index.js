@@ -32,6 +32,7 @@ const brandDealRoutes = require('./routes/brandDeals');
 const notificationRoutes = require('./routes/notifications');
 const settingsRoutes = require('./routes/settings');
 const subscriptionRoutes = require('./routes/subscription');
+const dataDeletionRoutes = require('./routes/dataDeletion');
 
 const { setIO } = require('./lib/socket');
 const { startWorkers } = require('./jobs');
@@ -81,7 +82,6 @@ app.use(cookieParser());
 app.set('trust proxy', 1);
 
 const isProduction = process.env.NODE_ENV === 'production';
-const DEFAULT_SESSION_SECRET = 'codeback-dev-secret-change-in-production';
 
 // ---- Critical production security assertions (fail closed) ----
 if (isProduction && process.env.SKIP_SIGNATURE_VERIFICATION === 'true') {
@@ -89,13 +89,39 @@ if (isProduction && process.env.SKIP_SIGNATURE_VERIFICATION === 'true') {
   process.exit(1);
 }
 
-if (isProduction && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === DEFAULT_SESSION_SECRET)) {
-  console.error('[Server] FATAL: SESSION_SECRET must be set to a strong, unique value in production. Refusing to start.');
-  process.exit(1);
+// SESSION_SECRET is required in EVERY environment and has no fallback value.
+// A hardcoded default is public knowledge the moment it reaches a repo, and
+// anyone holding it can forge a signed session cookie for any user — so the
+// server refuses to boot rather than silently signing with a known key.
+const SESSION_SECRET = (process.env.SESSION_SECRET || '').trim();
+if (!SESSION_SECRET) {
+  console.error('[Server] FATAL: SESSION_SECRET is not set. Generate one with:');
+  console.error("           node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
+  throw new Error('SESSION_SECRET is required — refusing to start without a session signing key.');
+}
+if (SESSION_SECRET.length < 32) {
+  console.error(`[Server] FATAL: SESSION_SECRET is only ${SESSION_SECRET.length} characters. Use at least 32.`);
+  throw new Error('SESSION_SECRET is too short — refusing to start with a weak session signing key.');
 }
 
 if (isProduction && !process.env.INSTAGRAM_APP_SECRET) {
   console.error('[Server] FATAL: INSTAGRAM_APP_SECRET must be set in production (webhook signatures cannot be verified without it). Refusing to start.');
+  process.exit(1);
+}
+
+// An admin session can impersonate any tenant, so the admin credential is
+// effectively a master key to every customer's DMs. A plaintext password in
+// an environment variable is readable from the hosting dashboard, a log dump,
+// or any shell on the container — so production requires the bcrypt hash and
+// refuses to start if the plaintext form is present at all.
+if (isProduction && process.env.ADMIN_PASSWORD) {
+  console.error('[Server] FATAL: ADMIN_PASSWORD (plaintext) must not be set in production. Use ADMIN_PASSWORD_HASH instead:');
+  console.error('           node -e "console.log(require(\'bcryptjs\').hashSync(process.argv[1], 12))" \'your-password\'');
+  console.error('           ...then unset ADMIN_PASSWORD.');
+  process.exit(1);
+}
+if (isProduction && process.env.ADMIN_USERNAME && !process.env.ADMIN_PASSWORD_HASH) {
+  console.error('[Server] FATAL: ADMIN_USERNAME is set but ADMIN_PASSWORD_HASH is not. Admin login would be unusable in production. Refusing to start.');
   process.exit(1);
 }
 
@@ -107,10 +133,73 @@ if (!isProduction && looksPublic) {
   console.warn('[Server] WARNING: Public FRONTEND_URL/BACKEND_URL detected while NODE_ENV is not "production". Production safeguards (secure cookies, strict CORS/headers gating) are relaxed. Set NODE_ENV=production for public deployments.');
 }
 
+/**
+ * Session store selection.
+ *
+ * Redis whenever REDIS_URL is configured — sessions then survive a restart and
+ * are shared across instances, which the default MemoryStore cannot do (it also
+ * leaks memory, since it never evicts expired sessions).
+ *
+ * Without REDIS_URL we fall back to MemoryStore. That is fine for local dev and
+ * single-instance use, but it means every deploy/restart logs everyone out, so
+ * it warns loudly rather than failing — set REDIS_URL to remove the warning.
+ * A configured-but-broken Redis is a different matter: in production that is a
+ * hard failure, because silently degrading to MemoryStore is exactly the
+ * outcome this is meant to prevent.
+ *
+ * TODO(post-review): a missing REDIS_URL currently only WARNS in production.
+ * That is a deliberate accommodation for the current single-instance review
+ * deployment, which has no Redis provisioned — making it fatal today would
+ * simply prevent the app from booting.
+ *
+ * Once Redis is actually activated, tighten this: either make the missing-URL
+ * case fatal in production outright, or gate it behind an explicit
+ * ENFORCE_REDIS_SESSIONS=true so the strictness is opt-in per environment.
+ * Until then a real multi-instance deploy can silently run on MemoryStore,
+ * where sessions are per-process — users would be logged out at random as
+ * requests land on different instances, and memory would grow unbounded.
+ */
+function buildSessionStore() {
+  const REDIS_URL = process.env.REDIS_URL;
+
+  if (!REDIS_URL) {
+    if (isProduction) {
+      console.warn('[Session] WARNING: REDIS_URL is not set — using in-memory sessions in production.');
+      console.warn('[Session]          Every restart or deploy will log all users out, sessions are not');
+      console.warn('[Session]          shared across instances, and memory grows unbounded. Set REDIS_URL.');
+    } else {
+      console.log('[Session] REDIS_URL not set — using in-memory session store (fine for local dev).');
+    }
+    return undefined; // express-session falls back to MemoryStore
+  }
+
+  try {
+    const IORedis = require('ioredis');
+    const { RedisStore } = require('connect-redis');
+
+    const client = new IORedis(REDIS_URL, {
+      maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+    });
+    client.on('error', (err) => console.error('[Session] Redis client error:', err.message));
+
+    console.log('[Session] Using Redis-backed session store.');
+    return new RedisStore({ client, prefix: 'codeback:sess:' });
+  } catch (err) {
+    console.error('[Session] FATAL: REDIS_URL is set but the Redis session store failed to initialize:', err.message);
+    if (isProduction) {
+      throw new Error('Redis session store is configured but unavailable — refusing to fall back to MemoryStore in production.');
+    }
+    console.warn('[Session] Falling back to in-memory sessions (non-production only).');
+    return undefined;
+  }
+}
+
 // Session middleware
 const sessionMiddleware = session({
   name: 'codeback.sid',
-  secret: process.env.SESSION_SECRET || DEFAULT_SESSION_SECRET,
+  store: buildSessionStore(),
+  secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -219,10 +308,14 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Handle OAuth callback if REDIRECT_URI is exactly the ngrok root
+// Handle OAuth callback if REDIRECT_URI is exactly the ngrok root.
+// `state` must be forwarded too, or the callback's CSRF check can never pass.
 app.get('/', (req, res) => {
   if (req.query.code) {
-    return res.redirect(`/auth/instagram/callback?code=${req.query.code}`);
+    const qs = new URLSearchParams();
+    qs.set('code', req.query.code);
+    if (req.query.state) qs.set('state', req.query.state);
+    return res.redirect(`/auth/instagram/callback?${qs.toString()}`);
   }
   res.send('Codeback Backend is running');
 });
@@ -233,6 +326,10 @@ app.use('/auth', authRoutes);
 // Webhook routes (Instagram webhook - mounted on both /webhook and /webhooks/instagram)
 app.use('/webhook', webhookRoutes);
 app.use('/webhooks/instagram', webhookRoutes);
+
+// Meta Data Deletion Request Callback (unauthenticated by design — the
+// signed_request HMAC is the authentication). Review-critical surface.
+app.use('/data-deletion', dataDeletionRoutes);
 
 // Admin panel routes (must be mounted before /api)
 app.use('/api/admin', adminRoutes);

@@ -163,7 +163,7 @@ router.get('/conversations', async (req, res) => {
     res.json(conversationsWithWindow);
   } catch (error) {
     console.error('[API] Error fetching conversations:', error.message);
-    res.status(500).json({ error: 'Failed to fetch conversations' });
+    res.status(500).json({ error: "Couldn't load your conversations. Refresh to try again." });
   }
 });
 
@@ -200,7 +200,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
     // read any other user's messages just by knowing the conversation ID.
 
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     // Build the query for messages
@@ -261,7 +261,7 @@ router.get('/conversations/:id/messages', async (req, res) => {
     });
   } catch (error) {
     console.error('[API] Error fetching messages:', error.message);
-    res.status(500).json({ error: 'Failed to fetch messages' });
+    res.status(500).json({ error: "Couldn't open that conversation. Try again." });
   }
 });
 
@@ -278,7 +278,7 @@ router.post('/conversations/:id/read', async (req, res) => {
       where: { id, instagramAccount: { userId: req.userId } },
     });
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     const updated = await prisma.conversation.update({
@@ -299,7 +299,7 @@ router.post('/conversations/:id/read', async (req, res) => {
     res.json({ id: updated.id, unread: updated.unread, needsAttention: updated.needsAttention, needsHuman: updated.needsHuman });
   } catch (error) {
     console.error('[API] Error updating read state:', error.message);
-    res.status(500).json({ error: 'Failed to update conversation' });
+    res.status(500).json({ error: "Couldn't update that conversation. Try again." });
   }
 });
 
@@ -317,7 +317,7 @@ router.patch('/conversations/:id/auto-reply', async (req, res) => {
       include: { contact: true },
     });
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     const dataToUpdate = {};
@@ -349,7 +349,7 @@ router.patch('/conversations/:id/auto-reply', async (req, res) => {
     });
   } catch (error) {
     console.error('[API] Error updating auto-reply settings:', error.message);
-    res.status(500).json({ error: 'Failed to update auto-reply settings' });
+    res.status(500).json({ error: "Couldn't change automatic replies for that conversation. Try again." });
   }
 });
 
@@ -366,7 +366,7 @@ router.delete('/conversations/:id/messages', async (req, res) => {
       include: { contact: true },
     });
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     // Delete all messages in the conversation
@@ -394,14 +394,14 @@ router.delete('/conversations/:id/messages', async (req, res) => {
     console.log(`[API] Cleared ${deleteResult.count} messages for conversation ${id} (@${conversation.contact?.username || 'user'})`);
 
     res.json({
-      message: 'Chat cleared successfully',
+      message: 'Messages cleared',
       conversationId: id,
       deletedCount: deleteResult.count,
       conversation: updated,
     });
   } catch (error) {
     console.error('[API] Error clearing chat messages:', error.message);
-    res.status(500).json({ error: 'Failed to clear chat messages' });
+    res.status(500).json({ error: "Couldn't clear those messages. Try again." });
   }
 });
 
@@ -418,7 +418,7 @@ router.delete('/conversations/:id', async (req, res) => {
       include: { contact: true },
     });
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     // Delete the conversation (Prisma schema cascades messages, AI analyses, summaries, etc.)
@@ -433,12 +433,12 @@ router.delete('/conversations/:id', async (req, res) => {
     console.log(`[API] Fully deleted conversation ${id} (@${conversation.contact?.username || 'user'})`);
 
     res.json({
-      message: 'Conversation deleted successfully',
+      message: 'Conversation deleted',
       conversationId: id,
     });
   } catch (error) {
     console.error('[API] Error deleting conversation:', error.message);
-    res.status(500).json({ error: 'Failed to delete conversation' });
+    res.status(500).json({ error: "Couldn't delete that conversation. Try again." });
   }
 });
 
@@ -454,7 +454,7 @@ router.get('/conversations/:id/ai-analysis', async (req, res) => {
       where: { id, instagramAccount: { userId: req.userId } },
     });
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     const [latestAnalysis, summary, brandDeal, replyGenerations] = await Promise.all([
@@ -476,7 +476,7 @@ router.get('/conversations/:id/ai-analysis', async (req, res) => {
     });
   } catch (error) {
     console.error('[API] Error fetching AI analysis:', error.message);
-    res.status(500).json({ error: 'Failed to fetch AI analysis' });
+    res.status(500).json({ error: "Couldn't load the insights for that conversation. Try again." });
   }
 });
 
@@ -495,7 +495,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
       include: { contact: true },
     });
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     const [recentMessages, preferences, businessProfile, brandDeal] = await Promise.all([
@@ -517,7 +517,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
 
     if (result.failed || !result.text) {
       return res.status(502).json({
-        error: 'AI reply generation is unavailable right now.',
+        error: "Couldn't draft a reply just now. Write your own below.",
         details: result.errorMessage || 'The AI provider did not return a draft.',
       });
     }
@@ -536,7 +536,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
     res.json({ id: saved.id, text: saved.generatedText, model: saved.model, createdAt: saved.createdAt });
   } catch (error) {
     console.error('[API] Error generating reply:', error.message);
-    res.status(500).json({ error: 'Failed to generate reply' });
+    res.status(500).json({ error: "Couldn't draft a reply just now. Write your own below." });
   }
 });
 
@@ -552,7 +552,7 @@ router.post('/conversations/:id/reply', async (req, res) => {
     const { text, replyGenerationId } = req.body;
 
     if (!text || !text.trim()) {
-      return res.status(400).json({ error: 'Message text is required' });
+      return res.status(400).json({ error: 'Write something before sending.' });
     }
 
     // Find the conversation and verify ownership
@@ -568,7 +568,7 @@ router.post('/conversations/:id/reply', async (req, res) => {
     });
 
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     // Send the message via Instagram API
@@ -588,12 +588,12 @@ router.post('/conversations/:id/reply', async (req, res) => {
       // Check for 24-hour window violation
       if (errorData.code === 10 || errorData.error_subcode === 2534015) {
         return res.status(400).json({
-          error: 'Cannot send message — outside the 24-hour messaging window. The user must message you first.',
+          error: 'You can only reply within 24 hours of their last message. Ask them to message you again.',
         });
       }
 
       return res.status(502).json({
-        error: 'Failed to send message via Instagram',
+        error: "Couldn't send your message. Try again.",
         details: errorData.message || 'Unknown error',
       });
     }
@@ -647,7 +647,7 @@ router.post('/conversations/:id/reply', async (req, res) => {
     });
   } catch (error) {
     console.error('[API] Error sending reply:', error.message);
-    res.status(500).json({ error: 'Failed to send reply' });
+    res.status(500).json({ error: "Couldn't send your message. Try again." });
   }
 });
 
@@ -668,14 +668,14 @@ router.post('/contacts/:id/refresh-profile', async (req, res) => {
     });
 
     if (!contact) {
-      return res.status(404).json({ error: 'Contact not found' });
+      return res.status(404).json({ error: 'That contact no longer exists.' });
     }
 
     const accessToken = decrypt(contact.instagramAccount.accessToken);
     const profile = await instagram.fetchUserProfile(contact.igsid, accessToken);
 
     if (!profile) {
-      return res.status(502).json({ error: 'Failed to fetch profile from Instagram' });
+      return res.status(502).json({ error: "Couldn't refresh that profile from Instagram. Try again." });
     }
 
     const updated = await prisma.contact.update({
@@ -692,7 +692,7 @@ router.post('/contacts/:id/refresh-profile', async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[API] Error refreshing profile:', error.message);
-    res.status(500).json({ error: 'Failed to refresh profile' });
+    res.status(500).json({ error: "Couldn't refresh that profile. Try again." });
   }
 });
 

@@ -31,22 +31,24 @@ const DEFAULT_PROFILE = {
 async function getOrCreateBusinessProfile(userId) {
   if (!userId) throw new Error('userId is required');
 
-  let profile = await prisma.businessProfile.findUnique({
+  const existing = await prisma.businessProfile.findUnique({ where: { userId } });
+  if (existing) return existing;
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+
+  // upsert, not create: two callers can reach this at once (the dashboard
+  // fires several requests on load, and the analysis job calls this too), and
+  // a plain create loses the race with P2002 on the unique userId. The empty
+  // `update` makes the second caller read the winner's row.
+  return prisma.businessProfile.upsert({
     where: { userId },
+    update: {},
+    create: {
+      userId,
+      businessName: user?.name || '',
+      ...DEFAULT_PROFILE,
+    },
   });
-
-  if (!profile) {
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    profile = await prisma.businessProfile.create({
-      data: {
-        userId,
-        businessName: user?.name || '',
-        ...DEFAULT_PROFILE,
-      },
-    });
-  }
-
-  return profile;
 }
 
 function sanitizeBusinessProfileUpdate(raw = {}) {

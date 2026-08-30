@@ -833,3 +833,75 @@
   }
 }
 
+
+/* ---- Copy audit additions ---- */
+
+/* Stat-card eyebrow labels are written in caps in content/copy.js. The
+   tracking here is what makes them read as a label rather than shouting. */
+.cardLabel {
+  text-transform: none;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+/* One-line definition under a number, so the card explains itself. */
+.cardHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+  display: block;
+}
+
+.metricHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+/* Reply mode banner — states plainly whether anything sends without the user. */
+.replyModeBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.replyModeLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.replyModeLeft strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.replyModeHint {
+  color: var(--text-tertiary);
+}
+
+.distributionTotal {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.distributionNote {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}

@@ -17,6 +17,7 @@ const instagram = require('../lib/instagram');
 const { encrypt, decrypt } = require('../lib/crypto');
 const { getAIStats } = require('../services/aiService');
 const { createRateLimiter } = require('../lib/rateLimit');
+const { startAuthenticatedSession } = require('../lib/session');
 
 // Strip password hashes (and any other secrets) before returning user rows.
 function sanitizeUser(user) {
@@ -36,7 +37,7 @@ function timingSafeStrEqual(a, b) {
 const adminLoginLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: 'Too many admin login attempts. Please try again later.',
+  message: 'Too many login attempts. Wait a few minutes and try again.',
 });
 
 // ============================================
@@ -44,23 +45,32 @@ const adminLoginLimiter = createRateLimiter({
 // ============================================
 
 // POST /api/admin/login — Dedicated admin credentials from the environment.
-// Credentials MUST be configured via env (no hardcoded defaults). Prefer
-// ADMIN_PASSWORD_HASH (a bcrypt hash); ADMIN_PASSWORD (plaintext env) is
-// supported as a fallback.
+//
+// ADMIN_PASSWORD_HASH (a bcrypt hash) is the only accepted form in
+// production. Plaintext ADMIN_PASSWORD remains available for local
+// development only, and the server refuses to start if it is set in
+// production (see the startup gate in src/index.js).
+//
+// This matters more than a normal credential: an admin session can
+// impersonate any tenant (POST /api/admin/users/:id/impersonate), so a single
+// leaked environment variable is silent read access to every tenant's
+// customer DMs.
 router.post('/login', adminLoginLimiter, async (req, res) => {
   const { username, password } = req.body || {};
 
+  const isProduction = process.env.NODE_ENV === 'production';
   const adminUsername = process.env.ADMIN_USERNAME;
-  const adminPassword = process.env.ADMIN_PASSWORD;
   const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
+  // Never consult the plaintext variable in production, even if it is set.
+  const adminPassword = isProduction ? null : process.env.ADMIN_PASSWORD;
 
   if (!adminUsername || (!adminPassword && !adminPasswordHash)) {
-    console.error('[Admin Login] Admin credentials are not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD_HASH (or ADMIN_PASSWORD).');
-    return res.status(503).json({ error: 'Admin login is not configured on this server.' });
+    console.error('[Admin Login] Admin credentials are not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD_HASH.');
+    return res.status(503).json({ error: 'Admin login is not set up on this server.' });
   }
 
   if (typeof username !== 'string' || typeof password !== 'string') {
-    return res.status(400).json({ error: 'Username and password are required' });
+    return res.status(400).json({ error: 'Enter a username and password.' });
   }
 
   const usernameOk = timingSafeStrEqual(username, adminUsername);
@@ -72,7 +82,7 @@ router.post('/login', adminLoginLimiter, async (req, res) => {
   }
 
   if (!usernameOk || !passwordOk) {
-    return res.status(401).json({ error: 'Invalid admin username or password' });
+    return res.status(401).json({ error: 'That username or password is not right.' });
   }
 
   // Find or create admin user in database
@@ -90,24 +100,40 @@ router.post('/login', adminLoginLimiter, async (req, res) => {
     });
   }
 
-  req.session.isAdmin = true;
-  req.session.adminUsername = adminUsername;
-  req.session.adminUserId = adminUser.id;
-  // NOTE: We intentionally do NOT set req.session.userId here.
-  // Admin and user sessions share the same cookie. Setting userId
-  // would overwrite a regular user's session in another tab.
+  // Elevating to admin is a privilege transition, so it gets a FRESH session
+  // id (see lib/session.js).
+  //
+  // regenerate() discards all existing session data, so any regular-user
+  // login already on this cookie is carried across explicitly. Admin and user
+  // sessions share one cookie, and dropping userId here would silently log a
+  // signed-in user out of the main app the moment they opened the admin
+  // panel — the behaviour scripts/test-isolation.js asserts against.
+  //
+  // NOTE: we still never SET userId from admin credentials. Admin identity
+  // lives only in isAdmin/adminUserId.
+  const carriedUserId = req.session ? req.session.userId : undefined;
+  const carriedUserEmail = req.session ? req.session.userEmail : undefined;
+  const carriedIgUsername = req.session ? req.session.igUsername : undefined;
 
-  return req.session.save((err) => {
-    if (err) {
-      console.error('[Admin Login] Session save error:', err);
-      return res.status(500).json({ error: 'Failed to initialize session' });
-    }
-    return res.json({
-      success: true,
-      message: 'Admin authenticated successfully',
-      username: adminUsername,
-      user: sanitizeUser(adminUser),
+  try {
+    await startAuthenticatedSession(req, {
+      isAdmin: true,
+      adminUsername,
+      adminUserId: adminUser.id,
+      ...(carriedUserId ? { userId: carriedUserId } : {}),
+      ...(carriedUserEmail ? { userEmail: carriedUserEmail } : {}),
+      ...(carriedIgUsername ? { igUsername: carriedIgUsername } : {}),
     });
+  } catch (err) {
+    console.error('[Admin Login] Session save error:', err);
+    return res.status(500).json({ error: "Couldn't start your session. Try again." });
+  }
+
+  return res.json({
+    success: true,
+    message: 'Logged in',
+    username: adminUsername,
+    user: sanitizeUser(adminUser),
   });
 });
 
@@ -154,7 +180,7 @@ router.post('/logout', (req, res) => {
       delete req.session.userId;
     }
   }
-  res.json({ success: true, message: 'Admin logged out' });
+  res.json({ success: true, message: 'Logged out' });
 });
 
 // Apply requireAdmin to all remaining admin endpoints
@@ -210,13 +236,13 @@ router.get('/stats', async (req, res) => {
     // System Alerts Generation
     const alerts = [];
     if (failedWebhooks24h > 5) {
-      alerts.push({ level: 'WARNING', title: 'High Webhook Failures', message: `${failedWebhooks24h} failed webhooks in the last 24 hours.` });
+      alerts.push({ level: 'WARNING', title: 'Deliveries failing', message: `Meta failed to deliver ${failedWebhooks24h} times in the last 24 hours.` });
     }
     if (expiredAccounts > 0) {
-      alerts.push({ level: 'ERROR', title: 'Expired Tokens', message: `${expiredAccounts} Instagram account tokens require reconnection.` });
+      alerts.push({ level: 'ERROR', title: 'Accounts need reconnecting', message: `${expiredAccounts} connected account(s) stopped receiving messages.` });
     }
     if (totalAccounts === 0) {
-      alerts.push({ level: 'INFO', title: 'No Connected Accounts', message: 'No Instagram accounts connected yet.' });
+      alerts.push({ level: 'INFO', title: 'No connected accounts', message: 'No customer has connected an Instagram account yet.' });
     }
 
     // Recent signups (last 5)
@@ -262,7 +288,7 @@ router.get('/stats', async (req, res) => {
     });
   } catch (error) {
     console.error('[Admin API] Error fetching stats:', error.message);
-    res.status(500).json({ error: 'Failed to fetch dashboard stats' });
+    res.status(500).json({ error: "Couldn't load platform stats. Refresh to try again." });
   }
 });
 
@@ -280,11 +306,11 @@ router.get('/users', async (req, res) => {
 
     const whereClause = search ? {
       OR: [
-        { name: { contains: search } },
-        { email: { contains: search } },
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
         {
           instagramAccounts: {
-            some: { igUsername: { contains: search } }
+            some: { igUsername: { contains: search, mode: 'insensitive' } }
           }
         }
       ]
@@ -326,7 +352,7 @@ router.get('/users', async (req, res) => {
     });
   } catch (error) {
     console.error('[Admin API] Error listing users:', error.message);
-    res.status(500).json({ error: 'Failed to list users' });
+    res.status(500).json({ error: "Couldn't load customers. Refresh to try again." });
   }
 });
 
@@ -348,7 +374,7 @@ router.get('/users/export/csv', async (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename=codeback_users.csv');
     res.status(200).send(csv);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to export users CSV' });
+    res.status(500).json({ error: "Couldn't export that CSV. Try again." });
   }
 });
 
@@ -377,13 +403,13 @@ router.get('/users/:id', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'That customer no longer exists.' });
     }
 
     res.json(sanitizeUser(user));
   } catch (error) {
     console.error('[Admin API] Error fetching user detail:', error.message);
-    res.status(500).json({ error: 'Failed to fetch user details' });
+    res.status(500).json({ error: "Couldn't load that customer. Try again." });
   }
 });
 
@@ -395,7 +421,7 @@ router.post('/users/:id/suspend', async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'That customer no longer exists.' });
     }
 
     const updatedUser = await prisma.user.update({
@@ -418,7 +444,7 @@ router.post('/users/:id/suspend', async (req, res) => {
     });
   } catch (error) {
     console.error('[Admin API] Error toggling user suspension:', error.message);
-    res.status(500).json({ error: 'Failed to update user suspension status' });
+    res.status(500).json({ error: "Couldn't change that customer's status. Try again." });
   }
 });
 
@@ -428,7 +454,7 @@ router.delete('/users/:id', async (req, res) => {
     const { id } = req.params;
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'That customer no longer exists.' });
     }
 
     await prisma.user.delete({ where: { id } });
@@ -442,10 +468,10 @@ router.delete('/users/:id', async (req, res) => {
       req.ip
     );
 
-    res.json({ message: 'User deleted successfully' });
+    res.json({ message: 'Customer deleted' });
   } catch (error) {
     console.error('[Admin API] Error deleting user:', error.message);
-    res.status(500).json({ error: 'Failed to delete user' });
+    res.status(500).json({ error: "Couldn't delete that customer. Try again." });
   }
 });
 
@@ -455,7 +481,7 @@ router.post('/users/:id/impersonate', async (req, res) => {
     const { id } = req.params;
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'That customer no longer exists.' });
     }
 
     // Set impersonation state without destroying original admin user session
@@ -478,7 +504,7 @@ router.post('/users/:id/impersonate', async (req, res) => {
     });
   } catch (error) {
     console.error('[Admin API] Error impersonating user:', error.message);
-    res.status(500).json({ error: 'Failed to impersonate user' });
+    res.status(500).json({ error: "Couldn't open the customer view. Try again." });
   }
 });
 
@@ -486,6 +512,12 @@ router.post('/users/:id/impersonate', async (req, res) => {
 router.post('/impersonate/exit', async (req, res) => {
   try {
     const originalAdminId = req.session?.adminOriginalUserId;
+    // Captured before the session fields are cleared. The exit record used to
+    // log the ADMIN's own id as the target, which made it impossible to pair
+    // a start with its end and so to bound which tenant was accessed and for
+    // how long — the whole point of auditing impersonation.
+    const impersonatedUserId = req.session?.impersonatedUserId || null;
+
     if (originalAdminId) {
       req.session.userId = originalAdminId;
       delete req.session.adminOriginalUserId;
@@ -495,15 +527,15 @@ router.post('/impersonate/exit', async (req, res) => {
         originalAdminId,
         'USER_IMPERSONATE_EXIT',
         'USER',
-        originalAdminId,
-        { status: 'Exited impersonation mode' },
+        impersonatedUserId,
+        { status: 'Exited impersonation mode', impersonatedUserId, adminUserId: originalAdminId },
         req.ip
       );
     }
 
-    res.json({ message: 'Exited impersonation mode', redirectUrl: '/admin' });
+    res.json({ message: 'Returned to the admin panel', redirectUrl: '/admin' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to exit impersonation' });
+    res.status(500).json({ error: "Couldn't leave the customer view. Reload the page." });
   }
 });
 
@@ -519,9 +551,9 @@ router.get('/accounts', async (req, res) => {
     const whereClause = {};
     if (search) {
       whereClause.OR = [
-        { igUsername: { contains: search } },
-        { igName: { contains: search } },
-        { user: { name: { contains: search } } }
+        { igUsername: { contains: search, mode: 'insensitive' } },
+        { igName: { contains: search, mode: 'insensitive' } },
+        { user: { name: { contains: search, mode: 'insensitive' } } }
       ];
     }
 
@@ -555,7 +587,7 @@ router.get('/accounts', async (req, res) => {
     res.json(accounts);
   } catch (error) {
     console.error('[Admin API] Error listing accounts:', error.message);
-    res.status(500).json({ error: 'Failed to list Instagram accounts' });
+    res.status(500).json({ error: "Couldn't load connected accounts. Refresh to try again." });
   }
 });
 
@@ -576,7 +608,7 @@ router.get('/accounts/export/csv', async (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename=codeback_instagram_accounts.csv');
     res.status(200).send(csv);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to export accounts CSV' });
+    res.status(500).json({ error: "Couldn't export that CSV. Try again." });
   }
 });
 
@@ -586,7 +618,7 @@ router.post('/accounts/:id/refresh-token', async (req, res) => {
     const { id } = req.params;
     const account = await prisma.instagramAccount.findUnique({ where: { id } });
     if (!account) {
-      return res.status(404).json({ error: 'Instagram account not found' });
+      return res.status(404).json({ error: 'That account no longer exists.' });
     }
 
     const currentToken = decrypt(account.accessToken);
@@ -615,7 +647,7 @@ router.post('/accounts/:id/refresh-token', async (req, res) => {
     );
 
     res.json({
-      message: 'Token refreshed successfully',
+      message: 'Access refreshed',
       account: {
         id: updated.id,
         igUsername: updated.igUsername,
@@ -631,7 +663,7 @@ router.post('/accounts/:id/refresh-token', async (req, res) => {
     });
 
     res.status(502).json({
-      error: 'Failed to refresh token with Meta API',
+      error: "Couldn't refresh access with Meta.",
       details: error.response?.data?.error?.message || error.message
     });
   }
@@ -643,7 +675,7 @@ router.post('/accounts/:id/resubscribe-webhook', async (req, res) => {
     const { id } = req.params;
     const account = await prisma.instagramAccount.findUnique({ where: { id } });
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' });
+      return res.status(404).json({ error: 'That account no longer exists.' });
     }
 
     const token = decrypt(account.accessToken);
@@ -662,7 +694,7 @@ router.post('/accounts/:id/resubscribe-webhook', async (req, res) => {
   } catch (error) {
     console.error('[Admin API] Webhook resubscribe error:', error.message);
     res.status(502).json({
-      error: 'Failed to re-subscribe webhooks with Meta',
+      error: "Couldn't resubscribe with Meta.",
       details: error.response?.data?.error?.message || error.message
     });
   }
@@ -686,9 +718,9 @@ router.post('/accounts/:id/mark-needs-reconnect', async (req, res) => {
       req.ip
     );
 
-    res.json({ message: 'Marked account as requiring reconnection', account: updated });
+    res.json({ message: 'Account marked as needing reconnection', account: updated });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update account status' });
+    res.status(500).json({ error: "Couldn't update that account. Try again." });
   }
 });
 
@@ -698,7 +730,7 @@ router.delete('/accounts/:id', async (req, res) => {
     const { id } = req.params;
     const account = await prisma.instagramAccount.findUnique({ where: { id } });
     if (!account) {
-      return res.status(404).json({ error: 'Account not found' });
+      return res.status(404).json({ error: 'That account no longer exists.' });
     }
 
     await prisma.instagramAccount.delete({ where: { id } });
@@ -712,10 +744,10 @@ router.delete('/accounts/:id', async (req, res) => {
       req.ip
     );
 
-    res.json({ message: 'Instagram account disconnected successfully' });
+    res.json({ message: 'Account disconnected' });
   } catch (error) {
     console.error('[Admin API] Error disconnecting account:', error.message);
-    res.status(500).json({ error: 'Failed to disconnect account' });
+    res.status(500).json({ error: "Couldn't disconnect that account. Try again." });
   }
 });
 
@@ -745,7 +777,7 @@ router.get('/logs/webhooks', async (req, res) => {
     res.json(logs);
   } catch (error) {
     console.error('[Admin API] Error fetching webhook logs:', error.message);
-    res.status(500).json({ error: 'Failed to fetch webhook logs' });
+    res.status(500).json({ error: "Couldn't load delivery logs. Refresh to try again." });
   }
 });
 
@@ -770,7 +802,7 @@ router.post('/logs/prune', async (req, res) => {
 
     res.json({ message: `Pruned ${deleted.count} webhook logs older than ${days} days.` });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to prune webhook logs' });
+    res.status(500).json({ error: "Couldn't clear those logs. Try again." });
   }
 });
 
@@ -788,7 +820,7 @@ router.get('/logs/audit', async (req, res) => {
     res.json(logs);
   } catch (error) {
     console.error('[Admin API] Error fetching audit logs:', error.message);
-    res.status(500).json({ error: 'Failed to fetch audit logs' });
+    res.status(500).json({ error: "Couldn't load the audit log. Refresh to try again." });
   }
 });
 
@@ -810,8 +842,8 @@ router.get('/support/search', async (req, res) => {
       prisma.user.findMany({
         where: {
           OR: [
-            { name: { contains: query } },
-            { email: { contains: query } },
+            { name: { contains: query, mode: 'insensitive' } },
+            { email: { contains: query, mode: 'insensitive' } },
           ]
         },
         take: 5,
@@ -824,9 +856,9 @@ router.get('/support/search', async (req, res) => {
       prisma.instagramAccount.findMany({
         where: {
           OR: [
-            { igUsername: { contains: query } },
-            { igName: { contains: query } },
-            { igUserId: { contains: query } },
+            { igUsername: { contains: query, mode: 'insensitive' } },
+            { igName: { contains: query, mode: 'insensitive' } },
+            { igUserId: { contains: query, mode: 'insensitive' } },
           ]
         },
         take: 5,
@@ -846,7 +878,7 @@ router.get('/support/search', async (req, res) => {
     res.json({ users: sanitizeUsers(users), accounts });
   } catch (error) {
     console.error('[Admin API] Support search error:', error.message);
-    res.status(500).json({ error: 'Failed to execute support search' });
+    res.status(500).json({ error: "Couldn't run that search. Try again." });
   }
 });
 
@@ -866,13 +898,13 @@ router.get('/support/conversations/:id', async (req, res) => {
     });
 
     if (!conversation) {
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'That conversation no longer exists.' });
     }
 
     res.json(conversation);
   } catch (error) {
     console.error('[Admin API] Error loading support conversation:', error.message);
-    res.status(500).json({ error: 'Failed to load conversation for support' });
+    res.status(500).json({ error: "Couldn't open that conversation. Try again." });
   }
 });
 
@@ -897,7 +929,7 @@ router.get('/settings', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch admin settings' });
+    res.status(500).json({ error: "Couldn't load server configuration. Refresh to try again." });
   }
 });
 

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { register } from '@/lib/api';
+import Icon from '@/app/components/Icon';
+import { auth, errors, validation } from '@/content/copy';
 import styles from '../login/login.module.css';
 
 export default function RegisterPage() {
@@ -20,12 +22,12 @@ export default function RegisterPage() {
     setError('');
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+      setError(validation.passwordTooShort);
       return;
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match.');
+      setError(validation.passwordMismatch);
       return;
     }
 
@@ -35,7 +37,7 @@ export default function RegisterPage() {
       await register({ name, email, password, confirmPassword });
       router.push('/onboarding');
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to create account. Please try again.');
+      setError(err.response?.data?.error || errors.generic);
     } finally {
       setLoading(false);
     }
@@ -45,16 +47,14 @@ export default function RegisterPage() {
     <div className={styles.authContainer}>
       <div className={styles.authCard}>
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}>⚡</div>
-          <h1 className={styles.authTitle}>Create your Codeback Account</h1>
-          <p className={styles.authSubtitle}>
-            Start qualifying leads and automating safe Instagram replies today
-          </p>
+          <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
+          <h1 className={styles.authTitle}>{auth.register.title}</h1>
+          <p className={styles.authSubtitle}>{auth.register.subtitle}</p>
         </div>
 
         {error && (
-          <div className={styles.errorBanner}>
-            <span>⚠️</span>
+          <div className={styles.errorBanner} role="alert">
+            <Icon name="alertTriangle" size={14} />
             <span>{error}</span>
           </div>
         )}
@@ -62,13 +62,13 @@ export default function RegisterPage() {
         <form onSubmit={handleSubmit} className={styles.authForm}>
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="name">
-              Your Full Name or Brand Name
+              {auth.register.nameLabel}
             </label>
             <input
               id="name"
               type="text"
               className="input"
-              placeholder="e.g. Sarah Jenkins or Apex Video Studio"
+              placeholder={auth.register.namePlaceholder}
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -78,13 +78,13 @@ export default function RegisterPage() {
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="email">
-              Email Address
+              {auth.register.emailLabel}
             </label>
             <input
               id="email"
               type="email"
               className="input"
-              placeholder="you@company.com"
+              placeholder={auth.register.emailPlaceholder}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -93,7 +93,7 @@ export default function RegisterPage() {
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="password">
-              Password (min. 6 characters)
+              {auth.register.passwordLabel}
             </label>
             <input
               id="password"
@@ -108,7 +108,7 @@ export default function RegisterPage() {
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="confirmPassword">
-              Confirm Password
+              {auth.register.confirmPasswordLabel}
             </label>
             <input
               id="confirmPassword"
@@ -127,14 +127,14 @@ export default function RegisterPage() {
             disabled={loading}
             id="register-submit-btn"
           >
-            {loading ? 'Creating Account…' : 'Create Account & Continue →'}
+            {loading ? auth.register.submitting : auth.register.submit}
           </button>
         </form>
 
         <div className={styles.authFooter}>
-          Already have an account?
+          {auth.register.footer}
           <Link href="/login" className={styles.authLink}>
-            Sign In
+            {auth.register.footerAction}
           </Link>
         </div>
       </div>

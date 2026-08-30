@@ -8,11 +8,16 @@
 const prisma = require('../lib/prisma');
 
 async function getOrCreatePreferences(userId) {
-  let prefs = await prisma.creatorPreference.findUnique({ where: { userId } });
-  if (!prefs) {
-    prefs = await prisma.creatorPreference.create({ data: { userId } });
-  }
-  return prefs;
+  const existing = await prisma.creatorPreference.findUnique({ where: { userId } });
+  if (existing) return existing;
+
+  // upsert, not create — concurrent callers would otherwise race and one
+  // would fail with P2002 on the unique userId.
+  return prisma.creatorPreference.upsert({
+    where: { userId },
+    update: {},
+    create: { userId },
+  });
 }
 
 const ALLOWED_LEVELS = ['critical', 'high', 'normal', 'low', 'off'];

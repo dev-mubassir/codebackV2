@@ -10,6 +10,7 @@
  */
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
@@ -17,17 +18,19 @@ const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
 const { disconnectUserSockets } = require('../lib/socket');
 const { createRateLimiter } = require('../lib/rateLimit');
+const { startAuthenticatedSession, saveSession } = require('../lib/session');
+const { logAdminAction } = require('../lib/auditLogger');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 10,
-  message: 'Too many login attempts. Please try again in a few minutes.',
+  message: 'Too many login attempts. Wait a few minutes and try again.',
 });
 const registerLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 20,
-  message: 'Too many accounts created from this IP. Please try again later.',
+  message: 'Too many accounts created from this network. Wait a few minutes and try again.',
 });
 
 // Helper to sanitize user object
@@ -46,19 +49,19 @@ router.post('/register', registerLimiter, async (req, res) => {
     const { name, email, password, confirmPassword } = req.body || {};
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
-      return res.status(400).json({ error: 'Please enter a valid full name (at least 2 characters)' });
+      return res.status(400).json({ error: 'Enter a full name of at least 2 characters.' });
     }
 
     if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return res.status(400).json({ error: 'Please enter a valid email address' });
+      return res.status(400).json({ error: 'Enter a valid email address.' });
     }
 
     if (!password || typeof password !== 'string' || password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      return res.status(400).json({ error: 'Use at least 6 characters.' });
     }
 
     if (password !== confirmPassword) {
-      return res.status(400).json({ error: 'Passwords do not match' });
+      return res.status(400).json({ error: 'Those passwords do not match.' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -69,7 +72,7 @@ router.post('/register', registerLimiter, async (req, res) => {
     });
 
     if (existing) {
-      return res.status(409).json({ error: 'An account with this email already exists. Please log in.' });
+      return res.status(409).json({ error: 'An account already uses that email address. Log in instead.' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -104,23 +107,18 @@ router.post('/register', registerLimiter, async (req, res) => {
       },
     });
 
-    // Set session
-    req.session.userId = user.id;
-    req.session.userEmail = user.email;
-
-    await new Promise((resolve, reject) => {
-      req.session.save((err) => (err ? reject(err) : resolve()));
-    });
+    // Set session on a FRESH session id — never the one the client presented.
+    await startAuthenticatedSession(req, { userId: user.id, userEmail: user.email });
 
     console.log(`[Auth] New user registered: ${user.email} (${user.id})`);
 
     res.status(201).json({
-      message: 'Account created successfully',
+      message: 'Account created',
       user: sanitizeUser(user),
     });
   } catch (error) {
     console.error('[Auth] Registration error:', error.message);
-    res.status(500).json({ error: 'Failed to create account. Please try again.' });
+    res.status(500).json({ error: "Couldn't create your account. Try again in a moment." });
   }
 });
 
@@ -133,7 +131,7 @@ router.post('/login', loginLimiter, async (req, res) => {
     const { email, password } = req.body || {};
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      return res.status(400).json({ error: 'Enter your email address and password.' });
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -156,16 +154,16 @@ router.post('/login', loginLimiter, async (req, res) => {
     });
 
     if (!user || !user.passwordHash) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'That email or password is not right.' });
     }
 
     const isMatch = await bcrypt.compare(String(password), user.passwordHash);
     if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ error: 'That email or password is not right.' });
     }
 
     if (user.isSuspended) {
-      return res.status(403).json({ error: 'Your account has been suspended. Please contact support.' });
+      return res.status(403).json({ error: 'This account is suspended. Contact support.' });
     }
 
     // Update last seen
@@ -174,23 +172,18 @@ router.post('/login', loginLimiter, async (req, res) => {
       data: { lastSeenAt: new Date() },
     }).catch(() => {});
 
-    // Set session
-    req.session.userId = user.id;
-    req.session.userEmail = user.email;
-
-    await new Promise((resolve, reject) => {
-      req.session.save((err) => (err ? reject(err) : resolve()));
-    });
+    // Set session on a FRESH session id — never the one the client presented.
+    await startAuthenticatedSession(req, { userId: user.id, userEmail: user.email });
 
     console.log(`[Auth] User logged in: ${user.email} (${user.id})`);
 
     res.json({
-      message: 'Logged in successfully',
+      message: 'Logged in',
       user: sanitizeUser(user),
     });
   } catch (error) {
     console.error('[Auth] Login error:', error.message);
-    res.status(500).json({ error: 'Failed to log in. Please try again.' });
+    res.status(500).json({ error: "Couldn't log you in. Try again in a moment." });
   }
 });
 
@@ -210,11 +203,11 @@ router.post('/logout', (req, res) => {
         console.error('[Auth] Error destroying session on logout:', err);
       }
       res.clearCookie('codeback.sid');
-      return res.json({ message: 'Logged out successfully' });
+      return res.json({ message: 'Logged out' });
     });
   } else {
     res.clearCookie('codeback.sid');
-    return res.json({ message: 'Logged out successfully' });
+    return res.json({ message: 'Logged out' });
   }
 });
 
@@ -222,13 +215,30 @@ router.post('/logout', (req, res) => {
 // GET /auth/instagram
 // Redirect user to Instagram OAuth consent screen
 // ============================================
-router.get('/instagram', (req, res) => {
+router.get('/instagram', async (req, res) => {
+  // CSRF binding: a single-use, unguessable value tying the browser that
+  // starts the flow to the browser that comes back to the callback. Without
+  // it, anyone can feed a victim's logged-in browser an authorization code
+  // of their choosing and silently attach their Instagram account to the
+  // victim's workspace.
+  const state = crypto.randomBytes(32).toString('hex');
+  req.session.oauthState = state;
+  req.session.oauthStateAt = Date.now();
+
+  try {
+    await saveSession(req);
+  } catch (err) {
+    console.error('[Auth] Failed to persist OAuth state:', err.message);
+    return res.redirect(`${process.env.FRONTEND_URL}?error=oauth_state_unavailable`);
+  }
+
   const authUrl = instagram.getAuthorizationUrl(
     process.env.INSTAGRAM_APP_ID,
-    process.env.REDIRECT_URI
+    process.env.REDIRECT_URI,
+    state
   );
 
-  console.log('[Auth] Redirecting to Instagram OAuth:', authUrl);
+  console.log('[Auth] Redirecting to Instagram OAuth');
   res.redirect(authUrl);
 });
 
@@ -238,7 +248,31 @@ router.get('/instagram', (req, res) => {
 // ============================================
 router.get('/instagram/callback', async (req, res) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
+
+    // CSRF check FIRST — before spending a Meta round-trip on an
+    // authorization code we have no reason to trust. The stored state is
+    // consumed here whatever the outcome, so a value can never be replayed.
+    const expectedState = req.session ? req.session.oauthState : null;
+    const issuedAt = req.session ? req.session.oauthStateAt : null;
+    if (req.session) {
+      delete req.session.oauthState;
+      delete req.session.oauthStateAt;
+    }
+
+    const STATE_TTL_MS = 10 * 60 * 1000;
+    const stateExpired = !issuedAt || Date.now() - issuedAt > STATE_TTL_MS;
+    const stateMatches =
+      typeof state === 'string' &&
+      typeof expectedState === 'string' &&
+      state.length === expectedState.length &&
+      crypto.timingSafeEqual(Buffer.from(state), Buffer.from(expectedState));
+
+    if (!stateMatches || stateExpired) {
+      console.warn('[Auth] Rejected OAuth callback: missing, stale, or mismatched state.');
+      await saveSession(req).catch(() => {});
+      return res.redirect(`${process.env.FRONTEND_URL}?error=invalid_oauth_state`);
+    }
 
     if (!code) {
       console.error('[Auth] No authorization code in callback');
@@ -289,27 +323,58 @@ router.get('/instagram/callback', async (req, res) => {
       // this row and are never touched here.
       const targetUserId = currentUserId || existingAccount.userId;
 
-      // FIX 3: If re-linking to a different user, check for existing BrandDeal rows tied to this account
+      // Cross-tenant re-link. Completing OAuth for an account that already
+      // belongs to someone else used to move the row — and therefore every
+      // Contact / Conversation / Message / AIAnalysis hanging off it — to
+      // whoever happened to be logged in. The old guard only counted
+      // BrandDeal rows, so an account with thousands of DMs and no brand
+      // deal transferred silently.
+      //
+      // Conversation history is the thing that must never move. If any
+      // exists, refuse; the tenants involved are not named in the response.
       if (targetUserId !== existingAccount.userId) {
-        const existingDealsCount = await prisma.brandDeal.count({
-          where: {
-            instagramAccountId: existingAccount.id,
-            userId: { not: targetUserId },
-          },
+        const conversationCount = await prisma.conversation.count({
+          where: { instagramAccountId: existingAccount.id },
         });
 
-        if (existingDealsCount > 0) {
+        if (conversationCount > 0) {
           console.warn(
-            `[Auth] ⚠️ Re-link BLOCKED: Instagram account @${existingAccount.igUsername} (${igUserId}) has ${existingDealsCount} BrandDeal records owned by User ${existingAccount.userId}. Cannot transfer ownership to User ${targetUserId} automatically.`
+            `[Auth] Re-link BLOCKED: IG account ${igUserId} holds ${conversationCount} conversation(s) owned by another workspace.`
           );
+
+          await logAdminAction(
+            targetUserId,
+            'ACCOUNT_RELINK_BLOCKED',
+            'INSTAGRAM_ACCOUNT',
+            existingAccount.id,
+            {
+              igUserId,
+              attemptedByUserId: targetUserId,
+              currentOwnerUserId: existingAccount.userId,
+              conversationCount,
+            },
+            req.ip
+          );
+
           if (req.accepts('json') && !req.accepts('html')) {
             return res.status(409).json({
-              error: 'Account re-link conflict',
-              message: 'This Instagram account has existing brand deal history under a different user. Re-linking is blocked and requires manual administrator review.',
+              error: 'Account already connected',
+              message: 'That Instagram account is already connected to another Codeback account.',
             });
           }
-          return res.redirect(`${process.env.FRONTEND_URL}?error=account_conflict_brand_deals`);
+          return res.redirect(`${process.env.FRONTEND_URL}?error=account_already_connected`);
         }
+
+        // No history to lose, so the transfer is allowed — but it is still a
+        // change of ownership and is recorded as one.
+        await logAdminAction(
+          targetUserId,
+          'ACCOUNT_RELINK_TRANSFERRED',
+          'INSTAGRAM_ACCOUNT',
+          existingAccount.id,
+          { igUserId, fromUserId: existingAccount.userId, toUserId: targetUserId },
+          req.ip
+        );
       }
 
       await prisma.instagramAccount.update({
@@ -382,16 +447,9 @@ router.get('/instagram/callback', async (req, res) => {
       console.error('[Auth] Webhook subscription failed:', err.response?.data || err.message);
     }
 
-    // Step 7: Set session cookie so the user is "logged in"
-    req.session.userId = user.id;
-    req.session.igUsername = profile.username;
-
-    await new Promise((resolve, reject) => {
-      req.session.save((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+    // Step 7: Set session cookie so the user is "logged in", on a FRESH
+    // session id — completing OAuth is a privilege transition like any login.
+    await startAuthenticatedSession(req, { userId: user.id, igUsername: profile.username });
 
     console.log('[Auth] Login complete. Redirecting to dashboard.');
     res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
@@ -412,7 +470,7 @@ router.get('/me', async (req, res) => {
   const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return res.status(401).json({ error: 'Log in to continue.' });
   }
 
   try {
@@ -438,7 +496,7 @@ router.get('/me', async (req, res) => {
 
     if (!user) {
       req.session.destroy();
-      return res.status(401).json({ error: 'User not found' });
+      return res.status(401).json({ error: 'Log in to continue.' });
     }
 
     res.json({
@@ -454,7 +512,7 @@ router.get('/me', async (req, res) => {
     });
   } catch (error) {
     console.error('[Auth] Error fetching user:', error.message);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: "Couldn't load your account. Refresh to try again." });
   }
 });
 
@@ -466,7 +524,7 @@ router.put('/profile', async (req, res) => {
   const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return res.status(401).json({ error: 'Log in to continue.' });
   }
 
   try {
@@ -477,7 +535,7 @@ router.put('/profile', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Log in to continue.' });
     }
 
     const updateData = {};
@@ -489,16 +547,16 @@ router.put('/profile', async (req, res) => {
     // Password change
     if (newPassword) {
       if (newPassword.length < 6) {
-        return res.status(400).json({ error: 'New password must be at least 6 characters long' });
+        return res.status(400).json({ error: 'Use at least 6 characters.' });
       }
 
       if (user.passwordHash) {
         if (!currentPassword) {
-          return res.status(400).json({ error: 'Please enter your current password' });
+          return res.status(400).json({ error: 'Enter your current password.' });
         }
         const match = await bcrypt.compare(currentPassword, user.passwordHash);
         if (!match) {
-          return res.status(400).json({ error: 'Incorrect current password' });
+          return res.status(400).json({ error: 'That current password is not right.' });
         }
       }
 
@@ -516,12 +574,12 @@ router.put('/profile', async (req, res) => {
     });
 
     res.json({
-      message: 'Profile updated successfully',
+      message: 'Your details were saved',
       user: sanitizeUser(updatedUser),
     });
   } catch (error) {
     console.error('[Auth] Error updating profile:', error.message);
-    res.status(500).json({ error: 'Failed to update profile' });
+    res.status(500).json({ error: "Couldn't save your details. Try again." });
   }
 });
 
@@ -533,7 +591,7 @@ router.delete('/account', async (req, res) => {
   const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
-    return res.status(401).json({ error: 'Not authenticated' });
+    return res.status(401).json({ error: 'Log in to continue.' });
   }
 
   try {
@@ -542,7 +600,7 @@ router.delete('/account', async (req, res) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'Log in to continue.' });
     }
 
     // Delete user from database (cascades to all user data)
@@ -556,11 +614,11 @@ router.delete('/account', async (req, res) => {
     req.session.destroy((err) => {
       if (err) console.error('[Auth] Error destroying session on account delete:', err);
       res.clearCookie('codeback.sid');
-      res.json({ message: 'Account permanently deleted' });
+      res.json({ message: 'Account deleted' });
     });
   } catch (error) {
     console.error('[Auth] Error deleting account:', error.message);
-    res.status(500).json({ error: 'Failed to delete account' });
+    res.status(500).json({ error: "Couldn't delete your account. Try again, or contact support." });
   }
 });
 

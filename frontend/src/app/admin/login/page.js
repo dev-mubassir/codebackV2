@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminLogin } from '@/lib/api';
+import Icon from '@/app/components/Icon';
+import { admin as t, errors } from '@/content/copy';
 import styles from '../admin.module.css';
 
 export default function AdminLoginPage() {
@@ -22,10 +24,10 @@ export default function AdminLoginPage() {
       if (res && res.success) {
         window.location.href = '/admin';
       } else {
-        setError(res?.error || 'Invalid admin credentials');
+        setError(res?.error || errors.admin.login);
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Invalid admin credentials');
+      setError(err.response?.data?.error || errors.admin.login);
     } finally {
       setSubmitting(false);
     }
@@ -51,13 +53,13 @@ export default function AdminLoginPage() {
       }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
           <span className="badge badge-primary" style={{ fontSize: '11px', marginBottom: '8px' }}>
-            SUPER ADMIN CONTROL PANEL
+            {t.login.eyebrow}
           </span>
           <h1 style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '8px', color: 'var(--text-primary)' }}>
-            Codeback Administration
+            {t.login.title}
           </h1>
           <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            System Administrator Authentication
+            {t.login.subtitle}
           </p>
         </div>
 
@@ -72,20 +74,20 @@ export default function AdminLoginPage() {
             marginBottom: '20px',
             fontWeight: 500,
             textAlign: 'center'
-          }}>
-            ⚠️ {error}
+          }} role="alert">
+            {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
             <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              Admin Username
+              {t.login.usernameLabel}
             </label>
             <input
               type="text"
               className="input"
-              placeholder="Enter username"
+              placeholder={t.login.usernamePlaceholder}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="off"
@@ -95,12 +97,12 @@ export default function AdminLoginPage() {
 
           <div>
             <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              Admin Password
+              {t.login.passwordLabel}
             </label>
             <input
               type="password"
               className="input"
-              placeholder="Enter password"
+              placeholder={t.login.passwordPlaceholder}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
@@ -114,7 +116,7 @@ export default function AdminLoginPage() {
             style={{ width: '100%', marginTop: '8px' }}
             disabled={submitting}
           >
-            {submitting ? 'Authenticating...' : 'Sign In To Admin →'}
+            {submitting ? t.login.submitting : t.login.submit}
           </button>
         </form>
       </div>

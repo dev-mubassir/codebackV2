@@ -20,31 +20,42 @@ import {
   combineKnowledgeTemplates,
 } from '@/lib/businessTemplates';
 import AppShell from '@/app/components/AppShell';
+import Icon from '@/app/components/Icon';
+import { settings as t, common, errors, empty, confirm as confirmCopy, toast } from '@/content/copy';
+import {
+  PRIORITY_WEIGHT_ORDER,
+  TONE_ORDER,
+  priorityWeightLabel,
+  toneLabel,
+  replyModeLabel,
+  replyModeSendsAutomatically,
+  DEFAULT_REPLY_MODE,
+} from '@/content/labels';
+import { plural } from '@/content/format';
 import styles from './settings.module.css';
 
-const LEVELS = ['critical', 'high', 'normal', 'low', 'off'];
-const TONES = ['friendly', 'professional', 'casual', 'concise', 'warm', 'custom'];
-const AUTO_REPLY_MODES = [
-  { id: 'smart', label: '⚡ Smart Auto-Reply (Safe, qualified questions only)' },
-  { id: 'suggest_only', label: '💡 Suggest Only (Draft AI replies for you to review and click Send)' },
-  { id: 'human_only', label: '👤 Human Only (Never automatically send any messages)' },
-];
+// Stored values, unchanged — only their display wording lives in labels.js.
+const REPLY_MODES = ['smart', 'suggest_only', 'human_only'];
 
-const PRIORITY_ROWS = [
-  { key: 'customersPriority', label: '💰 Hot Leads & Customers' },
-  { key: 'brandDealsPriority', label: '🔥 Brand Deals & Sponsorships' },
-  { key: 'collaborationsPriority', label: '🤝 Collaborations & Partnerships' },
-  { key: 'questionsPriority', label: '❓ General Questions & FAQs' },
-  { key: 'fanPriority', label: '❤️ Fan & Social Messages' },
-  { key: 'spamPriority', label: '🚫 Spam & Low Relevance' },
+const PRIORITY_ROW_KEYS = [
+  'customersPriority',
+  'brandDealsPriority',
+  'collaborationsPriority',
+  'questionsPriority',
+  'fanPriority',
+  'spamPriority',
 ];
 
 function SettingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get('tab') || 'profile';
+  // Legacy links used ?tab=ai and ?tab=chats. Map them so old bookmarks and
+  // any link still in the wild land on the right tab.
+  const LEGACY_TABS = { ai: 'replies', chats: 'conversations' };
+  const rawTab = searchParams.get('tab') || 'profile';
+  const initialTab = LEGACY_TABS[rawTab] || rawTab;
 
-  const [activeTab, setActiveTab] = useState(initialTab); // 'profile' | 'ai' | 'chats'
+  const [activeTab, setActiveTab] = useState(initialTab); // 'profile' | 'replies' | 'conversations'
   const [prefs, setPrefs] = useState(null);
   const [businessProfile, setBusinessProfile] = useState(null);
   const [autoReplyChats, setAutoReplyChats] = useState([]);
@@ -112,8 +123,7 @@ function SettingsPageContent() {
     const current = parseBusinessTypes(businessProfile?.businessTypes, businessProfile?.primaryCategory);
     const combined = combineKnowledgeTemplates(current);
     if (!combined) return;
-    const names = current.map((id) => getCategoryMetadata(id).label).join(' + ');
-    if (confirm(`Load starter template for "${names}"? This will populate description, services, pricing, and FAQs (you can still edit everything).`)) {
+    if (confirm(`${confirmCopy.loadTemplate.title}\n\n${confirmCopy.loadTemplate.body}`)) {
       setBusinessProfile((prev) => ({
         ...prev,
         description: combined.description || '',
@@ -139,7 +149,7 @@ function SettingsPageContent() {
         prev.map((c) => (c.id === chatId ? { ...c, autoReplyEnabled: newStatus, autoReplyPrompt: prompt } : c))
       );
     } catch (err) {
-      alert('Failed to update chat auto-reply status');
+      alert(errors.toggleAutomation);
     }
   }
 
@@ -152,7 +162,7 @@ function SettingsPageContent() {
       );
       setExpandedChatId(null);
     } catch (err) {
-      alert('Failed to save custom instructions for chat');
+      alert(errors.saveSettings);
     }
   }
 
@@ -181,7 +191,7 @@ function SettingsPageContent() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
-      alert('Failed to save settings. Please try again.');
+      alert(errors.saveSettings);
     } finally {
       setSaving(false);
     }
@@ -203,64 +213,57 @@ function SettingsPageContent() {
       {/* Page Header */}
       <div className={styles.pageHeader}>
         <div>
-          <h1 className={styles.pageTitle}>⚙️ Settings & Knowledge Base</h1>
-          <p className={styles.pageSubtitle}>
-            Train your AI assistant on your business facts, configure response tone, and manage per-chat automation.
-          </p>
+          <h1 className={styles.pageTitle}>{t.title}</h1>
+          <p className={styles.pageSubtitle}>{t.subtitle}</p>
         </div>
 
-        {/* Tab Navigation */}
         <div className={styles.tabNav}>
           <button
             className={`${styles.tabBtn} ${activeTab === 'profile' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('profile')}
           >
-            🏢 Business Profile & FAQs
+            <Icon name="briefcase" size={14} /> {t.tabs.profile}
           </button>
           <button
-            className={`${styles.tabBtn} ${activeTab === 'ai' ? styles.tabBtnActive : ''}`}
-            onClick={() => setActiveTab('ai')}
+            className={`${styles.tabBtn} ${activeTab === 'replies' ? styles.tabBtnActive : ''}`}
+            onClick={() => setActiveTab('replies')}
           >
-            🤖 AI Reply Tone & Automation
+            <Icon name="sparkle" size={14} /> {t.tabs.replies}
           </button>
           <button
-            className={`${styles.tabBtn} ${activeTab === 'chats' ? styles.tabBtnActive : ''}`}
-            onClick={() => setActiveTab('chats')}
+            className={`${styles.tabBtn} ${activeTab === 'conversations' ? styles.tabBtnActive : ''}`}
+            onClick={() => setActiveTab('conversations')}
           >
-            ⚡ Per-Chat Auto-Reply ({activeAutoReplyCount})
+            <Icon name="zap" size={14} /> {t.tabs.conversations} ({activeAutoReplyCount})
           </button>
         </div>
       </div>
 
       {loading || !businessProfile || !prefs ? (
-        <div className={styles.loadingContainer}>
+        <div className={styles.loadingContainer} aria-busy="true" aria-label={common.loading}>
           <div className="spinner spinner-lg" />
         </div>
       ) : (
         <div className={styles.settingsGrid}>
-          {/* TAB 1: Business Profile & Knowledge Base */}
+          {/* TAB 1: business profile */}
           {activeTab === 'profile' && (
             <>
               <div className={styles.card}>
                 <div className={styles.cardHeader}>
-                  <h2 className={styles.cardTitle}>🏢 Core Business Profile</h2>
-                  <p className={styles.cardDesc}>
-                    AI uses this context to accurately identify your leads and answer customer questions without hallucination.
-                  </p>
+                  <h2 className={styles.cardTitle}>{t.businessProfile.title}</h2>
+                  <p className={styles.cardDesc}>{t.businessProfile.description}</p>
                 </div>
 
                 <div className={styles.prefList}>
                   {/* Interactive Business Category Cards Grid (Multi-select) */}
                   <div className={styles.prefRowVertical}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                      <label className={styles.prefLabel} style={{ margin: 0 }}>Business Types & Industry Categories</label>
+                      <label className={styles.prefLabel} style={{ margin: 0 }}>{t.businessProfile.typesLabel}</label>
                       <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
-                        {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).length} Selected
+                        {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).length} {t.businessProfile.selectedCount}
                       </span>
                     </div>
-                    <span className={styles.prefSublabel}>
-                      Select all business cards that apply to you (multiple allowed). Click any card to toggle on/off.
-                    </span>
+                    <span className={styles.prefSublabel}>{t.businessProfile.typesHint}</span>
                     <div className={styles.categoryGrid}>
                       {BUSINESS_CATEGORIES.map((cat) => {
                         const currentSelected = parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory);
@@ -272,10 +275,14 @@ function SettingsPageContent() {
                             className={`${styles.categoryCard} ${isSelected ? styles.categoryCardActive : ''}`}
                             onClick={() => handleToggleCategory(cat.id)}
                           >
-                            {isSelected && <span className={styles.categorySelectedBadge}>✓ Active</span>}
-                            <span className={styles.categoryIcon}>{cat.icon}</span>
+                            {isSelected && (
+                              <span className={styles.categorySelectedBadge}>
+                                <Icon name="check" size={10} /> On
+                              </span>
+                            )}
+                            <span className={styles.categoryIcon}><Icon name={cat.icon} size={18} /></span>
                             <span className={styles.categoryTitle}>{cat.label}</span>
-                            <span className={styles.categoryDesc}>{cat.defaultPrompt}</span>
+                            <span className={styles.categoryDesc}>{cat.summary}</span>
                           </button>
                         );
                       })}
@@ -284,187 +291,178 @@ function SettingsPageContent() {
                     {/* Quick Template Loader Banner */}
                     <div className={styles.templateActionBanner}>
                       <span className={styles.templateActionText}>
-                        💡 Selected: <strong>{parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).map((id) => getCategoryMetadata(id).label).join(' + ')}</strong>
+                        {t.businessProfile.templateBannerPrefix}{' '}
+                        <strong>
+                          {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory)
+                            .map((id) => getCategoryMetadata(id).label)
+                            .join(', ')}
+                        </strong>
                       </span>
                       <button
                         type="button"
                         className={styles.templateActionBtn}
                         onClick={handleApplyCombinedTemplates}
                       >
-                        ✨ Autofill {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).length > 1 ? 'Combined' : getCategoryMetadata(parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory)[0]).label} Template
+                        <Icon name="sparkle" size={13} /> {t.businessProfile.applyTemplate}
                       </button>
                     </div>
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>Business / Brand Name</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.nameLabel}</label>
                     <input
                       type="text"
                       className="input"
                       value={businessProfile.businessName || ''}
                       onChange={(e) => updateProfileField('businessName', e.target.value)}
-                      placeholder="e.g. Apex Visuals Studio or TechGear Store"
+                      placeholder={t.businessProfile.namePlaceholder}
                       style={{ marginTop: '6px' }}
                     />
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>What You Do / Business Description</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.descriptionLabel}</label>
                     <textarea
                       className="textarea"
                       rows={2}
                       value={businessProfile.description || ''}
                       onChange={(e) => updateProfileField('description', e.target.value)}
-                      placeholder="e.g. Premium short-form video editing for creators and businesses."
+                      placeholder={t.businessProfile.descriptionPlaceholder}
                       style={{ marginTop: '6px' }}
                     />
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>Products or Services Offered</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.servicesLabel}</label>
                     <textarea
                       className="textarea"
                       rows={3}
                       value={businessProfile.productsServices || ''}
                       onChange={(e) => updateProfileField('productsServices', e.target.value)}
-                      placeholder="List products or services with details (e.g. Reels editing, long-form YouTube editing, thumbnail design)."
+                      placeholder={t.businessProfile.servicesPlaceholder}
                       style={{ marginTop: '6px' }}
                     />
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>Pricing & Package Rates</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.pricingLabel}</label>
                     <textarea
                       className="textarea"
                       rows={3}
                       value={businessProfile.pricingInfo || ''}
                       onChange={(e) => updateProfileField('pricingInfo', e.target.value)}
-                      placeholder="e.g. Reel editing: ₹750/reel. 10-Reel Pack: ₹6,500. Custom projects: quote on review."
+                      placeholder={t.businessProfile.pricingPlaceholder}
                       style={{ marginTop: '6px' }}
                     />
-                    <span className={styles.prefSublabel}>AI will quote these exact rates when customers ask about pricing.</span>
+                    <span className={styles.prefSublabel}>{t.businessProfile.pricingHint}</span>
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>Turnaround Time, Location & Shipping / Delivery</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.policiesLabel}</label>
                     <textarea
                       className="textarea"
                       rows={2}
                       value={businessProfile.policies || ''}
                       onChange={(e) => updateProfileField('policies', e.target.value)}
-                      placeholder="e.g. 48-hour delivery. 2 rounds of free revisions included. Pan-India shipping in 3-5 days."
+                      placeholder={t.businessProfile.policiesPlaceholder}
                       style={{ marginTop: '6px' }}
                     />
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>Payment Methods Accepted</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.paymentLabel}</label>
                     <input
                       type="text"
                       className="input"
                       value={businessProfile.paymentMethods || ''}
                       onChange={(e) => updateProfileField('paymentMethods', e.target.value)}
-                      placeholder="e.g. UPI, Bank Transfer, PayPal, Stripe invoice"
+                      placeholder={t.businessProfile.paymentPlaceholder}
                       style={{ marginTop: '6px' }}
                     />
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>Frequently Asked Questions (FAQs)</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.faqLabel}</label>
                     <textarea
                       className="textarea"
                       rows={4}
                       value={businessProfile.faqData || ''}
                       onChange={(e) => updateProfileField('faqData', e.target.value)}
-                      placeholder="Q: How do I send footage? A: Send via Google Drive link.&#10;Q: Do you offer discounts? A: 10% off for 5+ videos."
+                      placeholder={t.businessProfile.faqPlaceholder}
                       style={{ marginTop: '6px' }}
                     />
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>Strictly Prohibited Topics & Facts</label>
+                    <label className={styles.prefLabel}>{t.businessProfile.prohibitedLabel}</label>
                     <textarea
                       className="textarea"
                       rows={2}
                       value={businessProfile.prohibitedTopics || ''}
                       onChange={(e) => updateProfileField('prohibitedTopics', e.target.value)}
-                      placeholder="e.g. Never promise same-day delivery without prior confirmation. Never offer unapproved discounts."
+                      placeholder={t.businessProfile.prohibitedPlaceholder}
                       style={{ marginTop: '6px' }}
                     />
-                    <span className={styles.prefSublabel}>AI will strictly refuse to make up promises on these topics.</span>
+                    <span className={styles.prefSublabel}>{t.businessProfile.prohibitedHint}</span>
                   </div>
                 </div>
               </div>
             </>
           )}
 
-          {/* TAB 2: AI Reply Tone & Automation */}
-          {activeTab === 'ai' && (
+          {/* TAB 2: replies and tone */}
+          {activeTab === 'replies' && (
             <>
               <div className={styles.card}>
                 <div className={styles.cardHeader}>
-                  <h2 className={styles.cardTitle}>🤖 AI Auto-Reply & Response Settings</h2>
-                  <p className={styles.cardDesc}>
-                    Control whether AI automatically answers incoming customer inquiries or only drafts suggestions.
-                  </p>
+                  <h2 className={styles.cardTitle}>{t.replies.title}</h2>
+                  <p className={styles.cardDesc}>{t.replies.description}</p>
                 </div>
 
                 <div className={styles.prefList}>
-                  {/* Master Auto-Reply Switch */}
-                  <div className={styles.prefRow} style={{ background: 'var(--bg-surface-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)' }}>
-                    <div className={styles.prefLabelGroup}>
-                      <span className={styles.prefLabel} style={{ fontSize: '15px', fontWeight: '700' }}>
-                        ⚡ Master AI Auto-Reply
-                      </span>
-                      <span className={styles.prefSublabel}>
-                        {businessProfile.autoReplyMode === 'smart'
-                          ? 'Active: AI automatically answers safe pricing, service, and product inquiries.'
-                          : businessProfile.autoReplyMode === 'suggest_only'
-                          ? 'Suggest Only: AI prepares response drafts without automatically sending.'
-                          : 'Disabled: All automated replies are turned off (human-only mode).'}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${businessProfile.autoReplyMode === 'smart' ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => updateProfileField('autoReplyMode', 'smart')}
-                      >
-                        ⚡ ON (Smart)
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn btn-sm ${businessProfile.autoReplyMode === 'human_only' ? 'btn-danger' : 'btn-secondary'}`}
-                        onClick={() => updateProfileField('autoReplyMode', 'human_only')}
-                      >
-                        🔴 OFF
-                      </button>
+                  {/* REMOVED-BY-COPY-AUDIT: duplicated control. A two-button
+                      "Master AI Auto-Reply ON/OFF" pair sat directly above a
+                      three-option select bound to the SAME field, so choosing
+                      "suggest_only" in the select left neither button
+                      highlighted and the user could not tell which control was
+                      in charge. The single three-option control below is the
+                      only one now, and it names each mode plainly. Restore by
+                      re-adding the button pair here — but reconcile it with the
+                      select first, because they cannot both own one field.
+                  */}
+                  <div className={styles.prefRowVertical} style={{ background: 'var(--bg-surface-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)' }}>
+                    <span className={styles.prefLabel} style={{ fontSize: '15px', fontWeight: 700 }}>
+                      {t.replies.modeLabel}
+                    </span>
+                    <span className={styles.prefSublabel}>{t.replies.modeHint}</span>
+                    <div className={styles.modeOptions}>
+                      {REPLY_MODES.map((mode) => {
+                        const meta = replyModeLabel(mode);
+                        const isActive = (businessProfile.autoReplyMode || DEFAULT_REPLY_MODE) === mode;
+                        return (
+                          <button
+                            key={mode}
+                            type="button"
+                            className={`${styles.modeOption} ${isActive ? styles.modeOptionActive : ''}`}
+                            onClick={() => updateProfileField('autoReplyMode', mode)}
+                            aria-pressed={isActive}
+                          >
+                            <span className={styles.modeOptionTop}>
+                              <Icon name={replyModeSendsAutomatically(mode) ? 'zap' : 'user'} size={14} />
+                              <span className={styles.modeOptionLabel}>{meta.label}</span>
+                              {isActive && <Icon name="check" size={13} />}
+                            </span>
+                            <span className={styles.modeOptionDesc}>{meta.description}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
                   <div className={styles.prefRow}>
                     <div className={styles.prefLabelGroup}>
-                      <span className={styles.prefLabel}>Detailed Automation Mode</span>
-                      <span className={styles.prefSublabel}>Fine-tune auto-reply trigger behavior</span>
-                    </div>
-                    <select
-                      className="select"
-                      value={businessProfile.autoReplyMode || 'smart'}
-                      onChange={(e) => updateProfileField('autoReplyMode', e.target.value)}
-                      style={{ maxWidth: '320px' }}
-                    >
-                      {AUTO_REPLY_MODES.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className={styles.prefRow}>
-                    <div className={styles.prefLabelGroup}>
-                      <span className={styles.prefLabel}>Reply Tone</span>
-                      <span className={styles.prefSublabel}>Select the voice AI uses when drafting responses</span>
+                      <span className={styles.prefLabel}>{t.replies.toneLabel}</span>
+                      <span className={styles.prefSublabel}>{t.replies.toneHint}</span>
                     </div>
                     <select
                       className="select"
@@ -473,66 +471,68 @@ function SettingsPageContent() {
                         updateProfileField('tone', e.target.value);
                         updatePrefField('tone', e.target.value);
                       }}
-                      style={{ width: '180px' }}
+                      aria-label={t.replies.toneLabel}
+                      style={{ width: '220px' }}
                     >
-                      {TONES.map((t) => (
-                        <option key={t} value={t}>
-                          {t.charAt(0).toUpperCase() + t.slice(1)}
+                      {TONE_ORDER.map((value) => (
+                        <option key={value} value={value}>
+                          {toneLabel(value).label} — {toneLabel(value).description}
                         </option>
                       ))}
                     </select>
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <span className={styles.prefLabel}>Custom AI Behavior Instructions</span>
-                    <span className={styles.prefSublabel}>Specific rules (e.g. &quot;Always be concise, max 2 sentences, ask for customer location before shipping&quot;)</span>
+                    <span className={styles.prefLabel}>{t.replies.instructionsLabel}</span>
+                    <span className={styles.prefSublabel}>{t.replies.instructionsHint}</span>
                     <textarea
                       className="textarea"
                       rows={3}
                       value={businessProfile.aiInstructions || ''}
                       onChange={(e) => updateProfileField('aiInstructions', e.target.value)}
-                      placeholder="e.g. Always greet warmly. Ask for project details before finalizing quotes."
+                      placeholder={t.replies.instructionsPlaceholder}
                       style={{ marginTop: '8px' }}
                     />
                   </div>
 
                   <div className={styles.prefRow}>
                     <div className={styles.prefLabelGroup}>
-                      <span className={styles.prefLabel}>Auto-Generate Summaries</span>
-                      <span className={styles.prefSublabel}>Generate AI summary notes for active conversation threads</span>
+                      <span className={styles.prefLabel}>{t.replies.summariesLabel}</span>
+                      <span className={styles.prefSublabel}>{t.replies.summariesHint}</span>
                     </div>
                     <select
                       className="select"
                       value={prefs.autoGenerateSummary ? 'on' : 'off'}
                       onChange={(e) => updatePrefField('autoGenerateSummary', e.target.value === 'on')}
+                      aria-label={t.replies.summariesLabel}
                       style={{ width: '120px' }}
                     >
-                      <option value="on">ENABLED</option>
-                      <option value="off">DISABLED</option>
+                      <option value="on">{t.replies.summariesOn}</option>
+                      <option value="off">{t.replies.summariesOff}</option>
                     </select>
                   </div>
                 </div>
               </div>
 
-              {/* Priority Weights */}
               <div className={styles.card}>
                 <div className={styles.cardHeader}>
-                  <h2 className={styles.cardTitle}>🎯 Category Priority Weights</h2>
-                  <p className={styles.cardDesc}>Customize how Codeback ranks different types of conversations in your inbox.</p>
+                  <h2 className={styles.cardTitle}>{t.priorities.title}</h2>
+                  <p className={styles.cardDesc}>{t.priorities.description}</p>
                 </div>
                 <div className={styles.prefList}>
-                  {PRIORITY_ROWS.map((row) => (
-                    <div className={styles.prefRow} key={row.key}>
-                      <span className={styles.prefLabel}>{row.label}</span>
+                  {PRIORITY_ROW_KEYS.map((key) => (
+                    <div className={styles.prefRow} key={key}>
+                      <span className={styles.prefLabel}>{t.priorities.rows[key]}</span>
                       <select
                         className="select btn-sm"
-                        value={prefs[row.key] || 'normal'}
-                        onChange={(e) => updatePrefField(row.key, e.target.value)}
-                        style={{ width: '130px' }}
+                        value={prefs[key] || 'normal'}
+                        onChange={(e) => updatePrefField(key, e.target.value)}
+                        aria-label={t.priorities.rows[key]}
+                        style={{ width: '150px' }}
                       >
-                        {LEVELS.map((l) => (
-                          <option key={l} value={l}>
-                            {l.toUpperCase()}
+                        {PRIORITY_WEIGHT_ORDER.map((level) => (
+                          <option key={level} value={level}>
+                            {priorityWeightLabel(level).label}
                           </option>
                         ))}
                       </select>
@@ -543,28 +543,34 @@ function SettingsPageContent() {
             </>
           )}
 
-          {/* TAB 3: Per-Chat Auto-Reply Manager */}
-          {activeTab === 'chats' && (
+          {/* TAB 3: per-conversation automation */}
+          {activeTab === 'conversations' && (
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <div className={styles.chatHeaderRow}>
                   <div>
-                    <h2 className={styles.cardTitle}>⚡ Specific Chat AI Auto-Reply</h2>
-                    <p className={styles.cardDesc}>
-                      Enable 24/7 automated AI messaging for specific Instagram DM conversations only. Global auto-reply is disabled by default so you stay in total control.
-                    </p>
+                    <h2 className={styles.cardTitle}>{t.perConversation.title}</h2>
+                    <p className={styles.cardDesc}>{t.perConversation.description}</p>
                   </div>
                   <span className={styles.chatCountBadge}>
-                    {activeAutoReplyCount} {activeAutoReplyCount === 1 ? 'Chat Active' : 'Chats Active'}
+                    {plural(activeAutoReplyCount, 'conversation')} {t.perConversation.activeCount}
                   </span>
                 </div>
               </div>
+
+              {!replyModeSendsAutomatically(businessProfile.autoReplyMode) && (
+                <div className={styles.inlineNotice} role="note">
+                  <Icon name="info" size={14} />
+                  <span>{t.perConversation.requiresAutomaticMode}</span>
+                </div>
+              )}
 
               {autoReplyChats.length > 0 && (
                 <input
                   type="text"
                   className={styles.chatSearchInput}
-                  placeholder="Search conversations by username, contact name, or message..."
+                  placeholder={t.perConversation.searchPlaceholder}
+                  aria-label={t.perConversation.searchPlaceholder}
                   value={chatSearch}
                   onChange={(e) => setChatSearch(e.target.value)}
                 />
@@ -572,11 +578,9 @@ function SettingsPageContent() {
 
               <div className={styles.chatList}>
                 {autoReplyChats.length === 0 ? (
-                  <div className={styles.emptyChats}>
-                    No conversations found yet. When users message your Instagram account, they will appear here.
-                  </div>
+                  <div className={styles.emptyChats}>{empty.perConversation.body}</div>
                 ) : filteredChats.length === 0 ? (
-                  <div className={styles.emptyChats}>No matching chats found for &quot;{chatSearch}&quot;.</div>
+                  <div className={styles.emptyChats}>{empty.search.body}</div>
                 ) : (
                   filteredChats.map((chat) => {
                     const isExpanded = expandedChatId === chat.id;
@@ -592,7 +596,7 @@ function SettingsPageContent() {
                             {chat.contact?.profilePicUrl ? (
                               <img
                                 src={chat.contact.profilePicUrl}
-                                alt={chat.contact.username}
+                                alt=""
                                 className={styles.chatAvatar}
                               />
                             ) : (
@@ -611,7 +615,7 @@ function SettingsPageContent() {
                                   </span>
                                 )}
                               </div>
-                              <span className={styles.chatPreview}>{chat.lastMessage || '(No messages yet)'}</span>
+                              <span className={styles.chatPreview}>{chat.lastMessage || t.perConversation.noMessagesYet}</span>
                             </div>
                           </div>
 
@@ -619,27 +623,26 @@ function SettingsPageContent() {
                             <button
                               className={`${styles.autoReplyToggleBtn} ${chat.autoReplyEnabled ? styles.autoReplyToggleBtnActive : ''}`}
                               onClick={() => handleToggleChatAutoReply(chat.id, chat.autoReplyEnabled)}
-                              title={chat.autoReplyEnabled ? 'Auto-Reply is ON (click to turn OFF)' : 'Auto-Reply is OFF (click to turn ON)'}
+                              aria-pressed={Boolean(chat.autoReplyEnabled)}
                             >
-                              {chat.autoReplyEnabled ? '⚡ Auto-Reply ON' : '🤖 Auto-Reply OFF'}
+                              <Icon name={chat.autoReplyEnabled ? 'zap' : 'user'} size={12} />{' '}
+                              {chat.autoReplyEnabled ? t.perConversation.toggleOn : t.perConversation.toggleOff}
                             </button>
 
                             <button
                               className="btn btn-secondary btn-sm"
                               style={{ fontSize: '11px', padding: '4px 8px' }}
                               onClick={() => setExpandedChatId(isExpanded ? null : chat.id)}
-                              title="Edit custom prompt for this contact"
                             >
-                              {isExpanded ? 'Close' : '✏️ Prompt'}
+                              {isExpanded ? common.close : t.perConversation.editPrompt}
                             </button>
 
                             <Link
                               href={`/inbox?conversationId=${chat.id}`}
                               className="btn btn-secondary btn-sm"
                               style={{ fontSize: '11px', padding: '4px 8px' }}
-                              title="Open in Inbox"
                             >
-                              ↗ Chat
+                              <Icon name="externalLink" size={12} /> {t.perConversation.openConversation}
                             </Link>
                           </div>
                         </div>
@@ -648,11 +651,11 @@ function SettingsPageContent() {
                         {isExpanded && (
                           <div className={styles.chatPromptEditor}>
                             <label className={styles.chatPromptLabel}>
-                              Custom Auto-Reply Instructions for @{chat.contact?.username || 'this user'}:
+                              {t.perConversation.promptLabel} — @{chat.contact?.username || 'this contact'}
                             </label>
                             <textarea
                               className="textarea"
-                              placeholder="e.g. Always offer 10% coupon code SAVE10 for this customer."
+                              placeholder={t.perConversation.promptPlaceholder}
                               value={promptVal}
                               onChange={(e) => setCustomPrompts((prev) => ({ ...prev, [chat.id]: e.target.value }))}
                               rows={2}
@@ -664,14 +667,14 @@ function SettingsPageContent() {
                                 style={{ fontSize: '11px' }}
                                 onClick={() => handleSaveChatPrompt(chat.id)}
                               >
-                                Save & Enable Auto-Reply
+                                {t.perConversation.savePrompt}
                               </button>
                               <button
                                 className="btn btn-secondary btn-sm"
                                 style={{ fontSize: '11px' }}
                                 onClick={() => setExpandedChatId(null)}
                               >
-                                Cancel
+                                {common.cancel}
                               </button>
                             </div>
                           </div>
@@ -686,9 +689,13 @@ function SettingsPageContent() {
 
           {/* Save Bar */}
           <div className={styles.saveBar}>
-            {saved && <span className={styles.savedMessage}>✓ Settings saved successfully</span>}
+            {saved && (
+              <span className={styles.savedMessage} role="status">
+                <Icon name="check" size={14} /> {toast.settingsSaved}
+              </span>
+            )}
             <button className="btn btn-primary btn-lg" onClick={handleSaveAll} disabled={saving}>
-              {saving ? 'Saving…' : 'Save Changes'}
+              {saving ? common.saving : common.save}
             </button>
           </div>
         </div>
@@ -699,7 +706,7 @@ function SettingsPageContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className={styles.loadingContainer}><div className="spinner spinner-lg" /></div>}>
+    <Suspense fallback={<div className={styles.loadingContainer} aria-busy="true"><div className="spinner spinner-lg" /></div>}>
       <SettingsPageContent />
     </Suspense>
   );

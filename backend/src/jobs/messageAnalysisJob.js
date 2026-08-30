@@ -30,6 +30,90 @@ const { emitToUser } = require('../lib/socket');
 
 const SUMMARY_MESSAGE_INTERVAL = 5; // regenerate summary every N new messages
 
+// How long an auto-reply claim stays valid before another worker may take it.
+// Long enough to cover a slow AI call plus the Instagram send; short enough
+// that a crashed worker does not wedge a conversation for long.
+const AUTO_REPLY_CLAIM_TTL_MS = 2 * 60 * 1000;
+
+// A message left 'processing' for longer than this had its worker die
+// mid-flight (or the in-process queue lost the job on restart).
+const STALLED_ANALYSIS_MS = 15 * 60 * 1000;
+
+/**
+ * The reply mode actually in force for a tenant.
+ *
+ * FAILS CLOSED. Both gates below used `businessProfile?.autoReplyMode ||
+ * 'smart'`, so a user with no BusinessProfile row — or one whose row has not
+ * been saved yet — resolved to 'smart', the single mode that sends a DM on
+ * their behalf. The database column defaults to 'human_only' precisely so that
+ * automatic sending is opt-in, and this fallback quietly inverted that for
+ * exactly the accounts least likely to have finished setup: brand-new signups
+ * and reviewer test accounts. Meanwhile the dashboard, the inbox, and the
+ * landing page all state that nothing is sent without approval.
+ *
+ * Anything that is not the literal string 'smart' means do not send. An
+ * unrecognised or empty value therefore fails closed too, not just null.
+ *
+ * Keep in sync with prisma/schema.prisma BusinessProfile.autoReplyMode and
+ * services/businessProfileService.js DEFAULT_PROFILE.
+ */
+const DEFAULT_REPLY_MODE = 'human_only';
+
+function effectiveReplyMode(businessProfile) {
+  const stored = businessProfile?.autoReplyMode;
+  return typeof stored === 'string' && stored.trim() ? stored : DEFAULT_REPLY_MODE;
+}
+
+/**
+ * Take the per-conversation auto-reply claim.
+ *
+ * A single conditional UPDATE ... WHERE is atomic, so exactly one racing
+ * worker can transition the row from "unclaimed or stale" to "claimed". The
+ * counting guards below it (consecutive replies, daily cap) are read-then-act
+ * sequences spanning an await, which is precisely why they need this.
+ */
+async function claimAutoReply(conversationId) {
+  const staleBefore = new Date(Date.now() - AUTO_REPLY_CLAIM_TTL_MS);
+  const claimed = await prisma.conversation.updateMany({
+    where: {
+      id: conversationId,
+      OR: [{ autoReplyClaimedAt: null }, { autoReplyClaimedAt: { lt: staleBefore } }],
+    },
+    data: { autoReplyClaimedAt: new Date() },
+  });
+  return claimed.count === 1;
+}
+
+async function releaseAutoReply(conversationId) {
+  await prisma.conversation
+    .update({ where: { id: conversationId }, data: { autoReplyClaimedAt: null } })
+    .catch(() => {});
+}
+
+/**
+ * Reclaim messages stranded in 'processing'.
+ *
+ * processMessageAnalysis flips a message to 'processing' before calling the
+ * AI provider. If the worker dies in between — a crash, a deploy, or the
+ * in-process queue losing its jobs on restart — nothing ever rescans that
+ * row, so the message sits unclassified forever while the inbox shows it as
+ * pending analysis. Resetting it to 'pending' makes it eligible again.
+ *
+ * Idempotent, so it is safe to run from more than one instance.
+ */
+async function sweepStalledAnalyses({ olderThanMs = STALLED_ANALYSIS_MS } = {}) {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  const { count } = await prisma.message.updateMany({
+    where: { aiStatus: 'processing', createdAt: { lt: cutoff } },
+    data: { aiStatus: 'pending' },
+  });
+
+  if (count > 0) {
+    console.log(`[Sweeper] Reset ${count} message(s) stranded in 'processing' back to 'pending'.`);
+  }
+  return count;
+}
+
 async function recordUsage(userId, type, quantity = 1, metadata = null) {
   try {
     await prisma.usageEvent.create({
@@ -149,61 +233,67 @@ async function processMessageAnalysis(job) {
     const previousPriority = conversation.priority;
     const previousCategory = conversation.category;
 
-    // 1. Persist the append-only analysis record with generalized fields.
-    await prisma.aIAnalysis.create({
-      data: {
-        conversationId: conversation.id,
-        triggerMessageId: message.id,
-        category: analysis.category,
-        intent: analysis.intent,
-        customerType: analysis.customerType,
-        leadQuality: analysis.leadQuality,
-        purchaseIntent: analysis.purchaseIntent,
-        riskLevel: analysis.riskLevel,
-        scamProbability: analysis.scamProbability,
-        shouldAutoReply: analysis.shouldAutoReply,
-        recommendedAction: analysis.recommendedAction,
-        priority: analysis.priority,
-        priorityScore: analysis.priorityScore,
-        confidence: analysis.confidence,
-        needsAttention: analysis.needsCreatorAttention,
-        summary: analysis.summary,
-        reason: analysis.reason,
-        model: analysis.model,
-        rawResponse: analysis.rawResponse ? JSON.stringify(analysis.rawResponse) : null,
-        status: analysis.failed ? 'failed' : 'completed',
-        errorMessage: analysis.errorMessage || null,
-      },
-    });
+    // Steps 1-3 are one unit of work. Written separately, a crash between
+    // them left an AIAnalysis row whose conclusions the conversation never
+    // adopted, and a message stuck in 'processing' that nothing rescanned.
+    //
+    //   1. the append-only analysis record
+    //   2. the conversation's fast-read denormalized fields
+    //   3. the message's own status
+    await prisma.$transaction(async (tx) => {
+      await tx.aIAnalysis.create({
+        data: {
+          conversationId: conversation.id,
+          triggerMessageId: message.id,
+          category: analysis.category,
+          intent: analysis.intent,
+          customerType: analysis.customerType,
+          leadQuality: analysis.leadQuality,
+          purchaseIntent: analysis.purchaseIntent,
+          riskLevel: analysis.riskLevel,
+          scamProbability: analysis.scamProbability,
+          shouldAutoReply: analysis.shouldAutoReply,
+          recommendedAction: analysis.recommendedAction,
+          priority: analysis.priority,
+          priorityScore: analysis.priorityScore,
+          confidence: analysis.confidence,
+          needsAttention: analysis.needsCreatorAttention,
+          summary: analysis.summary,
+          reason: analysis.reason,
+          model: analysis.model,
+          rawResponse: analysis.rawResponse ? JSON.stringify(analysis.rawResponse) : null,
+          status: analysis.failed ? 'failed' : 'completed',
+          errorMessage: analysis.errorMessage || null,
+        },
+      });
 
-    // 2. Update the conversation's fast-read denormalized fields.
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        category: analysis.category,
-        intent: analysis.intent,
-        customerType: analysis.customerType,
-        leadQuality: analysis.leadQuality,
-        purchaseIntent: analysis.purchaseIntent,
-        riskLevel: analysis.riskLevel,
-        scamProbability: analysis.scamProbability,
-        aiExplanation: analysis.reason,
-        recommendedAction: analysis.recommendedAction,
-        needsHuman: analysis.needsCreatorAttention,
-        priority: analysis.priority,
-        priorityScore: analysis.priorityScore,
-        needsAttention: analysis.needsCreatorAttention,
-      },
-    });
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          category: analysis.category,
+          intent: analysis.intent,
+          customerType: analysis.customerType,
+          leadQuality: analysis.leadQuality,
+          purchaseIntent: analysis.purchaseIntent,
+          riskLevel: analysis.riskLevel,
+          scamProbability: analysis.scamProbability,
+          aiExplanation: analysis.reason,
+          recommendedAction: analysis.recommendedAction,
+          needsHuman: analysis.needsCreatorAttention,
+          priority: analysis.priority,
+          priorityScore: analysis.priorityScore,
+          needsAttention: analysis.needsCreatorAttention,
+        },
+      });
 
-    // 3. Update the message itself (legacy convenience fields + AI status).
-    await prisma.message.update({
-      where: { id: message.id },
-      data: {
-        category: analysis.category,
-        aiStatus: analysis.failed ? 'failed' : 'completed',
-        analyzedAt: new Date(),
-      },
+      await tx.message.update({
+        where: { id: message.id },
+        data: {
+          category: analysis.category,
+          aiStatus: analysis.failed ? 'failed' : 'completed',
+          analyzedAt: new Date(),
+        },
+      });
     });
 
     await recordUsage(userId, 'messages_analyzed', 1, { conversationId: conversation.id, category: analysis.category });
@@ -280,7 +370,7 @@ async function processMessageAnalysis(job) {
     // The per-conversation override is three-state and can only ever SUBTRACT:
     //   null -> inherit the mode, true -> opt in, false -> opt out even under smart.
     // It cannot re-enable sending for a tenant who chose suggest_only/human_only.
-    const autoReplyMode = businessProfile?.autoReplyMode || 'smart';
+    const autoReplyMode = effectiveReplyMode(businessProfile);
     const modeAllowsAutoSend = autoReplyMode === 'smart';
     const isAutoReplyActive = modeAllowsAutoSend && conversation.autoReplyEnabled !== false;
 
@@ -321,11 +411,12 @@ async function maybeAutoReply({
   brandDeal,
   analysis,
 }) {
+  let holdsClaim = false;
   try {
     // Stage 1: Check Mode Setting.
     // Re-asserted here (not just at the caller's gate) so no future call site
     // can reach the send path for a tenant who opted out of automatic sending.
-    const mode = businessProfile?.autoReplyMode || 'smart';
+    const mode = effectiveReplyMode(businessProfile);
     if (mode !== 'smart') {
       console.log(`[AutoReply] Mode is '${mode}' for user ${userId} — auto-send disabled, skipping.`);
       return;
@@ -378,6 +469,21 @@ async function maybeAutoReply({
         return;
       }
     }
+
+    // Stage 2.5: Take the send claim BEFORE counting anything.
+    //
+    // Everything from here to the Instagram send is a read-then-act sequence
+    // spanning an await on the AI provider. Two jobs for the same
+    // conversation would otherwise both read the pre-send counts, both pass
+    // the consecutive/daily guards, and both send — a duplicate DM to a real
+    // customer and a breached cap. Released in the finally below.
+    if (!(await claimAutoReply(conversation.id))) {
+      console.log(
+        `[AutoReply] Conversation ${conversation.id} is already being handled by another worker, skipping.`
+      );
+      return;
+    }
+    holdsClaim = true;
 
     // Stage 3: Fetch recent messages in conversation
     const recentMessages = await prisma.message.findMany({
@@ -568,7 +674,19 @@ async function maybeAutoReply({
     console.log(`[AutoReply] Auto-reply successfully sent and saved: ${savedMsg.id}`);
   } catch (err) {
     console.error(`[AutoReply] Error during auto-reply execution:`, err.message);
+  } finally {
+    // Release promptly so a follow-up message is not made to wait out the
+    // claim TTL. If this never runs (process killed), the TTL covers it.
+    if (holdsClaim) await releaseAutoReply(conversation.id);
   }
 }
 
-module.exports = { processMessageAnalysis, maybeAutoReply };
+module.exports = {
+  processMessageAnalysis,
+  maybeAutoReply,
+  sweepStalledAnalyses,
+  // Exported so the fail-closed behaviour can be asserted directly, without
+  // standing up a whole analysis run.
+  effectiveReplyMode,
+  DEFAULT_REPLY_MODE,
+};

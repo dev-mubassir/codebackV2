@@ -6,6 +6,10 @@ import Link from 'next/link';
 import AppShell from '@/app/components/AppShell';
 import { getMe, updateProfile, deleteAccount, getInstagramAuthUrl, getBusinessProfile } from '@/lib/api';
 import { getCategoryMetadata, parseBusinessTypes } from '@/lib/businessTemplates';
+import Icon from '@/app/components/Icon';
+import { account as t, common, errors, empty, confirm as confirmCopy, toast, validation } from '@/content/copy';
+import { replyModeLabel, roleLabel, planLabel, connectionStatusLabel, tokenStatusLabel, toneLabel } from '@/content/labels';
+import { formatDate } from '@/content/format';
 import styles from './profile.module.css';
 
 export default function ProfilePage() {
@@ -57,7 +61,7 @@ export default function ProfilePage() {
     setSaveError('');
 
     if (newPassword && newPassword !== confirmPassword) {
-      setSaveError('New passwords do not match');
+      setSaveError(validation.passwordMismatch);
       setSaving(false);
       return;
     }
@@ -69,7 +73,7 @@ export default function ProfilePage() {
         payload.newPassword = newPassword;
       }
       const res = await updateProfile(payload);
-      setSaveSuccess(res.message || 'Profile updated successfully');
+      setSaveSuccess(toast.profileSaved);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
@@ -77,15 +81,15 @@ export default function ProfilePage() {
         setUser((prev) => ({ ...prev, ...res.user }));
       }
     } catch (err) {
-      setSaveError(err.response?.data?.error || 'Failed to update profile');
+      setSaveError(err.response?.data?.error || errors.saveProfile);
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDeleteAccount() {
-    if (deleteConfirmText.trim() !== 'DELETE') {
-      setDeleteError('Please type DELETE exactly to confirm');
+    if (deleteConfirmText.trim() !== confirmCopy.deleteAccount.confirmWord) {
+      setDeleteError(confirmCopy.deleteAccount.confirmMismatch);
       return;
     }
 
@@ -97,7 +101,7 @@ export default function ProfilePage() {
       // Redirect to landing page on successful deletion
       router.push('/?deleted=true');
     } catch (err) {
-      setDeleteError(err.response?.data?.error || 'Failed to delete account');
+      setDeleteError(err.response?.data?.error || errors.deleteAccount);
       setDeleting(false);
     }
   }
@@ -105,7 +109,7 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <AppShell activeRoute="/profile">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }} aria-busy="true" aria-label={common.loading}>
           <div className="spinner spinner-lg" />
         </div>
       </AppShell>
@@ -118,8 +122,8 @@ export default function ProfilePage() {
         {/* Page Header */}
         <div className={styles.pageHeader}>
           <div>
-            <h1 className={styles.pageTitle}>Account & Profile</h1>
-            <p className={styles.pageSubtitle}>Manage your user identity, credentials, and connected platforms.</p>
+            <h1 className={styles.pageTitle}>{t.title}</h1>
+            <p className={styles.pageSubtitle}>{t.subtitle}</p>
           </div>
         </div>
 
@@ -130,100 +134,105 @@ export default function ProfilePage() {
               {(user?.name || user?.email || 'U')[0].toUpperCase()}
             </div>
             <div className={styles.heroMeta}>
-              <div className={styles.heroName}>{user?.name || 'User Profile'}</div>
+              <div className={styles.heroName}>{user?.name || common.notSet}</div>
               <div className={styles.heroEmail}>{user?.email}</div>
               <div className={styles.heroBadges}>
                 <span className={styles.roleBadge}>
-                  {user?.role === 'ADMIN' ? '⚡ Administrator' : '👤 User Account'}
+                  <Icon name={user?.role === 'ADMIN' ? 'zap' : 'user'} size={12} /> {roleLabel(user?.role).label}
                 </span>
-                <span className={styles.planBadge}>
-                  {user?.subscription?.plan ? `${user.subscription.plan.toUpperCase()} Plan` : 'Free Plan'}
-                </span>
+                <span className={styles.planBadge}>{planLabel(user?.subscription?.plan).label}</span>
               </div>
             </div>
           </div>
           {user?.createdAt && (
             <div className={styles.heroDate}>
-              Member since {new Date(user.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+              {t.memberSince} {formatDate(user.createdAt)}
             </div>
           )}
         </div>
 
         {/* Alert Messages */}
-        {saveSuccess && <div className={styles.successBanner}>✓ {saveSuccess}</div>}
-        {saveError && <div className={styles.errorBanner}>⚠️ {saveError}</div>}
+        {saveSuccess && (
+          <div className={styles.successBanner} role="status">
+            <Icon name="check" size={14} /> {saveSuccess}
+          </div>
+        )}
+        {saveError && (
+          <div className={styles.errorBanner} role="alert">
+            <Icon name="alertTriangle" size={14} /> {saveError}
+          </div>
+        )}
 
         {/* Personal Details & Credentials */}
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2 className={styles.cardTitle}>👤 Personal Details & Security</h2>
-              <p className={styles.cardDescription}>Update your full name and password.</p>
+              <h2 className={styles.cardTitle}>{t.details.title}</h2>
+              <p className={styles.cardDescription}>{t.details.description}</p>
             </div>
           </div>
 
           <form onSubmit={handleProfileSave}>
             <div className={styles.formGrid}>
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Full Name</label>
+                <label className={styles.formLabel}>{t.details.nameLabel}</label>
                 <input
                   type="text"
                   className={styles.formInput}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Your full name"
+                  placeholder={t.details.namePlaceholder}
                   required
                 />
               </div>
 
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Email Address (Read-only)</label>
+                <label className={styles.formLabel}>{t.details.emailLabel}</label>
                 <input
                   type="email"
                   className={styles.formInput}
                   value={user?.email || ''}
                   disabled
                 />
+                <span className={styles.formHint}>{t.details.emailHint}</span>
               </div>
             </div>
 
             <div style={{ margin: '20px 0 12px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                🔒 Change Password (Optional)
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                <Icon name="lock" size={13} /> {t.details.passwordSection}
               </span>
             </div>
 
             <div className={styles.formGrid}>
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Current Password</label>
+                <label className={styles.formLabel}>{t.details.currentPasswordLabel}</label>
                 <input
                   type="password"
                   className={styles.formInput}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Enter current password"
                 />
               </div>
 
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>New Password</label>
+                <label className={styles.formLabel}>{t.details.newPasswordLabel}</label>
                 <input
                   type="password"
                   className={styles.formInput}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder={t.details.newPasswordPlaceholder}
                 />
               </div>
 
               <div className={styles.formGroup}>
-                <label className={styles.formLabel}>Confirm New Password</label>
+                <label className={styles.formLabel}>{t.details.confirmPasswordLabel}</label>
                 <input
                   type="password"
                   className={styles.formInput}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat new password"
                 />
               </div>
             </div>
@@ -235,27 +244,25 @@ export default function ProfilePage() {
                 disabled={saving}
                 id="save-profile-btn"
               >
-                {saving ? 'Saving Changes…' : 'Save Changes'}
+                {saving ? common.saving : common.save}
               </button>
             </div>
           </form>
         </div>
 
-        {/* Business Profile & Industry Type Card */}
+        {/* Business profile */}
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2 className={styles.cardTitle}>🏢 Business Profile & Industry Category</h2>
-              <p className={styles.cardDescription}>
-                Your active business type card and knowledge base details used by AI for lead qualification and replies.
-              </p>
+              <h2 className={styles.cardTitle}>{t.businessProfile.title}</h2>
+              <p className={styles.cardDescription}>{t.businessProfile.description}</p>
             </div>
             <Link
               href="/settings?tab=profile"
               className="btn btn-secondary btn-sm"
               id="profile-edit-business-btn"
             >
-              ✏️ Edit Business Profile & FAQs
+              <Icon name="settings" size={13} /> {t.businessProfile.editAction}
             </Link>
           </div>
 
@@ -277,7 +284,7 @@ export default function ProfilePage() {
                       fontSize: '12px',
                     }}
                   >
-                    <span>{getCategoryMetadata(catId).icon}</span>
+                    <Icon name={getCategoryMetadata(catId).icon} size={12} />
                     <span>{getCategoryMetadata(catId).label}</span>
                   </span>
                 ))}
@@ -306,28 +313,41 @@ export default function ProfilePage() {
                 }}
               >
                 <div>
-                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                    Products / Services
-                  </span>
-                  <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginTop: '2px', whiteSpace: 'pre-line' }}>
-                    {businessProfile.productsServices ? businessProfile.productsServices.slice(0, 150) + (businessProfile.productsServices.length > 150 ? '…' : '') : 'Not configured'}
+                  <span className={styles.summaryLabel}>{t.businessProfile.servicesLabel}</span>
+                  <div className={styles.summaryValue}>
+                    {businessProfile.productsServices
+                      ? businessProfile.productsServices.slice(0, 150) + (businessProfile.productsServices.length > 150 ? '…' : '')
+                      : common.notConfigured}
                   </div>
                 </div>
 
                 <div>
-                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-tertiary)', fontWeight: 700 }}>
-                    Pricing / Rates
-                  </span>
-                  <div style={{ fontSize: '12px', color: 'var(--text-primary)', marginTop: '2px', whiteSpace: 'pre-line' }}>
-                    {businessProfile.pricingInfo ? businessProfile.pricingInfo.slice(0, 150) + (businessProfile.pricingInfo.length > 150 ? '…' : '') : 'Not configured'}
+                  <span className={styles.summaryLabel}>{t.businessProfile.pricingLabel}</span>
+                  <div className={styles.summaryValue}>
+                    {businessProfile.pricingInfo
+                      ? businessProfile.pricingInfo.slice(0, 150) + (businessProfile.pricingInfo.length > 150 ? '…' : '')
+                      : common.notConfigured}
                   </div>
+                </div>
+
+                {/* Reply mode and tone moved here from the separate "AI Business
+                    Context" card below, which repeated this same profile under a
+                    second name. */}
+                <div>
+                  <span className={styles.summaryLabel}>{t.businessProfile.replyModeLabel}</span>
+                  <div className={styles.summaryValue}>
+                    {replyModeLabel(businessProfile.autoReplyMode).label}
+                  </div>
+                </div>
+
+                <div>
+                  <span className={styles.summaryLabel}>{t.businessProfile.toneLabel}</span>
+                  <div className={styles.summaryValue}>{toneLabel(businessProfile.tone).label}</div>
                 </div>
               </div>
             </div>
           ) : (
-            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-              No business profile configured yet. Click &ldquo;Edit Business Profile &amp; FAQs&rdquo; to choose your business type.
-            </p>
+            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t.businessProfile.empty}</p>
           )}
         </div>
 
@@ -335,22 +355,22 @@ export default function ProfilePage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2 className={styles.cardTitle}>📸 Connected Instagram Accounts</h2>
-              <p className={styles.cardDescription}>Accounts connected for automated DM analysis and intelligent replies.</p>
+              <h2 className={styles.cardTitle}>{t.connectedAccounts.title}</h2>
+              <p className={styles.cardDescription}>{t.connectedAccounts.description}</p>
             </div>
             <a
               href={getInstagramAuthUrl()}
               className="btn btn-secondary btn-sm"
               id="profile-connect-ig-btn"
             >
-              + Connect Instagram
+              <Icon name="plus" size={13} /> {t.connectedAccounts.connect}
             </a>
           </div>
 
           <div className={styles.accountList}>
             {(!user?.instagramAccounts || user.instagramAccounts.length === 0) ? (
               <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px 0' }}>
-                No Instagram accounts connected yet. Click &ldquo;+ Connect Instagram&rdquo; to link your creator or business account.
+                {t.connectedAccounts.empty}
               </p>
             ) : (
               user.instagramAccounts.map((acc) => (
@@ -358,7 +378,7 @@ export default function ProfilePage() {
                   <div className={styles.accountLeft}>
                     <div className={styles.accountAvatar}>
                       {acc.igProfilePic ? (
-                        <img src={acc.igProfilePic} alt={acc.igUsername} />
+                        <img src={acc.igProfilePic} alt="" />
                       ) : (
                         (acc.igUsername || 'IG')[0].toUpperCase()
                       )}
@@ -366,8 +386,21 @@ export default function ProfilePage() {
                     <div className={styles.accountMeta}>
                       <span className={styles.accountUsername}>@{acc.igUsername || 'account'}</span>
                       <span className={styles.accountStatus}>
-                        <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--color-success)', display: 'inline-block' }} />
-                        {acc.connectionStatus || 'CONNECTED'} ({acc.tokenStatus || 'VALID'})
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            background:
+                              acc.connectionStatus === 'DISCONNECTED' || acc.tokenStatus === 'NEEDS_RECONNECT'
+                                ? 'var(--color-warning)'
+                                : 'var(--color-success)',
+                            display: 'inline-block',
+                          }}
+                        />
+                        {acc.connectionStatus === 'DISCONNECTED'
+                          ? connectionStatusLabel(acc.connectionStatus).label
+                          : tokenStatusLabel(acc.tokenStatus).label}
                       </span>
                     </div>
                   </div>
@@ -375,7 +408,8 @@ export default function ProfilePage() {
                     className="btn btn-ghost btn-sm"
                     onClick={() => router.push('/inbox')}
                   >
-                    View Inbox ➤
+                    {t.connectedAccounts.openInbox}
+                    <Icon name="arrowRight" size={13} />
                   </button>
                 </div>
               ))
@@ -383,21 +417,28 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        {/* Business Profile Summary */}
+        {/* REMOVED-BY-COPY-AUDIT: duplicated card. "AI Business Context"
+            restated the business profile card directly above it under a second
+            name, and two of its four rows were wrong: "Primary Category"
+            printed the raw stored value (`video_editor`), and "Auto-Reply Mode"
+            printed the raw enum with a hardcoded `|| 'Smart'` fallback — so a
+            brand-new account, whose stored mode is `human_only`, was told on
+            its own account page that automatic sending was on. The two rows
+            worth keeping (reply mode, reply tone) are now in the business
+            profile card above, rendered through content/labels.js. Restore by
+            re-adding this block — but reconcile it with that card first, and do
+            not reintroduce the 'Smart' default.
+
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2 className={styles.cardTitle}>🤖 AI Business Context</h2>
+              <h2 className={styles.cardTitle}>AI Business Context</h2>
               <p className={styles.cardDescription}>Grounding profile used by AI to accurately answer customer inquiries.</p>
             </div>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => router.push('/settings')}
-            >
-              ⚙️ Manage Knowledge Base
+            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/settings')}>
+              Manage Knowledge Base
             </button>
           </div>
-
           <div className={styles.businessGrid}>
             <div className={styles.businessItem}>
               <span className={styles.businessItemLabel}>Business Name</span>
@@ -405,27 +446,26 @@ export default function ProfilePage() {
             </div>
             <div className={styles.businessItem}>
               <span className={styles.businessItemLabel}>Primary Category</span>
-              <span className={styles.businessItemValue}>{user?.businessProfile?.primaryCategory ? user.businessProfile.primaryCategory.replace('_', ' ') : 'General'}</span>
+              <span className={styles.businessItemValue}>{user?.businessProfile?.primaryCategory}</span>
             </div>
             <div className={styles.businessItem}>
               <span className={styles.businessItemLabel}>Conversation Tone</span>
-              <span className={styles.businessItemValue} style={{ textTransform: 'capitalize' }}>{user?.businessProfile?.tone || 'Friendly'}</span>
+              <span className={styles.businessItemValue}>{user?.businessProfile?.tone || 'Friendly'}</span>
             </div>
             <div className={styles.businessItem}>
               <span className={styles.businessItemLabel}>Auto-Reply Mode</span>
-              <span className={styles.businessItemValue} style={{ textTransform: 'capitalize' }}>{user?.businessProfile?.autoReplyMode || 'Smart'}</span>
+              <span className={styles.businessItemValue}>{user?.businessProfile?.autoReplyMode || 'Smart'}</span>
             </div>
           </div>
         </div>
+        */}
 
         {/* Danger Zone — Delete Account */}
         <div className={styles.dangerCard}>
           <div className={styles.dangerHeader}>
             <div>
-              <h2 className={styles.dangerTitle}>⚠️ Danger Zone</h2>
-              <p className={styles.dangerText}>
-                Permanently delete your account and all associated data. Once deleted, your connected Instagram tokens, conversation history, AI business profile, and brand deals will be completely wiped from Codeback. This action cannot be undone.
-              </p>
+              <h2 className={styles.dangerTitle}>{t.danger.title}</h2>
+              <p className={styles.dangerText}>{t.danger.body}</p>
             </div>
           </div>
           <div className={styles.dangerActions}>
@@ -438,7 +478,7 @@ export default function ProfilePage() {
               }}
               id="delete-account-btn"
             >
-              🗑️ Delete Account
+              <Icon name="trash" size={14} /> {t.danger.action}
             </button>
           </div>
         </div>
@@ -449,28 +489,31 @@ export default function ProfilePage() {
         <div className={styles.modalOverlay} onClick={() => !deleting && setShowDeleteModal(false)}>
           <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <span className={styles.modalIcon}>🚨</span>
-              <h3 className={styles.modalTitle}>Delete Your Codeback Account?</h3>
+              <span className={styles.modalIcon}><Icon name="alertTriangle" size={20} /></span>
+              <h3 className={styles.modalTitle}>{confirmCopy.deleteAccount.title}</h3>
             </div>
             <p className={styles.modalBody}>
-              This will permanently delete your account (<strong>{user?.email}</strong>) and all linked data:
+              This erases <strong>{user?.email}</strong> and everything below. It cannot be undone.
             </p>
             <ul style={{ fontSize: '11px', color: 'var(--text-secondary)', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <li>All connected Instagram accounts and encrypted access tokens</li>
-              <li>All DM conversations, message history, and AI summaries</li>
-              <li>Your custom AI Business Profile and grounded rules</li>
-              <li>All brand deal extractions and lead records</li>
+              {confirmCopy.deleteAccount.items.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
             </ul>
             <div style={{ marginTop: '8px' }}>
-              <label style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-error)', display: 'block', marginBottom: '6px' }}>
-                Type <strong>DELETE</strong> below to confirm:
+              <label
+                htmlFor="delete-confirm-input"
+                style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-error)', display: 'block', marginBottom: '6px' }}
+              >
+                {confirmCopy.deleteAccount.confirmLabel}
               </label>
               <input
+                id="delete-confirm-input"
                 type="text"
                 className={styles.formInput}
                 value={deleteConfirmText}
                 onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder="Type DELETE"
+                placeholder={confirmCopy.deleteAccount.confirmPlaceholder}
                 autoFocus
               />
             </div>
@@ -482,16 +525,16 @@ export default function ProfilePage() {
                 onClick={() => setShowDeleteModal(false)}
                 disabled={deleting}
               >
-                Cancel
+                {common.cancel}
               </button>
               <button
                 type="button"
                 className={`btn ${styles.btnDanger} btn-md`}
                 onClick={handleDeleteAccount}
-                disabled={deleteConfirmText.trim() !== 'DELETE' || deleting}
+                disabled={deleteConfirmText.trim() !== confirmCopy.deleteAccount.confirmWord || deleting}
                 id="confirm-delete-account-btn"
               >
-                {deleting ? 'Deleting Account…' : 'Permanently Delete Account'}
+                {deleting ? common.deleting : confirmCopy.deleteAccount.action}
               </button>
             </div>
           </div>

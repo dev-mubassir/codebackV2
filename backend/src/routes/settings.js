@@ -16,7 +16,7 @@ router.get('/business-profile', async (req, res) => {
     res.json(profile);
   } catch (error) {
     console.error('[Settings] Error fetching business profile:', error.message);
-    res.status(500).json({ error: 'Failed to fetch business profile' });
+    res.status(500).json({ error: "Couldn't load your business profile. Refresh to try again." });
   }
 });
 
@@ -36,7 +36,7 @@ router.put('/business-profile', async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[Settings] Error updating business profile:', error.message);
-    res.status(500).json({ error: 'Failed to update business profile' });
+    res.status(500).json({ error: "Couldn't save your business profile. Try again." });
   }
 });
 
@@ -59,7 +59,7 @@ router.get('/onboarding', async (req, res) => {
     });
   } catch (error) {
     console.error('[Onboarding] Error fetching onboarding state:', error.message);
-    res.status(500).json({ error: 'Failed to fetch onboarding state' });
+    res.status(500).json({ error: "Couldn't load your setup. Refresh to try again." });
   }
 });
 
@@ -92,13 +92,13 @@ router.put('/onboarding', async (req, res) => {
     });
 
     res.json({
-      message: 'Onboarding completed successfully',
+      message: 'Setup complete',
       onboardingCompleted: true,
       businessProfile: updatedProfile,
     });
   } catch (error) {
     console.error('[Onboarding] Error saving onboarding data:', error.message);
-    res.status(500).json({ error: 'Failed to save onboarding data' });
+    res.status(500).json({ error: "Couldn't save your business details. Try again." });
   }
 });
 
@@ -111,7 +111,7 @@ router.get('/ai', async (req, res) => {
     res.json(preferences);
   } catch (error) {
     console.error('[Settings] Error fetching AI preferences:', error.message);
-    res.status(500).json({ error: 'Failed to fetch AI settings' });
+    res.status(500).json({ error: "Couldn't load your reply settings. Refresh to try again." });
   }
 });
 
@@ -131,7 +131,7 @@ router.put('/ai', async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error('[Settings] Error updating AI preferences:', error.message);
-    res.status(500).json({ error: 'Failed to update AI settings' });
+    res.status(500).json({ error: "Couldn't save your reply settings. Try again." });
   }
 });
 
@@ -172,7 +172,7 @@ router.get('/auto-reply-chats', async (req, res) => {
     res.json(conversations);
   } catch (error) {
     console.error('[Settings] Error fetching auto-reply chats:', error.message);
-    res.status(500).json({ error: 'Failed to fetch auto-reply chats' });
+    res.status(500).json({ error: "Couldn't load your conversations. Refresh to try again." });
   }
 });
 

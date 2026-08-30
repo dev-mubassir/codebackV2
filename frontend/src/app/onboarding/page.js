@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation';
 import { getMe, getOnboarding, saveOnboarding } from '@/lib/api';
 import styles from './onboarding.module.css';
 
-import { BUSINESS_CATEGORIES, DEFAULT_KNOWLEDGE_TEMPLATES, parseBusinessTypes, combineKnowledgeTemplates } from '@/lib/businessTemplates';
+import { BUSINESS_CATEGORIES, parseBusinessTypes, combineKnowledgeTemplates } from '@/lib/businessTemplates';
+import Icon from '@/app/components/Icon';
+import { onboarding as t, settings as settingsCopy, common, errors } from '@/content/copy';
+import { TONE_ORDER, toneLabel } from '@/content/labels';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -128,14 +131,14 @@ export default function OnboardingPage() {
 
       router.push('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save onboarding data. Please try again.');
+      setError(err.response?.data?.error || errors.saveProfile);
       setSaving(false);
     }
   }
 
   if (loading) {
     return (
-      <div className={styles.onboardingLayout}>
+      <div className={styles.onboardingLayout} aria-busy="true" aria-label={common.loading}>
         <div className="spinner spinner-lg" style={{ marginTop: '100px' }} />
       </div>
     );
@@ -146,48 +149,44 @@ export default function OnboardingPage() {
       <div className={styles.wizardContainer}>
         {/* Wizard Header */}
         <div className={styles.wizardHeader}>
-          <div className={styles.logoBadge}>⚡</div>
-          <h1 className={styles.wizardTitle}>Setup Your Business Profile</h1>
-          <p className={styles.wizardSubtitle}>
-            Help Codeback understand your business so AI can accurately qualify leads, answer customer questions, and protect your brand.
-          </p>
+          <div className={styles.logoBadge}><Icon name="zap" size={18} /></div>
+          <h1 className={styles.wizardTitle}>{t.title}</h1>
+          <p className={styles.wizardSubtitle}>{t.subtitle}</p>
 
           {/* Step Progress */}
           <div className={styles.stepProgress}>
             <div className={`${styles.stepDot} ${currentStep === 1 ? styles.stepActive : currentStep > 1 ? styles.stepCompleted : ''}`}>
-              <span className={styles.stepNumber}>{currentStep > 1 ? '✓' : '1'}</span>
-              <span>Identity</span>
+              <span className={styles.stepNumber}>{currentStep > 1 ? <Icon name="check" size={11} /> : '1'}</span>
+              <span>{t.steps.identity}</span>
             </div>
             <div className={styles.stepDivider} />
             <div className={`${styles.stepDot} ${currentStep === 2 ? styles.stepActive : currentStep > 2 ? styles.stepCompleted : ''}`}>
-              <span className={styles.stepNumber}>{currentStep > 2 ? '✓' : '2'}</span>
-              <span>Category</span>
+              <span className={styles.stepNumber}>{currentStep > 2 ? <Icon name="check" size={11} /> : '2'}</span>
+              <span>{t.steps.category}</span>
             </div>
             <div className={styles.stepDivider} />
             <div className={`${styles.stepDot} ${currentStep === 3 ? styles.stepActive : ''}`}>
               <span className={styles.stepNumber}>3</span>
-              <span>Knowledge Base</span>
+              <span>{t.steps.knowledge}</span>
             </div>
           </div>
         </div>
 
-        {error && <div className={styles.errorBanner}>{error}</div>}
+        {error && <div className={styles.errorBanner} role="alert">{error}</div>}
 
         {/* Step 1: Basic Identity */}
         {currentStep === 1 && (
           <div className={styles.card}>
-            <h2 className={styles.stepTitle}>Step 1: What is your name and business?</h2>
-            <p className={styles.stepDesc}>
-              This will be used to personalize how AI addresses you and introduces your business.
-            </p>
+            <h2 className={styles.stepTitle}>{t.step1.title}</h2>
+            <p className={styles.stepDesc}>{t.step1.description}</p>
 
             <div className={styles.formGrid}>
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Your Name</label>
+                <label className={styles.formLabel}>{t.step1.nameLabel}</label>
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. Alex Rivera"
+                  placeholder={t.step1.namePlaceholder}
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   autoFocus
@@ -195,15 +194,15 @@ export default function OnboardingPage() {
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Business or Brand Name</label>
+                <label className={styles.formLabel}>{t.step1.businessLabel}</label>
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. PixelCraft Studios or Urban Kicks"
+                  placeholder={t.step1.businessPlaceholder}
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                 />
-                <span className={styles.formHint}>Leave blank if you operate under your personal name.</span>
+                <span className={styles.formHint}>{t.step1.businessHint}</span>
               </div>
             </div>
 
@@ -214,7 +213,8 @@ export default function OnboardingPage() {
                 onClick={() => setCurrentStep(2)}
                 disabled={!displayName.trim()}
               >
-                Next: What do you do? →
+                {t.step1.next}
+                <Icon name="arrowRight" size={14} />
               </button>
             </div>
           </div>
@@ -224,14 +224,12 @@ export default function OnboardingPage() {
         {currentStep === 2 && (
           <div className={styles.card}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-              <h2 className={styles.stepTitle} style={{ margin: 0 }}>Step 2: What are your business types?</h2>
+              <h2 className={styles.stepTitle} style={{ margin: 0 }}>{t.step2.title}</h2>
               <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-primary)', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 10px', borderRadius: 'var(--radius-full)' }}>
-                {selectedCategories.length} Selected
+                {selectedCategories.length} selected
               </span>
             </div>
-            <p className={styles.stepDesc}>
-              Select all categories that match your business or services (multiple allowed). AI adapts its qualification logic to all selected offerings.
-            </p>
+            <p className={styles.stepDesc}>{t.step2.description}</p>
 
             <div className={styles.categoryGrid}>
               {BUSINESS_CATEGORIES.map((cat) => {
@@ -242,9 +240,9 @@ export default function OnboardingPage() {
                     className={`${styles.categoryCard} ${isSelected ? styles.categoryCardActive : ''}`}
                     onClick={() => handleCategoryToggle(cat.id)}
                   >
-                    <span className={styles.categoryIcon}>{cat.icon}</span>
+                    <span className={styles.categoryIcon}><Icon name={cat.icon} size={18} /></span>
                     <span className={styles.categoryLabel}>
-                      {isSelected ? `✓ ${cat.label}` : cat.label}
+                      {isSelected && <Icon name="check" size={11} />} {cat.label}
                     </span>
                   </div>
                 );
@@ -253,11 +251,11 @@ export default function OnboardingPage() {
 
             {selectedCategories.includes('other') && (
               <div className={styles.formRow} style={{ marginTop: '12px' }}>
-                <label className={styles.formLabel}>Describe your custom business category</label>
+                <label className={styles.formLabel}>{t.step2.customLabel}</label>
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. Antique watches, 3D printing service, fitness trainer"
+                  placeholder={t.step2.customPlaceholder}
                   value={customCategory}
                   onChange={(e) => setCustomCategory(e.target.value)}
                 />
@@ -266,10 +264,11 @@ export default function OnboardingPage() {
 
             <div className={styles.wizardActions}>
               <button className="btn btn-secondary btn-md" onClick={() => setCurrentStep(1)}>
-                ← Back
+                <Icon name="arrowLeft" size={14} /> {common.back}
               </button>
               <button className="btn btn-primary btn-md" onClick={() => setCurrentStep(3)}>
-                Next: Business Knowledge Base →
+                {t.step2.next}
+                <Icon name="arrowRight" size={14} />
               </button>
             </div>
           </div>
@@ -280,129 +279,131 @@ export default function OnboardingPage() {
           <div className={styles.card}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
-                <h2 className={styles.stepTitle}>Step 3: Train your AI Knowledge Base</h2>
-                <p className={styles.stepDesc}>
-                  Fill in your pricing, services, and policies. AI will ONLY answer customer questions based on facts provided here — it will never hallucinate or invent prices.
-                </p>
+                <h2 className={styles.stepTitle}>{t.step3.title}</h2>
+                <p className={styles.stepDesc}>{t.step3.description}</p>
               </div>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => applyCategoriesTemplates(selectedCategories, true)}
-                title="Restore default knowledge template for selected categories"
                 style={{ alignSelf: 'flex-start' }}
               >
-                ↺ Reset Defaults
+                <Icon name="refresh" size={13} /> {t.step3.reset}
               </button>
             </div>
 
             <div style={{ padding: '8px 12px', background: 'rgba(124, 58, 237, 0.08)', border: '1px solid rgba(124, 58, 237, 0.2)', borderRadius: 'var(--radius-md)', fontSize: '12px', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-              <span>✨</span>
+              <Icon name="sparkle" size={14} />
               <span>
-                Pre-filled with knowledge base for{' '}
+                {t.step3.banner}{' '}
                 <strong>
                   {selectedCategories
                     .map((id) => BUSINESS_CATEGORIES.find((c) => c.id === id)?.label || id)
-                    .join(' + ')}
+                    .join(', ')}
                 </strong>
-                . Customize any detail below or keep as is.
+                . {t.step3.bannerSuffix}
               </span>
             </div>
 
             <div className={styles.formGrid}>
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Business Description</label>
+                <label className={styles.formLabel}>{settingsCopy.businessProfile.descriptionLabel}</label>
                 <textarea
                   className="textarea"
                   rows={2}
-                  placeholder="What do you do? e.g. High-converting short-form video editing for finance and tech creators."
+                  placeholder={settingsCopy.businessProfile.descriptionPlaceholder}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Products or Services Offered</label>
+                <label className={styles.formLabel}>{settingsCopy.businessProfile.servicesLabel}</label>
                 <textarea
                   className="textarea"
                   rows={3}
-                  placeholder="List your items or services. e.g. Reel editing, color grading, sound design, YouTube packages."
+                  placeholder={settingsCopy.businessProfile.servicesPlaceholder}
                   value={productsServices}
                   onChange={(e) => setProductsServices(e.target.value)}
                 />
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Pricing, Starting Rates & Packages</label>
+                <label className={styles.formLabel}>{settingsCopy.businessProfile.pricingLabel}</label>
                 <textarea
                   className="textarea"
                   rows={2}
-                  placeholder="e.g. Reels: ₹750/each. 10-pack: ₹6,500. Custom projects require footage review."
+                  placeholder={settingsCopy.businessProfile.pricingPlaceholder}
                   value={pricingInfo}
                   onChange={(e) => setPricingInfo(e.target.value)}
                 />
-                <span className={styles.formHint}>AI will quote these exact rates to inquiring customers.</span>
+                <span className={styles.formHint}>{settingsCopy.businessProfile.pricingHint}</span>
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Turnaround Time, Location & Shipping / Delivery</label>
+                <label className={styles.formLabel}>{settingsCopy.businessProfile.policiesLabel}</label>
                 <textarea
                   className="textarea"
                   rows={2}
-                  placeholder="e.g. Standard delivery is 48 hours. Express 24h available for +₹300."
+                  placeholder={settingsCopy.businessProfile.policiesPlaceholder}
                   value={policies}
                   onChange={(e) => setPolicies(e.target.value)}
                 />
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Payment Methods Accepted</label>
+                <label className={styles.formLabel}>{settingsCopy.businessProfile.paymentLabel}</label>
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. UPI, Bank Transfer, PayPal, Stripe invoice"
+                  placeholder={settingsCopy.businessProfile.paymentPlaceholder}
                   value={paymentMethods}
                   onChange={(e) => setPaymentMethods(e.target.value)}
                 />
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Frequently Asked Questions (FAQs)</label>
+                <label className={styles.formLabel}>{settingsCopy.businessProfile.faqLabel}</label>
                 <textarea
                   className="textarea"
                   rows={3}
-                  placeholder="Q: Do you offer revisions? A: Yes, 2 rounds of free revisions included.&#10;Q: How do I send files? A: Via Google Drive or WeTransfer."
+                  placeholder={settingsCopy.businessProfile.faqPlaceholder}
                   value={faqData}
                   onChange={(e) => setFaqData(e.target.value)}
                 />
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Custom AI Guidelines & Rules</label>
+                <label className={styles.formLabel}>{settingsCopy.replies.instructionsLabel}</label>
                 <textarea
                   className="textarea"
                   rows={2}
-                  placeholder="e.g. Always ask the customer for their raw footage link before confirming final price. Never promise same-day delivery."
+                  placeholder={settingsCopy.replies.instructionsPlaceholder}
                   value={aiInstructions}
                   onChange={(e) => setAiInstructions(e.target.value)}
                 />
               </div>
 
               <div className={styles.formRow}>
-                <label className={styles.formLabel}>Preferred AI Reply Tone</label>
-                <select className="select" value={tone} onChange={(e) => setTone(e.target.value)}>
-                  <option value="friendly">Friendly & Approachable</option>
-                  <option value="professional">Professional & Direct</option>
-                  <option value="casual">Casual & Conversational</option>
-                  <option value="concise">Concise & Minimal</option>
-                  <option value="warm">Warm & Welcoming</option>
+                <label className={styles.formLabel} htmlFor="onboarding-tone">{t.step3.toneLabel}</label>
+                <select
+                  id="onboarding-tone"
+                  className="select"
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value)}
+                >
+                  {TONE_ORDER.filter((v) => v !== 'custom').map((value) => (
+                    <option key={value} value={value}>
+                      {toneLabel(value).label} — {toneLabel(value).description}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
 
             <div className={styles.wizardActions}>
               <button className="btn btn-secondary btn-md" onClick={() => setCurrentStep(2)}>
-                ← Back
+                <Icon name="arrowLeft" size={14} /> {common.back}
               </button>
               <button
                 className="btn btn-primary btn-lg"
@@ -410,7 +411,7 @@ export default function OnboardingPage() {
                 disabled={saving}
                 id="finish-onboarding-btn"
               >
-                {saving ? 'Saving Profile…' : '🚀 Finish Setup & Go to Dashboard'}
+                {saving ? t.step3.finishing : t.step3.finish}
               </button>
             </div>
           </div>

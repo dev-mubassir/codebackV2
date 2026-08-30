@@ -13,10 +13,7 @@ const prisma = require('../lib/prisma');
  * Returns { brandDeal, isNew }.
  */
 async function upsertBrandDeal({ conversationId, instagramAccountId, userId, extracted }) {
-  const existing = await prisma.brandDeal.findFirst({
-    where: { conversationId },
-    orderBy: { createdAt: 'desc' },
-  });
+  const existing = await prisma.brandDeal.findUnique({ where: { conversationId } });
 
   const merged = {
     brandName: extracted.brandName ?? existing?.brandName ?? null,
@@ -36,10 +33,23 @@ async function upsertBrandDeal({ conversationId, instagramAccountId, userId, ext
     return { brandDeal, isNew: false };
   }
 
-  const brandDeal = await prisma.brandDeal.create({
-    data: { conversationId, instagramAccountId, userId, status: 'new', ...merged },
-  });
-  return { brandDeal, isNew: true };
+  // Concurrent analyses on the same conversation both miss the read above.
+  // conversationId is unique, so the loser gets P2002 and re-reads the
+  // winner's row instead of creating a second deal — which would otherwise
+  // fire a duplicate "new brand deal" notification and double the usage
+  // event. isNew stays false for the loser, so only one notification goes out.
+  try {
+    const brandDeal = await prisma.brandDeal.create({
+      data: { conversationId, instagramAccountId, userId, status: 'new', ...merged },
+    });
+    return { brandDeal, isNew: true };
+  } catch (err) {
+    if (err.code === 'P2002') {
+      const brandDeal = await prisma.brandDeal.update({ where: { conversationId }, data: merged });
+      return { brandDeal, isNew: false };
+    }
+    throw err;
+  }
 }
 
 module.exports = { upsertBrandDeal };

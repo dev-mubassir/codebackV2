@@ -2,19 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { getMe, logout, getNotifications, getAccounts } from '@/lib/api';
+import { getMe, logout, getNotifications } from '@/lib/api';
+import Icon from './Icon';
+import { nav, common } from '@/content/copy';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
-  { section: 'Overview', items: [
-    { label: 'Dashboard', path: '/dashboard', icon: '📊' },
+  { section: nav.sections.overview, items: [
+    { label: nav.dashboard, path: '/dashboard', icon: 'dashboard' },
   ]},
-  { section: 'Messaging', items: [
-    { label: 'Inbox', path: '/inbox', icon: '📥' },
-    { label: 'Notifications', path: '/notifications', icon: '🔔' },
+  { section: nav.sections.messaging, items: [
+    { label: nav.inbox, path: '/inbox', icon: 'inbox' },
+    { label: nav.notifications, path: '/notifications', icon: 'bell' },
   ]},
-  { section: 'Configuration', items: [
-    { label: 'AI Settings', path: '/settings', icon: '⚙️' },
+  { section: nav.sections.configuration, items: [
+    { label: nav.settings, path: '/settings', icon: 'settings' },
   ]},
 ];
 
@@ -57,7 +59,7 @@ export default function AppShell({ children, activeRoute }) {
 
   if (loading) {
     return (
-      <div className={styles.loadingScreen}>
+      <div className={styles.loadingScreen} aria-busy="true" aria-label={common.loading}>
         <div className="spinner spinner-lg" />
       </div>
     );
@@ -78,7 +80,7 @@ export default function AppShell({ children, activeRoute }) {
         <div className={styles.sidebarHeader}>
           <button className={styles.brand} onClick={() => router.push('/dashboard')}>
             <div className={styles.brandIcon}>
-              <img src="/logo.png" alt="Codeback Logo" className={styles.brandIconImg} />
+              <img src="/logo.png" alt="" className={styles.brandIconImg} />
             </div>
             <span className={styles.brandName}>Codeback</span>
           </button>
@@ -99,7 +101,7 @@ export default function AppShell({ children, activeRoute }) {
                       setSidebarOpen(false);
                     }}
                   >
-                    <span className={styles.navIcon}>{item.icon}</span>
+                    <span className={styles.navIcon}><Icon name={item.icon} size={16} /></span>
                     <span className={styles.navLabel}>{item.label}</span>
                     {item.path === '/notifications' && notifCount > 0 && (
                       <span className={styles.navBadge}>
@@ -120,7 +122,7 @@ export default function AppShell({ children, activeRoute }) {
               router.push('/profile');
               setSidebarOpen(false);
             }}
-            title="View Profile & Account Settings"
+            title={nav.account}
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }}
             id="appshell-profile-sidebar-btn"
           >
@@ -128,16 +130,12 @@ export default function AppShell({ children, activeRoute }) {
               {(user?.name || user?.email || 'U')[0].toUpperCase()}
             </div>
             <div className={styles.userMeta}>
-              <span className={styles.userName}>{user?.name || 'My Profile'}</span>
-              <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>Profile & Account</span>
+              <span className={styles.userName}>{user?.name || nav.account}</span>
+              <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{nav.accountSubtitle}</span>
             </div>
           </button>
-          <button className={styles.logoutBtn} onClick={handleLogout} title="Log out">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+          <button className={styles.logoutBtn} onClick={handleLogout} aria-label={nav.logOut} title={nav.logOut}>
+            <Icon name="logOut" size={16} />
           </button>
         </div>
       </aside>
@@ -150,25 +148,19 @@ export default function AppShell({ children, activeRoute }) {
             <button
               className={styles.menuBtn}
               onClick={() => setSidebarOpen(true)}
-              aria-label="Open menu"
+              aria-label={nav.openMenu}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
+              <Icon name="menu" size={20} />
             </button>
           </div>
           <div className={styles.headerRight}>
             <button
               className={styles.headerAction}
               onClick={() => router.push('/notifications')}
-              title="Notifications"
+              aria-label={nav.notifications}
+              title={nav.notifications}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
+              <Icon name="bell" size={18} />
               {notifCount > 0 && (
                 <span className={styles.headerBadge}>{notifCount > 9 ? '9+' : notifCount}</span>
               )}
@@ -176,7 +168,7 @@ export default function AppShell({ children, activeRoute }) {
             <button
               className={styles.headerUser}
               onClick={() => router.push('/profile')}
-              title="Account & Profile"
+              title={nav.account}
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderRadius: 'var(--radius-full)' }}
               id="appshell-profile-header-btn"
             >
@@ -184,7 +176,7 @@ export default function AppShell({ children, activeRoute }) {
                 {(user?.name || user?.email || 'U')[0].toUpperCase()}
               </div>
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                {user?.name?.split(' ')[0] || 'Profile'}
+                {user?.name?.split(' ')[0] || nav.account}
               </span>
             </button>
           </div>

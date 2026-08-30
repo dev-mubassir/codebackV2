@@ -88,6 +88,16 @@
   --text-2xl: 1.5rem;     /* 24px */
   --text-3xl: 2rem;       /* 32px */
 
+  /* One size for text a person types into, or has already typed.
+   *
+   * Every input, textarea, and select reads this token, so the value the user
+   * sees in a field is the same size on a phone, a tablet, a half-width laptop
+   * window, and a full desktop. It used to jump from 13px to 16px below 768px,
+   * which made forms look oversized against the 14px text around them.
+   *
+   * Change this one line to resize every field in the product. */
+  --form-text: 0.8125rem; /* 13px */
+
   /* Spacing & Radii */
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -150,8 +160,13 @@ button {
   background: none;
 }
 
+/* Every field, including ones styled by a CSS module rather than `.input`.
+   Browsers do not inherit font settings into form controls, so without this a
+   field with no explicit size falls back to the UA default (~13.3px in Chrome,
+   larger elsewhere) and drifts away from the rest of the form. */
 input, textarea, select {
   font-family: var(--font-sans);
+  font-size: var(--form-text);
 }
 
 /* Keyboard focus ring. Mouse clicks never trigger :focus-visible, so this is
@@ -294,7 +309,7 @@ input, textarea, select {
   display: block;
   width: 100%;
   padding: 8px 12px;
-  font-size: var(--text-sm);
+  font-size: var(--form-text);
   line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg-surface);
@@ -561,7 +576,35 @@ input, textarea, select {
     overflow-x: hidden;
   }
 
-  .input, .select, .textarea {
-    font-size: 16px !important; /* Prevents unwanted auto-zoom on iOS Safari */
+  /* Fields deliberately keep --form-text here. This block used to force
+     `font-size: 16px !important` on every control below 768px, which is why
+     forms looked oversized on a phone — and on a laptop with a half-width
+     window, since the rule keys off viewport width, not device type. The iOS
+     zoom problem it was solving is handled below, on iOS only. */
+}
+
+/* iOS Safari zooms the entire page when you focus a field whose text is under
+   16px. There is no way to opt out of that without also disabling pinch-zoom,
+   which is worse. `-webkit-touch-callout` is supported only by WebKit on
+   iOS/iPadOS, so this restores 16px there and nowhere else — every other
+   device, including Android phones, keeps the smaller size.
+   Remove this block only if you would rather have the page zoom on tap. */
+@supports (-webkit-touch-callout: none) {
+  :root {
+    --form-text: 1rem; /* 16px */
   }
+}
+
+/* Visible only to screen readers. Used for table headers and controls whose
+   visible label is an icon. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

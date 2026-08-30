@@ -10,26 +10,33 @@ const axios = require('axios');
 const INSTAGRAM_GRAPH_URL = 'https://graph.instagram.com';
 const INSTAGRAM_OAUTH_URL = 'https://api.instagram.com/oauth/access_token';
 
-const isProduction = process.env.NODE_ENV === 'production';
-
 /**
  * Build the Instagram OAuth authorization URL.
  * Uses Instagram Login (Business Login for Instagram) — no Facebook Page needed.
+ *
+ * `state` is required: it is the CSRF binding between the browser that
+ * started the flow and the browser that returns to the callback. The caller
+ * generates it, stores it on the session, and verifies it on return.
  */
-function getAuthorizationUrl(appId, redirectUri) {
-  const scopes = [
-    'instagram_business_basic',
-    'instagram_business_manage_messages',
-    'instagram_business_manage_comments',
-    'instagram_business_content_publish',
-  ].join(',');
+function getAuthorizationUrl(appId, redirectUri, state) {
+  // Request only what the product actually exercises, and only what can be
+  // demonstrated on camera for App Review.
+  //
+  // instagram_business_manage_comments and instagram_business_content_publish
+  // were previously requested but never used — there is no comment or
+  // publishing code anywhere in this repo, and the webhook subscribes to
+  // messages/message_reactions/messaging_seen only. Asking for permissions
+  // with no demonstrable use case is a standard App Review rejection, and it
+  // over-scopes every tenant's token in the meantime.
+  const scopes = ['instagram_business_basic', 'instagram_business_manage_messages'].join(',');
 
   return (
     `https://www.instagram.com/oauth/authorize` +
     `?client_id=${appId}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&scope=${scopes}` +
-    `&response_type=code`
+    `&response_type=code` +
+    `&state=${encodeURIComponent(state)}`
   );
 }
 
@@ -40,11 +47,6 @@ function getAuthorizationUrl(appId, redirectUri) {
  * Returns: { access_token, user_id }
  */
 async function exchangeCodeForToken(code, appId, appSecret, redirectUri) {
-  if (!isProduction && code && typeof code === 'string' && code.startsWith('test_code_')) {
-    const igUserId = code.replace('test_code_', '');
-    return { access_token: `mock_short_token_${igUserId}`, user_id: igUserId };
-  }
-
   const response = await axios.post(INSTAGRAM_OAUTH_URL, new URLSearchParams({
     client_id: appId,
     client_secret: appSecret,
@@ -66,14 +68,6 @@ async function exchangeCodeForToken(code, appId, appSecret, redirectUri) {
  * Returns: { access_token, token_type, expires_in }
  */
 async function exchangeForLongLivedToken(shortLivedToken, appSecret) {
-  if (!isProduction && shortLivedToken && typeof shortLivedToken === 'string' && shortLivedToken.startsWith('mock_short_token_')) {
-    return {
-      access_token: `mock_long_token_${shortLivedToken.replace('mock_short_token_', '')}`,
-      token_type: 'bearer',
-      expires_in: 5184000,
-    };
-  }
-
   const response = await axios.get(`${INSTAGRAM_GRAPH_URL}/access_token`, {
     params: {
       grant_type: 'ig_exchange_token',
@@ -90,17 +84,6 @@ async function exchangeForLongLivedToken(shortLivedToken, appSecret) {
  * GET https://graph.instagram.com/v22.0/me?fields=user_id,username,name,profile_picture_url
  */
 async function fetchMyProfile(accessToken) {
-  if (!isProduction && accessToken && typeof accessToken === 'string' && accessToken.startsWith('mock_long_token_')) {
-    const igUserId = accessToken.replace('mock_long_token_', '');
-    return {
-      id: igUserId,
-      user_id: igUserId,
-      username: `creator_${igUserId}`,
-      name: `Creator ${igUserId}`,
-      profile_picture_url: null,
-    };
-  }
-
   const response = await axios.get(`${INSTAGRAM_GRAPH_URL}/v22.0/me`, {
     params: {
       fields: 'id,user_id,username,name,profile_picture_url',
@@ -139,10 +122,6 @@ async function fetchUserProfile(igsid, accessToken) {
  * This tells Meta to send DMs, reactions, and read receipts to our webhook.
  */
 async function subscribeToWebhooks(igUserId, accessToken) {
-  if (!isProduction && accessToken && typeof accessToken === 'string' && accessToken.startsWith('mock_long_token_')) {
-    return { success: true };
-  }
-
   const response = await axios.post(
     `${INSTAGRAM_GRAPH_URL}/v22.0/${igUserId}/subscribed_apps`,
     null,
