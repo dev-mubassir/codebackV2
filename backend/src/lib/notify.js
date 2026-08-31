@@ -70,6 +70,20 @@ function notifyConnectionProblem(userId, { instagramAccountId, igUsername, reaso
   });
 }
 
+/**
+ * Only sent while CASHFREE_SUBSCRIPTIONS_ENABLED is false (see
+ * jobs/renewalReminderJob.js) — autopay renews on its own and doesn't need
+ * this nudge. In-app only, per current scope; no email exists to send to.
+ */
+function notifyRenewalReminder(userId, { planName, currentPeriodEnd }) {
+  return createNotification(userId, {
+    type: 'subscription_renewal_due',
+    title: `Your ${planName} plan renews soon`,
+    body: `Renews on ${currentPeriodEnd.toLocaleDateString('en-GB')} — visit Billing to pay and keep automatic replies running.`,
+    conversationId: null,
+  });
+}
+
 /** Lightweight, non-persisted live-update event for the inbox UI. */
 function emitAnalysisUpdate(userId, payload) {
   emitToUser(userId, 'analysis_completed', payload);
@@ -84,6 +98,7 @@ module.exports = {
   notifyHighPriority,
   notifyImportantCustomer,
   notifyConnectionProblem,
+  notifyRenewalReminder,
   emitAnalysisUpdate,
   emitBrandDealDetected,
 };

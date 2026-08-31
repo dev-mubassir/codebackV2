@@ -244,15 +244,18 @@ export const SUBSCRIPTION_STATUS_LABELS = {
 };
 
 export const PLAN_LABELS = {
-  free: { label: 'Free plan', tone: 'neutral' },
+  starter: { label: 'Starter plan', tone: 'neutral' },
+  growth: { label: 'Growth plan', tone: 'neutral' },
+  enterprise: { label: 'Enterprise plan', tone: 'neutral' },
 };
 
 export function subscriptionStatusLabel(value) {
   return lookup(SUBSCRIPTION_STATUS_LABELS, value);
 }
 
+/** `value` is a Plan slug (subscription.plan?.slug) — null means no plan purchased yet (trial). */
 export function planLabel(value) {
-  if (!value) return { label: 'Free plan', description: null, tone: 'neutral' };
+  if (!value) return { label: 'Free trial', description: null, tone: 'neutral' };
   const found = PLAN_LABELS[String(value).toLowerCase()];
   if (found) return { description: null, tone: 'neutral', ...found };
   return { label: `${titleCase(value)} plan`, description: null, tone: 'neutral' };

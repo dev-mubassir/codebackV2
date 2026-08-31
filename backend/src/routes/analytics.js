@@ -23,10 +23,12 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { requireEntitlement } = require('../middleware/entitlement');
 const { getIO } = require('../lib/socket');
 const { getAIStats } = require('../services/aiService');
 
 router.use(requireAuth);
+router.use(requireEntitlement);
 
 // Helper to format numbers (e.g. 2030 -> "2.03k", 142 -> "142")
 function formatMetricNumber(num) {

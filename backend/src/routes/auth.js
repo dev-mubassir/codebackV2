@@ -20,6 +20,7 @@ const { disconnectUserSockets } = require('../lib/socket');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession, saveSession } = require('../lib/session');
 const { logAdminAction } = require('../lib/auditLogger');
+const { TRIAL_LENGTH_MS } = require('../services/billingService');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -95,9 +96,8 @@ router.post('/register', registerLimiter, async (req, res) => {
         preferences: { create: {} },
         subscription: {
           create: {
-            plan: 'free',
             status: 'trial',
-            trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+            trialEndsAt: new Date(Date.now() + TRIAL_LENGTH_MS),
           },
         },
       },
@@ -427,9 +427,8 @@ router.get('/instagram/callback', async (req, res) => {
           },
           subscription: {
             create: {
-              plan: 'free',
               status: 'trial',
-              trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+              trialEndsAt: new Date(Date.now() + TRIAL_LENGTH_MS),
             },
           },
           preferences: { create: {} },
@@ -490,7 +489,7 @@ router.get('/me', async (req, res) => {
             connectionStatus: true,
           },
         },
-        subscription: true,
+        subscription: { include: { plan: true } },
       },
     });
 

@@ -32,6 +32,8 @@ const brandDealRoutes = require('./routes/brandDeals');
 const notificationRoutes = require('./routes/notifications');
 const settingsRoutes = require('./routes/settings');
 const subscriptionRoutes = require('./routes/subscription');
+const billingRoutes = require('./routes/billing');
+const cashfreeWebhookRoutes = require('./routes/cashfreeWebhooks');
 const dataDeletionRoutes = require('./routes/dataDeletion');
 
 const { setIO } = require('./lib/socket');
@@ -107,6 +109,28 @@ if (SESSION_SECRET.length < 32) {
 if (isProduction && !process.env.INSTAGRAM_APP_SECRET) {
   console.error('[Server] FATAL: INSTAGRAM_APP_SECRET must be set in production (webhook signatures cannot be verified without it). Refusing to start.');
   process.exit(1);
+}
+
+// Cashfree credentials are required in EVERY environment, same reasoning as
+// SESSION_SECRET above — checked here, not just where they're used, because
+// a blank value doesn't fail loudly at the call site: checkout creation
+// throws on first use (easy to notice), but webhook signature verification
+// just fails closed on every real delivery (silent — subscriptions never
+// activate, add-ons never credit, and nothing on the request path looks
+// broken). Catching this at boot, in dev too, is what would have caught the
+// blank CASHFREE_*_WEBHOOK_SECRET mistake immediately instead of only after
+// a real checkout was attempted.
+const REQUIRED_CASHFREE_VARS = [
+  'CASHFREE_SUBSCRIPTIONS_CLIENT_ID',
+  'CASHFREE_SUBSCRIPTIONS_CLIENT_SECRET',
+  'CASHFREE_PG_CLIENT_ID',
+  'CASHFREE_PG_CLIENT_SECRET',
+];
+for (const varName of REQUIRED_CASHFREE_VARS) {
+  if (!(process.env[varName] || '').trim()) {
+    console.error(`[Server] FATAL: ${varName} is not set. Billing checkout and webhook signature verification cannot work without it.`);
+    throw new Error(`${varName} is required — refusing to start without Cashfree credentials configured.`);
+  }
 }
 
 // An admin session can impersonate any tenant, so the admin credential is
@@ -327,6 +351,9 @@ app.use('/auth', authRoutes);
 app.use('/webhook', webhookRoutes);
 app.use('/webhooks/instagram', webhookRoutes);
 
+// Cashfree webhooks (path contains "webhook" so the raw-body capture above applies)
+app.use('/webhooks/cashfree', cashfreeWebhookRoutes);
+
 // Meta Data Deletion Request Callback (unauthenticated by design — the
 // signed_request HMAC is the authentication). Review-critical surface.
 app.use('/data-deletion', dataDeletionRoutes);
@@ -359,6 +386,10 @@ app.use('/api', settingsRoutes);
 
 // Subscription + usage (GET /api/subscription, GET /api/usage)
 app.use('/api', subscriptionRoutes);
+
+// Billing checkout (Cashfree subscriptions + add-ons) — no requireEntitlement,
+// a gated-out tenant must still be able to reach these to actually pay
+app.use('/api/billing', billingRoutes);
 
 // ============================================
 // Start Server

@@ -27,6 +27,21 @@ api.interceptors.response.use(
     ) {
       window.location.href = '/admin/login';
     }
+
+    // requireEntitlement (api.js, analytics.js, brandDeals.js, dashboard.js
+    // on the backend) returns 402 once a trial expires with no active
+    // subscription. Same direct-redirect style as the onboardingCompleted
+    // checks in login/page.js, page.js, and dashboard/page.js — not
+    // consolidated with them, just matching how plainly they redirect.
+    if (
+      error.response &&
+      error.response.status === 402 &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/billing'
+    ) {
+      window.location.href = '/billing';
+    }
+
     return Promise.reject(error);
   }
 );
@@ -251,6 +266,7 @@ export async function updateAISettings(update) {
 
 // ---- Subscription & Usage ----
 
+/** Current subscription, including the joined plan and effectiveLimits (the ceiling that applies right now — Starter's during trial). */
 export async function getSubscription() {
   const { data } = await api.get('/api/subscription');
   return data;
@@ -258,6 +274,24 @@ export async function getSubscription() {
 
 export async function getUsage() {
   const { data } = await api.get('/api/usage');
+  return data;
+}
+
+/** The self-serve pricing catalog (Starter, Growth, Enterprise). */
+export async function getPlans() {
+  const { data } = await api.get('/api/plans');
+  return data;
+}
+
+/** Start Cashfree subscription checkout for a plan. Returns { selfServe: false, message } for Enterprise, or { selfServe: true, subscriptionSessionId } otherwise. */
+export async function subscribeToPlan(planSlug, customerPhone) {
+  const { data } = await api.post('/api/billing/subscribe', { planSlug, customerPhone });
+  return data;
+}
+
+/** Start a one-time Cashfree order for an add-on DM credit pack. Returns { paymentSessionId }. */
+export async function purchaseAddon(packCode, customerPhone) {
+  const { data } = await api.post('/api/billing/addon', { packCode, customerPhone });
   return data;
 }
 

@@ -18,14 +18,33 @@ router.use(requireAuth);
 
 // ============================================
 // GET /api/subscription
+// Includes the joined Plan (name/price/limits) and effectiveLimits — the
+// ceiling that actually applies right now (the Plan's own limits once
+// purchased, or the Starter ceiling during trial per getEffectivePlanLimits).
 // ============================================
 router.get('/subscription', async (req, res) => {
   try {
     const subscription = await billingService.getOrCreateSubscription(req.userId);
-    res.json(subscription);
+    const effectiveLimits = await billingService.getEffectivePlanLimits(subscription);
+    res.json({ ...subscription, effectiveLimits });
   } catch (error) {
     console.error('[Subscription] Error fetching subscription:', error.message);
     res.status(500).json({ error: "Couldn't load your plan. Refresh to try again." });
+  }
+});
+
+// ============================================
+// GET /api/plans
+// The self-serve pricing catalog (Enterprise included, with null price/
+// limits — the frontend renders that as "Contact us" rather than a price).
+// ============================================
+router.get('/plans', async (req, res) => {
+  try {
+    const plans = await prisma.plan.findMany({ orderBy: { priceInPaise: 'asc' } });
+    res.json(plans);
+  } catch (error) {
+    console.error('[Subscription] Error fetching plans:', error.message);
+    res.status(500).json({ error: "Couldn't load plans. Refresh to try again." });
   }
 });
 

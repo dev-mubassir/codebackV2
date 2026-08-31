@@ -7,9 +7,11 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { requireEntitlement } = require('../middleware/entitlement');
 const { BRAND_DEAL_STATUSES } = require('../lib/constants');
 
 router.use(requireAuth);
+router.use(requireEntitlement);
 
 // ============================================
 // GET /api/brand-deals

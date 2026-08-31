@@ -8,8 +8,10 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { requireEntitlement } = require('../middleware/entitlement');
 
 router.use(requireAuth);
+router.use(requireEntitlement);
 
 const AWAY_THRESHOLD_MS = 10 * 60 * 1000; // only show "while you were away" if gone >10 min
 

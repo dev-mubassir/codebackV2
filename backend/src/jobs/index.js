@@ -10,13 +10,16 @@
 const { getJobSystem } = require('../lib/queue');
 const { processMessageAnalysis, sweepStalledAnalyses } = require('./messageAnalysisJob');
 const { pruneWebhookPayloads } = require('./retentionJob');
+const { sendRenewalReminders } = require('./renewalReminderJob');
 
 const QUEUE_NAME = 'ai-processing';
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const RENEWAL_REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let started = false;
 let sweepTimer = null;
 let retentionTimer = null;
+let renewalReminderTimer = null;
 
 function startWorkers() {
   const jobSystem = getJobSystem(QUEUE_NAME, { concurrency: 3 });
@@ -63,6 +66,20 @@ function startWorkers() {
     runRetention();
     retentionTimer = setInterval(runRetention, RETENTION_INTERVAL_MS);
     if (typeof retentionTimer.unref === 'function') retentionTimer.unref();
+
+    // Only meaningful while Subscriptions autopay isn't active — autopay
+    // renews on its own and never needs a "pay now" nudge. Gated here
+    // rather than inside renewalReminderJob.js so the on/off decision for
+    // the whole sweep lives in one place.
+    if (process.env.CASHFREE_SUBSCRIPTIONS_ENABLED !== 'true') {
+      const runRenewalReminders = () =>
+        sendRenewalReminders().catch((err) =>
+          console.error('[Jobs] Renewal reminder sweep failed:', err.message)
+        );
+      runRenewalReminders();
+      renewalReminderTimer = setInterval(runRenewalReminders, RENEWAL_REMINDER_INTERVAL_MS);
+      if (typeof renewalReminderTimer.unref === 'function') renewalReminderTimer.unref();
+    }
 
     started = true;
     console.log(`[Jobs] AI processing worker started (mode: ${jobSystem.mode}).`);
