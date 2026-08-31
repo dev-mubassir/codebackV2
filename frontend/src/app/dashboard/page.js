@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { io } from 'socket.io-client';
 import { getMe, getAccounts, getInstagramAuthUrl, disconnectAccount, getDashboardSummary, getAnalyticsSummary } from '@/lib/api';
@@ -29,6 +29,8 @@ export default function DashboardPage() {
   const [analyticsError, setAnalyticsError] = useState('');
   const [analyticsTimeRange, setAnalyticsTimeRange] = useState('24h');
   const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const isRedirectingRef = useRef(false);
 
   const fetchAnalytics = useCallback(async (timeRange = '24h') => {
     try {
@@ -133,6 +135,9 @@ export default function DashboardPage() {
 
   function handleConnect(e) {
     if (e) e.preventDefault();
+    if (isRedirectingRef.current) return;
+    isRedirectingRef.current = true;
+    setIsRedirecting(true); // keep this for the UI (aria-disabled, opacity, spin)
     // Programmatic navigation stops mobile from intercepting the link into
     // the native Instagram app.
     window.location.href = getInstagramAuthUrl();
@@ -195,8 +200,10 @@ export default function DashboardPage() {
           onClick={handleConnect}
           className="btn btn-primary"
           id="connect-instagram-dashboard-btn"
+          aria-disabled={isRedirecting}
+          style={isRedirecting ? { opacity: 0.6 } : undefined}
         >
-          <Icon name="instagram" size={16} />
+          <Icon name="instagram" size={16} className={isRedirecting ? styles.spinning : undefined} />
           {accounts.length > 0 ? t.addAccount : t.connectInstagram}
         </a>
       </div>
@@ -335,7 +342,13 @@ export default function DashboardPage() {
                 </div>
                 <div className={styles.accountActions}>
                   {needsReconnect ? (
-                    <a href={getInstagramAuthUrl()} onClick={handleConnect} className="btn btn-primary btn-sm">
+                    <a
+                      href={getInstagramAuthUrl()}
+                      onClick={handleConnect}
+                      className="btn btn-primary btn-sm"
+                      aria-disabled={isRedirecting}
+                      style={isRedirecting ? { opacity: 0.6 } : undefined}
+                    >
                       {t.accounts.reconnect}
                     </a>
                   ) : (
@@ -360,7 +373,13 @@ export default function DashboardPage() {
           </div>
           <h3 className={styles.emptyTitle}>{empty.accounts.title}</h3>
           <p className={styles.emptyDesc}>{empty.accounts.body}</p>
-          <a href={getInstagramAuthUrl()} onClick={handleConnect} className="btn btn-primary" style={{ marginTop: '12px' }}>
+          <a
+            href={getInstagramAuthUrl()}
+            onClick={handleConnect}
+            className="btn btn-primary"
+            aria-disabled={isRedirecting}
+            style={{ marginTop: '12px', ...(isRedirecting ? { opacity: 0.6 } : null) }}
+          >
             {empty.accounts.action}
           </a>
         </div>
