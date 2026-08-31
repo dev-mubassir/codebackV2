@@ -71,6 +71,15 @@ const PATHS = {
   paperclip: <><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" /></>,
   info: <><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></>,
   server: <><rect x="2" y="2" width="20" height="8" rx="2" ry="2" /><rect x="2" y="14" width="20" height="8" rx="2" ry="2" /><line x1="6" y1="6" x2="6.01" y2="6" /><line x1="6" y1="18" x2="6.01" y2="18" /></>,
+
+  // Business categories (onboarding)
+  camera: <><rect x="3" y="8" width="18" height="11" rx="2" ry="2" /><path d="M9 8V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" /><circle cx="12" cy="13.5" r="3.5" /></>,
+  palette: <><path d="M12 4a8 8 0 1 0 5.2 14c.5-.4.4-1.2-.2-1.5a1.3 1.3 0 0 1 .6-2.4H19a3 3 0 0 0 0-6h-.6A8 8 0 0 0 12 4z" /><circle cx="8" cy="10" r="1.1" /><circle cx="9" cy="15" r="1.1" /><circle cx="14" cy="16.5" r="1.1" /></>,
+  gem: <><path d="M6 4h12l4 5-10 12L2 9z" /><path d="M2 9h20M9 4l3 5-3 12M15 4l-3 5 3 12" /></>,
+  home: <><path d="M4 11 12 4l8 7" /><path d="M6 10v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V10" /><path d="M10 21v-6h4v6" /></>,
+  flower: <><circle cx="12" cy="12" r="2" /><circle cx="12" cy="7" r="3" /><circle cx="12" cy="17" r="3" /><circle cx="7" cy="12" r="3" /><circle cx="17" cy="12" r="3" /></>,
+  dumbbell: <><rect x="1" y="9" width="3" height="6" rx="1" /><rect x="20" y="9" width="3" height="6" rx="1" /><rect x="6" y="7" width="2.5" height="10" rx="1" /><rect x="15.5" y="7" width="2.5" height="10" rx="1" /><line x1="8.5" y1="12" x2="15.5" y2="12" /></>,
+  partyPopper: <><path d="M4 20 9 9l6 6z" /><path d="M14 4l1 2M18 3v2.5M20.5 6h-2.5M16 8.5l1.5 1.5M9 3l1 1.5M5 8l1.5 1" /></>,
 };
 
 export const ICON_NAMES = Object.keys(PATHS);

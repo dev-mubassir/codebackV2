@@ -24,6 +24,9 @@ export default function OnboardingPage() {
   // Step 2: What do you do? (Multi-select)
   const [selectedCategories, setSelectedCategories] = useState(['video_editor']);
   const [customCategory, setCustomCategory] = useState('');
+  const [customPlaceholder] = useState(
+    () => t.step2.customPlaceholders[Math.floor(Math.random() * t.step2.customPlaceholders.length)]
+  );
 
   // Step 3: Business Information
   const [description, setDescription] = useState('');
@@ -255,7 +258,7 @@ export default function OnboardingPage() {
                 <input
                   type="text"
                   className="input"
-                  placeholder={t.step2.customPlaceholder}
+                  placeholder={customPlaceholder}
                   value={customCategory}
                   onChange={(e) => setCustomCategory(e.target.value)}
                 />

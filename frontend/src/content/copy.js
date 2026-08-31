@@ -403,7 +403,12 @@ export const onboarding = {
     title: 'What do you do?',
     description: 'Pick every type that fits. Codeback adapts to all of them.',
     customLabel: 'Describe your business',
-    customPlaceholder: 'Antique watch restoration',
+    customPlaceholders: [
+      'Antique watch restoration',
+      'Homemade candle shop',
+      'Wedding photography',
+      'Personal fitness coaching',
+    ],
     next: 'Add business facts',
   },
   step3: {
