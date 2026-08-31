@@ -665,6 +665,17 @@ export const errors = {
     resubscribe: "Couldn't resubscribe with Meta.",
     disconnect: "Couldn't disconnect that account. Try again.",
   },
+
+  // Shown on the landing page after a failed Instagram OAuth redirect
+  // (see the `?error=` codes backend/src/routes/auth.js redirects with).
+  oauthCallback: {
+    invalid_oauth_state: "We couldn't complete the Instagram connection. This can happen if your phone opened a different browser partway through — try again while staying in the same browser you're logged into Codeback with.",
+    oauth_state_unavailable: "We couldn't start the Instagram connection. Try again in a moment.",
+    no_code: 'Instagram sign-in was cancelled before it finished. Try connecting again if that was a mistake.',
+    account_already_connected: 'That Instagram account is already connected to another Codeback account.',
+    oauth_failed: "Couldn't connect that Instagram account. Try connecting again.",
+    generic: "Couldn't connect that Instagram account. Try connecting again.",
+  },
 };
 
 export const empty = {

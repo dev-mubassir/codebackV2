@@ -1,21 +1,35 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getMe } from '@/lib/api';
 import Icon from '@/app/components/Icon';
-import { marketing, auth, common } from '@/content/copy';
+import { marketing, auth, common, errors } from '@/content/copy';
 import styles from './page.module.css';
 
 /** Paired by position with marketing.features.items in content/copy.js. */
 const FEATURE_ICONS = ['briefcase', 'target', 'shield', 'sparkle', 'user', 'lock'];
 
-export default function LandingPage() {
+function LandingPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [checking, setChecking] = useState(true);
+  const [oauthError, setOauthError] = useState('');
 
   useEffect(() => {
+    const errorCode = searchParams.get('error');
+    if (errorCode) {
+      // Surface the failure instead of silently redirecting past it — even
+      // a logged-in user gets swept to /dashboard by the getMe() check
+      // below, so skip it here and strip the param so a refresh doesn't
+      // re-show the message.
+      setOauthError(errors.oauthCallback[errorCode] || errors.oauthCallback.generic);
+      window.history.replaceState(null, '', window.location.pathname);
+      setChecking(false);
+      return;
+    }
+
     getMe()
       .then((user) => {
         if (!user.onboardingCompleted) {
@@ -27,7 +41,7 @@ export default function LandingPage() {
       .catch(() => {
         setChecking(false);
       });
-  }, [router]);
+  }, [router, searchParams]);
 
   if (checking) {
     return (
@@ -39,6 +53,13 @@ export default function LandingPage() {
 
   return (
     <div className={styles.landing}>
+      {oauthError && (
+        <div className={styles.oauthErrorBanner} role="alert">
+          <Icon name="alertTriangle" size={14} />
+          <span>{oauthError}</span>
+        </div>
+      )}
+
       {/* Navigation */}
       <nav className={styles.topNav}>
         <div className={styles.topNavBrand}>
@@ -180,5 +201,17 @@ export default function LandingPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense fallback={
+      <div className={styles.loadingScreen} aria-busy="true" aria-label={common.loading}>
+        <div className="spinner spinner-lg" />
+      </div>
+    }>
+      <LandingPageContent />
+    </Suspense>
   );
 }
