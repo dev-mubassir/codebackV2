@@ -144,8 +144,6 @@ const NOTIFICATION_TYPES = [
 
 const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];
 
-const SUBSCRIPTION_STATUSES = ['trial', 'active', 'past_due', 'cancelled', 'expired'];
-
 const AI_MESSAGE_STATUSES = ['pending', 'processing', 'completed', 'failed', 'skipped'];
 
 module.exports = {
@@ -161,6 +159,5 @@ module.exports = {
   scoreToPriorityBucket,
   NOTIFICATION_TYPES,
   BRAND_DEAL_STATUSES,
-  SUBSCRIPTION_STATUSES,
   AI_MESSAGE_STATUSES,
 };

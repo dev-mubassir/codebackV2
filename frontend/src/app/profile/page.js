@@ -8,7 +8,7 @@ import { getMe, updateProfile, deleteAccount, getInstagramAuthUrl, getBusinessPr
 import { getCategoryMetadata, parseBusinessTypes } from '@/lib/businessTemplates';
 import Icon from '@/app/components/Icon';
 import { account as t, common, errors, empty, confirm as confirmCopy, toast, validation } from '@/content/copy';
-import { replyModeLabel, roleLabel, planLabel, connectionStatusLabel, tokenStatusLabel, toneLabel } from '@/content/labels';
+import { replyModeLabel, roleLabel, connectionStatusLabel, tokenStatusLabel, toneLabel } from '@/content/labels';
 import { formatDate } from '@/content/format';
 import styles from './profile.module.css';
 
@@ -140,7 +140,6 @@ export default function ProfilePage() {
                 <span className={styles.roleBadge}>
                   <Icon name={user?.role === 'ADMIN' ? 'zap' : 'user'} size={12} /> {roleLabel(user?.role).label}
                 </span>
-                <span className={styles.planBadge}>{planLabel(user?.subscription?.plan).label}</span>
               </div>
             </div>
           </div>

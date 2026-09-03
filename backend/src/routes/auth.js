@@ -93,17 +93,9 @@ router.post('/register', registerLimiter, async (req, res) => {
           },
         },
         preferences: { create: {} },
-        subscription: {
-          create: {
-            plan: 'free',
-            status: 'trial',
-            trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-          },
-        },
       },
       include: {
         businessProfile: true,
-        subscription: true,
       },
     });
 
@@ -149,7 +141,6 @@ router.post('/login', loginLimiter, async (req, res) => {
             connectionStatus: true,
           },
         },
-        subscription: true,
       },
     });
 
@@ -409,9 +400,8 @@ router.get('/instagram/callback', async (req, res) => {
       });
       console.log('[Auth] Linked new account to existing user:', profile.username);
     } else {
-      // Create new user + account, plus a trial subscription and default AI
-      // preferences so the rest of the product has sane data to read from
-      // the moment the creator signs up.
+      // Create new user + account, plus default AI preferences so the rest of
+      // the product has sane data to read from the moment the creator signs up.
       user = await prisma.user.create({
         data: {
           name: profile.name || profile.username,
@@ -423,13 +413,6 @@ router.get('/instagram/callback', async (req, res) => {
               igProfilePic: profile.profile_picture_url,
               accessToken: encrypt(longTokenData.access_token),
               tokenExpiresAt: tokenExpiresAt,
-            },
-          },
-          subscription: {
-            create: {
-              plan: 'free',
-              status: 'trial',
-              trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
             },
           },
           preferences: { create: {} },
@@ -490,7 +473,6 @@ router.get('/me', async (req, res) => {
             connectionStatus: true,
           },
         },
-        subscription: true,
       },
     });
 
@@ -507,7 +489,6 @@ router.get('/me', async (req, res) => {
       onboardingCompleted: user.onboardingCompleted,
       businessProfile: user.businessProfile,
       instagramAccounts: user.instagramAccounts,
-      subscription: user.subscription,
       createdAt: user.createdAt,
     });
   } catch (error) {
@@ -569,7 +550,6 @@ router.put('/profile', async (req, res) => {
       include: {
         businessProfile: true,
         instagramAccounts: true,
-        subscription: true,
       },
     });
 

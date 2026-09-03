@@ -114,16 +114,6 @@ async function sweepStalledAnalyses({ olderThanMs = STALLED_ANALYSIS_MS } = {}) 
   return count;
 }
 
-async function recordUsage(userId, type, quantity = 1, metadata = null) {
-  try {
-    await prisma.usageEvent.create({
-      data: { userId, type, quantity, metadata: metadata ? JSON.stringify(metadata) : null },
-    });
-  } catch (err) {
-    console.error('[UsageEvent] Failed to record usage:', err.message);
-  }
-}
-
 async function maybeRegenerateSummary({ conversation, userId, analysis }) {
   try {
     // 1. Skip secondary AI summary calls for non-business, spam, scam, abusive, or fan messages to save tokens
@@ -296,8 +286,6 @@ async function processMessageAnalysis(job) {
       });
     });
 
-    await recordUsage(userId, 'messages_analyzed', 1, { conversationId: conversation.id, category: analysis.category });
-
     // 4. Brand deal extraction + upsert (if relevant to profile/message).
     let brandDealResult = null;
     if (analysis.brandDeal) {
@@ -309,7 +297,6 @@ async function processMessageAnalysis(job) {
       });
 
       if (brandDealResult.isNew) {
-        await recordUsage(userId, 'brand_deals_detected', 1, { conversationId: conversation.id });
         emitBrandDealDetected(userId, { conversationId: conversation.id, brandDeal: brandDealResult.brandDeal });
         await notifyBrandDeal(userId, {
           conversationId: conversation.id,
@@ -632,8 +619,6 @@ async function maybeAutoReply({
         wasSent: true,
       },
     }).catch(() => {});
-
-    await recordUsage(userId, 'auto_replies_sent', 1, { conversationId: conversation.id });
 
     // Stage 10: Emit real-time Socket.io event to the user's frontend
     emitToUser(userId, 'new_message', {

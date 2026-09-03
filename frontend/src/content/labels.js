@@ -233,32 +233,6 @@ export function brandDealStatusLabel(value) {
 }
 
 // ============================================
-// Subscription — SUBSCRIPTION_STATUSES and plans
-// ============================================
-export const SUBSCRIPTION_STATUS_LABELS = {
-  trial: { label: 'Trial', tone: 'neutral' },
-  active: { label: 'Active', tone: 'positive' },
-  past_due: { label: 'Payment overdue', tone: 'warning' },
-  cancelled: { label: 'Cancelled', tone: 'warning' },
-  expired: { label: 'Expired', tone: 'danger' },
-};
-
-export const PLAN_LABELS = {
-  free: { label: 'Free plan', tone: 'neutral' },
-};
-
-export function subscriptionStatusLabel(value) {
-  return lookup(SUBSCRIPTION_STATUS_LABELS, value);
-}
-
-export function planLabel(value) {
-  if (!value) return { label: 'Free plan', description: null, tone: 'neutral' };
-  const found = PLAN_LABELS[String(value).toLowerCase()];
-  if (found) return { description: null, tone: 'neutral', ...found };
-  return { label: `${titleCase(value)} plan`, description: null, tone: 'neutral' };
-}
-
-// ============================================
 // Account role
 // ============================================
 export const ROLE_LABELS = {

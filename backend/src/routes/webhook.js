@@ -398,10 +398,6 @@ async function handleIncomingMessage(account, messagingEvent) {
     throw err;
   }
 
-  await prisma.usageEvent.create({
-    data: { userId: account.userId, type: 'messages_received', quantity: 1, metadata: JSON.stringify({ conversationId: conversation.id }) },
-  }).catch(() => {});
-
   console.log('[Webhook] Message saved:', savedMessage.id);
 
   // Step 4: Push the raw message to the frontend via Socket.io immediately —

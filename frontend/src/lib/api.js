@@ -249,17 +249,6 @@ export async function updateAISettings(update) {
   return data;
 }
 
-// ---- Subscription & Usage ----
-
-export async function getSubscription() {
-  const { data } = await api.get('/api/subscription');
-  return data;
-}
-
-export async function getUsage() {
-  const { data } = await api.get('/api/usage');
-  return data;
-}
 
 // ---- Dashboard & Analytics ----
 

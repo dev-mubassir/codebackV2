@@ -31,7 +31,6 @@ const analyticsRoutes = require('./routes/analytics');
 const brandDealRoutes = require('./routes/brandDeals');
 const notificationRoutes = require('./routes/notifications');
 const settingsRoutes = require('./routes/settings');
-const subscriptionRoutes = require('./routes/subscription');
 const dataDeletionRoutes = require('./routes/dataDeletion');
 
 const { setIO } = require('./lib/socket');
@@ -356,9 +355,6 @@ app.use('/api/notifications', notificationRoutes);
 // Creator AI preferences and business profile / onboarding
 app.use('/api/settings', settingsRoutes);
 app.use('/api', settingsRoutes);
-
-// Subscription + usage (GET /api/subscription, GET /api/usage)
-app.use('/api', subscriptionRoutes);
 
 // ============================================
 // Start Server

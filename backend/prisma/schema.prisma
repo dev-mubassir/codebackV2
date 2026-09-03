@@ -47,12 +47,10 @@ model User {
   businessProfile   BusinessProfile?
   instagramAccounts InstagramAccount[]
   adminLogs         AdminLog[]
-  subscription      Subscription?
   preferences       CreatorPreference?
   brandDeals        BrandDeal[]
   replyGenerations  ReplyGeneration[]
   notifications     Notification[]
-  usageEvents       UsageEvent[]
 
   @@map("users")
 }
@@ -420,48 +418,6 @@ model Notification {
 
   @@index([userId, isRead, createdAt])
   @@map("notifications")
-}
-
-// ============================================
-// Usage Event — append-only usage ledger for future billing/analytics/abuse
-// prevention (messages processed, AI calls, reply generations, etc).
-// ============================================
-model UsageEvent {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  type      String   // messages_received, messages_analyzed, brand_deals_detected, reply_generations, ai_tokens_used
-  quantity  Int      @default(1)
-  metadata  String?  // JSON string
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, type, createdAt])
-  @@map("usage_events")
-}
-
-// ============================================
-// Subscription — provider-agnostic billing abstraction. No payment
-// provider is wired up yet; this table exists so plan/status gating can be
-// added without redesigning the schema later.
-// ============================================
-model Subscription {
-  id                      String    @id @default(uuid())
-  userId                  String    @unique @map("user_id")
-  plan                    String    @default("free")   // "free", "pro", "agency" (extensible)
-  status                  String    @default("trial")   // "trial", "active", "past_due", "cancelled", "expired"
-  trialEndsAt             DateTime? @map("trial_ends_at")
-  currentPeriodEnd        DateTime? @map("current_period_end")
-  provider                String?                        // "stripe", "paddle", "manual", null = not configured
-  providerCustomerId      String?   @map("provider_customer_id")
-  providerSubscriptionId  String?   @map("provider_subscription_id")
-  createdAt               DateTime  @default(now()) @map("created_at")
-  updatedAt               DateTime  @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([status])
-  @@map("subscriptions")
 }
 
 // ============================================
