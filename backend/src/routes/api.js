@@ -12,7 +12,6 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
-const { requireEntitlement } = require('../middleware/entitlement');
 const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
 const aiService = require('../services/aiService');
@@ -21,9 +20,8 @@ const { getOrCreateBusinessProfile } = require('../services/businessProfileServi
 const { normalizeCategory } = require('../lib/constants');
 const { emitToUser } = require('../lib/socket');
 
-// All API routes require authentication and an active trial/subscription
+// All API routes require authentication
 router.use(requireAuth);
-router.use(requireEntitlement);
 
 async function getOwnedAccountIds(userId) {
   const accounts = await prisma.instagramAccount.findMany({

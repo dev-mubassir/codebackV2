@@ -52,7 +52,6 @@ export const nav = {
   inbox: 'Inbox',
   notifications: 'Notifications',
   settings: 'Settings',
-  billing: 'Billing',
   account: 'Account',
   logOut: 'Log out',
   openMenu: 'Open menu',
@@ -856,46 +855,6 @@ export const legal = {
   dataDeletionTitle: 'Delete your data',
 };
 
-export const billing = {
-  title: 'Billing',
-  subtitle: 'Your plan, usage, and add-on DM credits.',
-  trialBanner: {
-    active: (daysLeft) => `${daysLeft} ${daysLeft === 1 ? 'day' : 'days'} left in your trial.`,
-    expired: 'Your trial has ended. Subscribe to keep using Codeback.',
-  },
-  usage: {
-    title: 'This cycle',
-    label: (used, total) => `${used.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')} DMs used`,
-    unlimited: 'Unlimited DMs on your plan',
-    addonNote: (credits) => `Includes ${credits.toLocaleString('en-GB')} add-on DM credits`,
-  },
-  currentPlanLabel: 'Current plan',
-  phoneLabel: 'Phone number',
-  phonePlaceholder: 'Required to complete checkout',
-  phoneHint: "Cashfree needs this to set up your payment method — it isn't stored on your Codeback profile.",
-  plans: {
-    perMonth: '/month',
-    dmQuota: (n) => `${n.toLocaleString('en-GB')} DMs/month`,
-    accountLimit: (n) => `${n} Instagram ${n === 1 ? 'account' : 'accounts'}`,
-    subscribeAction: 'Subscribe',
-    subscribing: 'Starting checkout…',
-    currentPlanAction: 'Current plan',
-    contactUs: 'Contact us',
-    enterpriseNote: 'Custom pricing for larger teams — talk to us.',
-  },
-  addons: {
-    title: 'Add-on DM credits',
-    subtitle: "Need more room this cycle? Credits don't roll over to the next one.",
-    buyAction: 'Buy',
-  },
-  errors: {
-    loadFailed: "Couldn't load your billing details. Refresh to try again.",
-    checkoutFailed: "Couldn't start checkout. Try again in a moment.",
-    phoneRequired: 'Enter a phone number to continue.',
-    sdkUnavailable: "Checkout isn't ready yet — wait a moment and try again.",
-  },
-};
-
 const copy = {
   common,
   nav,
@@ -914,7 +873,6 @@ const copy = {
   validation,
   meta,
   legal,
-  billing,
 };
 
 export default copy;

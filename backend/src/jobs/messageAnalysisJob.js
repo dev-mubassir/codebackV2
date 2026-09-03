@@ -22,7 +22,6 @@ const prisma = require('../lib/prisma');
 const aiService = require('../services/aiService');
 const { getOrCreatePreferences } = require('../services/preferencesService');
 const { getOrCreateBusinessProfile } = require('../services/businessProfileService');
-const { getEffectivePlanLimits } = require('../services/billingService');
 const { upsertBrandDeal } = require('../services/brandDealService');
 const { notifyBrandDeal, notifyHighPriority, notifyImportantCustomer, emitAnalysisUpdate, emitBrandDealDetected } = require('../lib/notify');
 const instagram = require('../lib/instagram');
@@ -211,46 +210,6 @@ async function processMessageAnalysis(job) {
   const { conversation } = message;
   const userId = conversation.instagramAccount.userId;
 
-  // Quota gate, checked before touching aiStatus at all — an over-quota
-  // message should never enter 'processing' just to be flipped back out.
-  //
-  // aiStatus 'skipped' already exists but previously meant only "this is
-  // our own outbound message, never eligible for analysis" (api.js). It's
-  // reused here rather than inventing a new status, since it's technically
-  // accurate (no analysis was attempted) and avoids touching the validated
-  // AI_MESSAGE_STATUSES enum and its frontend label mapping. What actually
-  // makes this visible to the creator — the real point of "needs manual
-  // reply" — is the conversation's existing needsHuman/needsAttention/
-  // aiExplanation fields, the same mechanism this file already uses for
-  // every other human-handoff case (consecutive auto-reply limit, daily
-  // cap) below.
-  const subscription = await prisma.subscription.findUnique({ where: { userId } });
-  const limits = await getEffectivePlanLimits(subscription);
-  const quotaUsed = subscription?.dmQuotaUsedThisCycle || 0;
-  // null dmQuota (Enterprise/custom, per Phase 1b) means no fixed self-serve
-  // number was ever defined for this plan — treated as no cap to enforce,
-  // not as a cap of zero.
-  const quotaAvailable = limits.dmQuota === null ? null : limits.dmQuota + (subscription?.addonDmCredits || 0);
-
-  if (quotaAvailable !== null && quotaUsed >= quotaAvailable) {
-    console.log(`[messageAnalysisJob] DM quota reached for user ${userId} (${quotaUsed}/${quotaAvailable}) — skipping AI analysis for message ${message.id}.`);
-    await prisma.$transaction([
-      prisma.message.update({
-        where: { id: message.id },
-        data: { aiStatus: 'skipped', analyzedAt: new Date() },
-      }),
-      prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          needsHuman: true,
-          needsAttention: true,
-          aiExplanation: 'DM quota reached for this billing cycle. Reply manually, or add DM credits / upgrade your plan to resume automatic analysis.',
-        },
-      }),
-    ]);
-    return;
-  }
-
   await prisma.message.update({ where: { id: message.id }, data: { aiStatus: 'processing' } }).catch(() => {});
 
   try {
@@ -337,24 +296,7 @@ async function processMessageAnalysis(job) {
       });
     });
 
-    // Same transaction as the usage-ledger write, not the separate
-    // recordUsage() helper — increment is atomic under Prisma's array-form
-    // $transaction, avoiding a race where concurrent messages both read a
-    // stale dmQuotaUsedThisCycle and undercount.
-    await prisma.$transaction([
-      prisma.usageEvent.create({
-        data: {
-          userId,
-          type: 'messages_analyzed',
-          quantity: 1,
-          metadata: JSON.stringify({ conversationId: conversation.id, category: analysis.category }),
-        },
-      }),
-      prisma.subscription.update({
-        where: { userId },
-        data: { dmQuotaUsedThisCycle: { increment: 1 } },
-      }),
-    ]);
+    await recordUsage(userId, 'messages_analyzed', 1, { conversationId: conversation.id, category: analysis.category });
 
     // 4. Brand deal extraction + upsert (if relevant to profile/message).
     let brandDealResult = null;

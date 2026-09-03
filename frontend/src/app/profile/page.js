@@ -140,7 +140,7 @@ export default function ProfilePage() {
                 <span className={styles.roleBadge}>
                   <Icon name={user?.role === 'ADMIN' ? 'zap' : 'user'} size={12} /> {roleLabel(user?.role).label}
                 </span>
-                <span className={styles.planBadge}>{planLabel(user?.subscription?.plan?.slug).label}</span>
+                <span className={styles.planBadge}>{planLabel(user?.subscription?.plan).label}</span>
               </div>
             </div>
           </div>

@@ -140,7 +140,6 @@ const NOTIFICATION_TYPES = [
   'scam_alert',
   'needs_human_escalation',
   'instagram_connection_problem',
-  'subscription_renewal_due',
 ];
 
 const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];

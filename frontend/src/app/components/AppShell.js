@@ -17,7 +17,6 @@ const NAV_ITEMS = [
   ]},
   { section: nav.sections.configuration, items: [
     { label: nav.settings, path: '/settings', icon: 'settings' },
-    { label: nav.billing, path: '/billing', icon: 'wallet' },
   ]},
 ];
 
