@@ -1,5 +1,122 @@
 # FINDINGS
 
+---
+
+# ⚠ DEPLOYMENT PREREQUISITE — READ BEFORE THE FIRST DEPLOY
+
+**Status: NOT DONE. Nobody has run the production survey yet. Do not deploy
+until this section is worked through.**
+
+The local dev database was found **drifted** from the repo, and production is
+assumed drifted the same way until proven otherwise. If it is, `prisma migrate
+deploy` may behave differently there than it does locally, and the local
+"everything is green" result does not transfer.
+
+### What drift looks like
+
+Dev carried three migrations whose files no longer exist in the repo — deleted
+by the revert of the Cashfree billing work (`39f84a6`):
+
+```
+20260831071203_add_plan_and_billing_fields
+20260831071502_drop_subscription_legacy_plan
+20260831160644_add_subscription_renewal_reminder_field
+```
+
+They left behind orphan tables — `plans`, `processed_webhook_events`, and an
+**old-shape** `subscriptions` (recognisable by a `plan_id` or
+`provider_subscription_id` column) — and dev had never received
+`20260903120000_remove_subscription_and_usage`.
+
+### Step 0 — find out, before touching anything
+
+```bash
+DATABASE_URL="<northflank-postgres-url>" node backend/scripts/prod-readonly-survey.js
+```
+
+SELECT-only. Its Q0 section prints the full migration history, classifies each
+row as PHANTOM (applied, no file) or MISSING (file, not applied), lists every
+table, and flags orphans and the `subscriptions` shape. **If it reports no
+phantom migrations, none of the rest of this section applies.**
+
+### Step 1 — snapshot Northflank first
+
+Take a database snapshot/backup through the Northflank UI and **confirm it
+completed** before running anything below. Everything after this point is
+destructive and none of it is reversible without that snapshot.
+
+### Step 2 — check whether the pipeline auto-runs migrations
+
+Find out whether the Northflank deploy pipeline runs `prisma migrate deploy`
+automatically on release (a build/release command, an entrypoint script, or a
+job). This decides the entire approach:
+
+- **If it auto-runs**, a deploy will apply pending migrations *before* anyone
+  has cleaned up. Pause the pipeline, or complete the cleanup first.
+- **If it is manual**, cleanup and migration can be sequenced deliberately.
+
+Note that `20260904160000_auth_hardening_baseline` is safe to *attempt* on a
+drifted database — its Section 0 preconditions abort the whole transaction and
+roll back rather than applying partially. A failed attempt is not a broken
+database. That is the safety net, not the plan.
+
+### Step 3 — ORDER MATTERS: drop orphan tables BEFORE clearing history rows
+
+Doing it the other way round leaves tables that no migration creates and no
+migration drops, and nothing in the history explains them — the exact state that
+produced this mess.
+
+```sql
+-- 3a. Orphan tables. Drop the FK holder first: subscriptions.plan_id
+--     references plans.
+--     Old-shape subscriptions ONLY — verify it has plan_id /
+--     provider_subscription_id before dropping. The NEW trial-only
+--     subscriptions table has neither and MUST NOT be dropped.
+DROP TABLE IF EXISTS "subscriptions" CASCADE;   -- old shape only
+DROP TABLE IF EXISTS "usage_events"  CASCADE;
+DROP TABLE IF EXISTS "plans"         CASCADE;
+DROP TABLE IF EXISTS "processed_webhook_events" CASCADE;
+
+-- 3b. ONLY THEN reconcile the phantom history rows.
+DELETE FROM "_prisma_migrations"
+WHERE migration_name IN (
+  '20260831071203_add_plan_and_billing_fields',
+  '20260831071502_drop_subscription_legacy_plan',
+  '20260831160644_add_subscription_renewal_reminder_field'
+);
+```
+
+Prisma offers no supported command to forget an applied migration
+(`migrate resolve` marks one applied or rolled back; it cannot remove a row for
+a migration whose file is gone). Deleting the rows directly is the only route,
+which is why the snapshot in Step 1 is mandatory.
+
+Archive the `plans` rows first if the snapshot is not enough — they are already
+captured in `docs/pricing-history.md`, which is the only surviving record of the
+pre-revert pricing.
+
+### Step 4 — then migrate
+
+```bash
+npx prisma migrate deploy
+```
+
+Applies `20260903120000_remove_subscription_and_usage` (now a no-op for the
+tables already dropped in 3a) followed by
+`20260904160000_auth_hardening_baseline`.
+
+### Step 5 — verify
+
+Re-run the survey. Expect: zero phantom migrations, zero orphan tables,
+`subscriptions` present in the **new trial-only shape**, and `webhook_deliveries`
+present.
+
+Then run the token backfill and confirm zero plaintext rows remain —
+see **D3**, which governs when the `crypto.js` passthrough may finally be
+removed. That is a separate, later change and is NOT part of this workstream.
+
+---
+
 Issues found during the Gate 0 audit of the auth/security hardening pass that are
 **deliberately not being fixed** in that pass. Recorded so they are not lost, and so
 the decisions behind them are not re-litigated from scratch in six months.
@@ -80,6 +197,34 @@ The real gap is nullable mids getting no dedupe at all — tracked separately as
 part of the Phase 6 work, not here.
 
 ---
+
+### D4. `webhook_deliveries` MUST have a 7-day purge job — Gate 4, mandatory
+
+`webhook_deliveries` provides delivery-level webhook idempotency, keyed on
+SHA-256 of the raw request body. Unlike the `processed_webhook_events` table it
+replaces — which only ever saw 13 Cashfree payment events — **every inbound
+Instagram DM writes a row here**. It grows without bound.
+
+A 7-day purge job is a **requirement of the design, not a nice-to-have**.
+`received_at` is indexed specifically for it. Meta does not retry a delivery for
+anything close to 7 days, so nothing is lost by purging at that age.
+
+Without the job this table becomes the largest in the database and the unique
+index on it degrades the webhook hot path — which is the one path that must stay
+fast enough to return 200 inside Meta's timeout.
+
+**Why the key is a body hash, not `(entry.id, entry.time)`:** two genuinely
+different deliveries for the same account within the same second would collide
+on that pair, and the second — a real customer message — would be silently
+dropped. A body hash cannot collide across different deliveries. If Meta ever
+re-serializes a retry, the hash simply differs and processing falls through to
+the existing message-level dedupe on `Message.igMessageId`, which is today's
+behaviour. The failure direction is safe by construction.
+
+**Why a new table name:** the orphaned `processed_webhook_events` still exists
+on any database that applied the phantom Cashfree migrations. Recreating that
+name would make the migration fail precisely on the drifted databases it is
+meant to fix.
 
 ## Credentials — handled outside the repo, do not touch in code
 
