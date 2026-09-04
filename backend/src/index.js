@@ -108,6 +108,58 @@ if (isProduction && !process.env.INSTAGRAM_APP_SECRET) {
   process.exit(1);
 }
 
+// ---- Auth hardening: fail loudly at BOOT, not at 3am on a user request ----
+//
+// Each of these is required in EVERY environment, because the failure mode of
+// a missing one is silent and delayed rather than obvious:
+//
+//   TOKEN_ENCRYPTION_KEY  used to fall back to sha256(SESSION_SECRET). That
+//     coupling meant rotating the session key silently made every stored
+//     Instagram token undecryptable, with no warning. The fallback is gone, so
+//     an unset key must now stop the boot rather than surfacing as a decrypt
+//     failure on the first DM.
+//
+//   OAUTH_STATE_SECRET    signs the OAuth state token. Unset, every Instagram
+//     and Google connect attempt fails at the point the user is mid-flow.
+//
+//   IG_IDENTITY_PEPPER    keys the trial-abuse ledger. Unset, the ledger
+//     cannot be read or written — and a fallback would be far worse than a
+//     crash, because it would silently hand every past trial user a new trial.
+const REQUIRED_SECRETS = [
+  ['TOKEN_ENCRYPTION_KEY', 'encrypts Instagram access tokens at rest', 'hex'],
+  ['OAUTH_STATE_SECRET', 'signs the OAuth state token (Instagram + Google)', 'base64'],
+  ['IG_IDENTITY_PEPPER', 'keys the trial-abuse ledger — CAN NEVER BE ROTATED', 'base64'],
+];
+
+for (const [name, purpose, encoding] of REQUIRED_SECRETS) {
+  const value = (process.env[name] || '').trim();
+  if (!value) {
+    console.error(`[Server] FATAL: ${name} is not set. It ${purpose}.`);
+    console.error(
+      `           Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('${encoding}'))"`
+    );
+    if (name === 'IG_IDENTITY_PEPPER') {
+      console.error('           BACK IT UP PERMANENTLY BEFORE USE — rotating it resets every trial.');
+    }
+    process.exit(1);
+  }
+}
+
+// TOKEN_ENCRYPTION_KEY has a shape requirement the others do not: it is used
+// directly as an AES-256 key, so it must decode to exactly 32 bytes.
+if (Buffer.from(process.env.TOKEN_ENCRYPTION_KEY.trim(), 'hex').length !== 32) {
+  console.error('[Server] FATAL: TOKEN_ENCRYPTION_KEY must be 32 bytes of hex (64 characters).');
+  console.error("           Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
+  process.exit(1);
+}
+
+// Email is not fatal, but a silent console transport in production means
+// password resets never arrive and nobody finds out until a user complains.
+if (isProduction && !(process.env.RESEND_API_KEY || '').trim()) {
+  console.warn('[Server] WARNING: RESEND_API_KEY is not set — password reset and verification');
+  console.warn('[Server]          emails will be LOGGED TO THE CONSOLE instead of sent.');
+}
+
 // An admin session can impersonate any tenant, so the admin credential is
 // effectively a master key to every customer's DMs. A plaintext password in
 // an environment variable is readable from the hosting dashboard, a log dump,
