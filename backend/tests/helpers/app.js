@@ -28,6 +28,7 @@ import cookieParser from 'cookie-parser';
 
 import security from '../../src/lib/security.js';
 import authRoutes from '../../src/routes/auth.js';
+import errorHandlers from '../../src/middleware/errorHandlers.js';
 
 const { securityHeaders, originGuard } = security;
 
@@ -83,6 +84,13 @@ export function buildTestApp({ mount = {} } = {}) {
   for (const [path, router] of Object.entries(mount)) {
     app.use(path, router);
   }
+
+  // The SAME terminal middleware production uses. Without these the harness
+  // falls through to Express's default handler and returns HTML stack traces,
+  // so any test asserting the error contract would be testing the harness
+  // rather than the app.
+  app.use(errorHandlers.notFoundHandler);
+  app.use(errorHandlers.errorHandler);
 
   return app;
 }

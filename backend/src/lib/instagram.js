@@ -11,6 +11,14 @@ const INSTAGRAM_GRAPH_URL = 'https://graph.instagram.com';
 const INSTAGRAM_OAUTH_URL = 'https://api.instagram.com/oauth/access_token';
 
 /**
+ * The permissions this app actually uses. Exported so the OAuth callback can
+ * compare them against what Meta reports as GRANTED — a user can untick a
+ * permission on the consent screen, and without that comparison the connect
+ * silently "succeeds" while no webhook will ever arrive.
+ */
+const REQUIRED_SCOPES = ['instagram_business_basic', 'instagram_business_manage_messages'];
+
+/**
  * Build the Instagram OAuth authorization URL.
  * Uses Instagram Login (Business Login for Instagram) — no Facebook Page needed.
  *
@@ -28,7 +36,7 @@ function getAuthorizationUrl(appId, redirectUri, state) {
   // messages/message_reactions/messaging_seen only. Asking for permissions
   // with no demonstrable use case is a standard App Review rejection, and it
   // over-scopes every tenant's token in the meantime.
-  const scopes = ['instagram_business_basic', 'instagram_business_manage_messages'].join(',');
+  const scopes = REQUIRED_SCOPES.join(',');
 
   return (
     `https://www.instagram.com/oauth/authorize` +
@@ -163,6 +171,7 @@ async function sendMessage(recipientIgsid, text, accessToken) {
 }
 
 module.exports = {
+  REQUIRED_SCOPES,
   getAuthorizationUrl,
   exchangeCodeForToken,
   exchangeForLongLivedToken,

@@ -109,6 +109,19 @@ function originGuard(req, res, next) {
  * Baseline security headers for every response. The backend serves JSON and a
  * couple of tiny text/redirect responses, so a locked-down CSP is safe.
  */
+/**
+ * HELMET IS DELIBERATELY NOT USED. See FINDINGS.md D1.
+ *
+ * res.setHeader overwrites rather than merges, so adding helmet after this
+ * middleware would be a REGRESSION, not an improvement: X-Frame-Options would
+ * drop from DENY to helmet's SAMEORIGIN and the CSP would loosen from
+ * default-src 'none' to 'self'. Its HSTS is also unconditional, which — given
+ * this server serves HTTPS locally whenever backend/certs exists — would pin
+ * local.codeback.test in every developer's browser for a year.
+ *
+ * The headers below that helmet would otherwise have contributed were reviewed
+ * individually and the genuinely useful ones added.
+ */
 function securityHeaders(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -118,6 +131,23 @@ function securityHeaders(req, res, next) {
     'Content-Security-Policy',
     "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
   );
+
+  // Added from the helmet review (D1). This API serves JSON to its own
+  // frontend; no other origin has any business embedding its responses.
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
+  // Hints that this origin gets its own agent cluster, limiting what a
+  // same-site-but-different-origin document can reach.
+  res.setHeader('Origin-Agent-Cluster', '?1');
+  // Explicitly OFF. The legacy XSS auditor introduced its own vulnerabilities
+  // and is disabled in every current browser; setting 0 is the recommendation.
+  res.setHeader('X-XSS-Protection', '0');
+  // No Flash/Acrobat cross-domain policy files are served from here.
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  // Do not resolve DNS for links appearing in responses.
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
+  // Never advertise the framework.
+  res.removeHeader('X-Powered-By');
+
   if (isProduction) {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }

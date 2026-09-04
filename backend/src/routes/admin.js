@@ -167,20 +167,47 @@ router.get('/me', async (req, res) => {
 });
 
 // POST /api/admin/logout — Log out of Admin panel
-router.post('/logout', (req, res) => {
-  if (req.session) {
-    delete req.session.isAdmin;
-    delete req.session.adminUsername;
-    delete req.session.adminUserId;
-    // Safety net: clean up userId if a stale session had it set by the
-    // old admin-login code (which used to set req.session.userId too).
-    // This prevents a logged-out admin from accidentally staying
-    // authenticated as the admin user on regular-user API routes.
-    if (req.session.userId && !req.session.igUsername) {
-      delete req.session.userId;
-    }
+router.post('/logout', async (req, res) => {
+  if (!req.session) {
+    return res.json({ success: true, message: 'Logged out' });
   }
-  res.json({ success: true, message: 'Logged out' });
+
+  // If this session is IMPERSONATING, admin logout must end the impersonation
+  // too — and it must destroy the session outright.
+  //
+  // The previous version cleared only isAdmin/adminUsername/adminUserId and
+  // left impersonatedUserId and userId alone, deleting userId solely when
+  // `!req.session.igUsername`. Two things went wrong:
+  //
+  //   1. An admin who logged out WHILE IMPERSONATING kept a fully
+  //      authenticated ordinary session for the VICTIM's tenant, with no admin
+  //      marker and no further audit trail. That is a privilege-escalation
+  //      path that also erases its own evidence.
+  //   2. The !igUsername heuristic was written against the OAuth session shape
+  //      and does not know about password logins, which never set igUsername —
+  //      so it silently logged real admins out of the main app.
+  const wasImpersonating = req.session.impersonatedUserId || null;
+  const adminId = req.session.adminOriginalUserId || req.session.adminUserId || null;
+
+  if (wasImpersonating) {
+    await logAdminAction(
+      adminId,
+      'USER_IMPERSONATE_EXIT',
+      'USER',
+      wasImpersonating,
+      { status: 'Impersonation ended by admin logout', impersonatedUserId: wasImpersonating },
+      req.ip
+    );
+  }
+
+  // Destroy rather than selectively delete. Picking fields off a session is
+  // how the case above was missed in the first place; a privilege transition
+  // deserves a clean slate.
+  req.session.destroy((err) => {
+    if (err) console.error('[Admin] Error destroying session on logout:', err);
+    res.clearCookie('codeback.sid');
+    res.json({ success: true, message: 'Logged out' });
+  });
 });
 
 // Apply requireAdmin to all remaining admin endpoints

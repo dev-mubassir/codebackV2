@@ -23,10 +23,15 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { requireWorkspace } = require('../middleware/authorize');
 const { getIO } = require('../lib/socket');
 const { getAIStats } = require('../services/aiService');
 
+// The canonical chain. requireWorkspace resolves the caller's owned
+// Instagram account ids once and attaches them, so handlers scope on
+// req.ownedAccountIds rather than each re-deriving ownership.
 router.use(requireAuth);
+router.use(requireWorkspace);
 
 // Helper to format numbers (e.g. 2030 -> "2.03k", 142 -> "142")
 function formatMetricNumber(num) {

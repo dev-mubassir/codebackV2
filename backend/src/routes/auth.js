@@ -32,6 +32,22 @@ const loginLimiter = createRateLimiter({
   max: 10,
   message: 'Too many login attempts. Wait a few minutes and try again.',
 });
+/**
+ * Per-EMAIL login throttle, in addition to the per-IP one above.
+ *
+ * Per-IP alone does nothing against distributed credential stuffing: many
+ * addresses, one target account, and every request lands in a fresh bucket.
+ * Keying on the email being attacked is what actually protects that account.
+ */
+const loginPerEmailLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: 'Too many login attempts for that account. Wait a few minutes and try again.',
+  keyBy: (req) => {
+    const value = req.body && req.body.email;
+    return typeof value === 'string' ? `email:${value.trim().toLowerCase()}` : null;
+  },
+});
 const registerLimiter = createRateLimiter({
   windowMs: 60 * 60 * 1000,
   max: 20,
@@ -226,7 +242,7 @@ router.post('/register', registerLimiter, async (req, res) => {
 // POST /auth/login
 // Email + Password Login
 // ============================================
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', loginLimiter, loginPerEmailLimiter, async (req, res) => {
   try {
     const { email, password } = req.body || {};
 
@@ -835,31 +851,72 @@ router.post('/logout', (req, res) => {
 // GET /auth/instagram
 // Redirect user to Instagram OAuth consent screen
 // ============================================
+/**
+ * GET /auth/instagram — start the connect flow.
+ *
+ * REQUIRES AN AUTHENTICATED SESSION. Instagram is connect-only: it is not a
+ * signup method. Instagram Login for Business returns no email, so an account
+ * created this way would have no reset target, no receipt destination, and no
+ * way to be told its token expired. A logged-out visitor is sent to signup
+ * instead of being silently given an account.
+ *
+ * The state is now a SIGNED, SELF-CONTAINED token rather than a value parked
+ * in the session. Session-stored state is structurally broken on mobile: a
+ * user bounced Brave -> Instagram in-app browser -> Chrome arrives at the
+ * callback with a different cookie jar, so the state (and their identity) is
+ * simply gone. See lib/oauthState.js.
+ */
 router.get('/instagram', async (req, res) => {
-  // CSRF binding: a single-use, unguessable value tying the browser that
-  // starts the flow to the browser that comes back to the callback. Without
-  // it, anyone can feed a victim's logged-in browser an authorization code
-  // of their choosing and silently attach their Instagram account to the
-  // victim's workspace.
-  const state = crypto.randomBytes(32).toString('hex');
-  req.session.oauthState = state;
-  req.session.oauthStateAt = Date.now();
-
-  try {
-    await saveSession(req);
-  } catch (err) {
-    console.error('[Auth] Failed to persist OAuth state:', err.message);
-    return res.redirect(`${process.env.FRONTEND_URL}?error=oauth_state_unavailable`);
+  // Not requireAuth: that answers with JSON 401, and this is a top-level
+  // browser navigation. A logged-out visitor gets sent somewhere useful.
+  const userId = req.session ? req.session.userId : null;
+  if (!userId) {
+    return res.redirect(`${frontendUrl()}/register?error=login_required_to_connect`);
   }
 
-  const authUrl = instagram.getAuthorizationUrl(
-    process.env.INSTAGRAM_APP_ID,
-    process.env.REDIRECT_URI,
-    state
-  );
+  try {
+    // Confirm the session still points at a live, unsuspended user before
+    // minting a token that will attach an Instagram account to it.
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, isSuspended: true, sessionVersion: true, email: true, emailVerifiedAt: true },
+    });
+    if (!user || user.isSuspended) {
+      return res.redirect(`${frontendUrl()}/login?error=login_required_to_connect`);
+    }
+    const sessionVersion = typeof req.session.sessionVersion === 'number' ? req.session.sessionVersion : 0;
+    if (sessionVersion !== user.sessionVersion) {
+      return res.redirect(`${frontendUrl()}/login?error=session_expired`);
+    }
 
-  console.log('[Auth] Redirecting to Instagram OAuth');
-  res.redirect(authUrl);
+    // A trial cannot be granted without a confirmed address (Phase 2), and
+    // connecting without one would leave the user unable to be warned when
+    // their token expires. Stop here rather than at the callback, before Meta
+    // is involved at all.
+    if (!user.email) {
+      return res.redirect(`${frontendUrl()}/profile?error=email_required`);
+    }
+    if (!user.emailVerifiedAt) {
+      return res.redirect(`${frontendUrl()}/profile?error=email_unverified`);
+    }
+
+    const state = await oauthState.createState({
+      purpose: 'INSTAGRAM_CONNECT',
+      userId,
+    });
+
+    const authUrl = instagram.getAuthorizationUrl(
+      process.env.INSTAGRAM_APP_ID,
+      process.env.REDIRECT_URI,
+      state
+    );
+
+    console.log('[Auth] Redirecting to Instagram OAuth');
+    res.redirect(authUrl);
+  } catch (err) {
+    console.error('[Auth] Failed to create OAuth state:', err.message);
+    return res.redirect(`${frontendUrl()}?error=oauth_state_unavailable`);
+  }
 });
 
 // ============================================
@@ -870,33 +927,53 @@ router.get('/instagram/callback', async (req, res) => {
   try {
     const { code, state } = req.query;
 
-    // CSRF check FIRST — before spending a Meta round-trip on an
-    // authorization code we have no reason to trust. The stored state is
-    // consumed here whatever the outcome, so a value can never be replayed.
-    const expectedState = req.session ? req.session.oauthState : null;
-    const issuedAt = req.session ? req.session.oauthStateAt : null;
-    if (req.session) {
-      delete req.session.oauthState;
-      delete req.session.oauthStateAt;
+    // Meta reports user cancellation and app-level problems as query params,
+    // not as a missing code. Previously these were never read, so every one of
+    // them fell through to the generic "no_code" branch and the user was told
+    // they had cancelled even when the real cause was something else entirely
+    // — and error_description, the only text saying what actually went wrong,
+    // was discarded rather than logged.
+    if (req.query.error) {
+      console.warn(
+        `[Auth] Instagram callback returned error=${req.query.error} reason=${req.query.error_reason || 'n/a'}: ${req.query.error_description || 'no description'}`
+      );
+      const isCancel =
+        req.query.error === 'access_denied' || req.query.error_reason === 'user_denied';
+      return res.redirect(
+        `${frontendUrl()}/dashboard?error=${isCancel ? 'instagram_cancelled' : 'instagram_failed'}`
+      );
     }
 
-    const STATE_TTL_MS = 10 * 60 * 1000;
-    const stateExpired = !issuedAt || Date.now() - issuedAt > STATE_TTL_MS;
-    const stateMatches =
-      typeof state === 'string' &&
-      typeof expectedState === 'string' &&
-      state.length === expectedState.length &&
-      crypto.timingSafeEqual(Buffer.from(state), Buffer.from(expectedState));
+    // CSRF check FIRST — before spending a Meta round-trip on an authorization
+    // code we have no reason to trust.
+    //
+    // The state is now self-contained and HMAC-signed, so this works even when
+    // the callback lands in a DIFFERENT BROWSER from the one that started the
+    // flow. Replay protection lives in the OAuthNonce table rather than the
+    // cookie, and `purpose` stops a token minted for the Google flow (signed
+    // with the same secret) being presented here.
+    const stateResult = await oauthState.verifyAndConsumeState({
+      state,
+      expectedPurpose: 'INSTAGRAM_CONNECT',
+    });
 
-    if (!stateMatches || stateExpired) {
-      console.warn('[Auth] Rejected OAuth callback: missing, stale, or mismatched state.');
-      await saveSession(req).catch(() => {});
-      return res.redirect(`${process.env.FRONTEND_URL}?error=invalid_oauth_state`);
+    if (!stateResult.ok) {
+      console.warn(`[Auth] Rejected Instagram callback: state ${stateResult.reason}`);
+      return res.redirect(`${frontendUrl()}?error=invalid_oauth_state`);
+    }
+
+    // Identity comes from the SIGNED STATE, not the session. This is what
+    // makes the mobile browser-switch case work: the user's id survives the
+    // hop because it is inside the token Meta hands back to us.
+    const stateUserId = stateResult.payload.u;
+    if (!stateUserId) {
+      console.warn('[Auth] Instagram callback state carried no userId; refusing.');
+      return res.redirect(`${frontendUrl()}?error=invalid_oauth_state`);
     }
 
     if (!code) {
       console.error('[Auth] No authorization code in callback');
-      return res.redirect(`${process.env.FRONTEND_URL}?error=no_code`);
+      return res.redirect(`${frontendUrl()}?error=no_code`);
     }
 
     console.log('[Auth] Received authorization code, exchanging for token...');
@@ -926,9 +1003,31 @@ router.get('/instagram/callback', async (req, res) => {
     // Step 4: Calculate token expiration date
     const tokenExpiresAt = new Date(Date.now() + (longTokenData.expires_in * 1000));
 
+    // SCOPE CHECK. Instagram Login returns the permissions actually granted
+    // alongside the token. They were never compared against what we asked for,
+    // so a user who unticked message management completed the flow, the
+    // subscribed_apps call failed and was swallowed, and they landed on a
+    // dashboard reporting everything connected while no webhook would ever
+    // arrive. Better to refuse now and say why.
+    const granted = new Set(
+      []
+        .concat(shortTokenData.permissions || [])
+        .concat(longTokenData.permissions || [])
+        .flatMap((p) => String(p).split(/[,\s]+/))
+        .filter(Boolean)
+    );
+    if (granted.size > 0) {
+      const missing = instagram.REQUIRED_SCOPES.filter((s) => !granted.has(s));
+      if (missing.length > 0) {
+        console.warn(`[Auth] Instagram connect refused: missing scopes ${missing.join(', ')}`);
+        return res.redirect(`${frontendUrl()}/dashboard?error=missing_scopes`);
+      }
+    }
+
     // Step 5: Upsert user and Instagram account in the database
     const igUserId = String(profile.user_id || profile.id || shortTokenData.user_id);
-    const currentUserId = req.session ? req.session.userId : null;
+    // From the SIGNED STATE, not the session — see the note above.
+    const currentUserId = stateUserId;
 
     let user;
     // igUserId is no longer globally unique — disconnected rows persist as
@@ -1046,25 +1145,20 @@ router.get('/instagram/callback', async (req, res) => {
       });
       console.log('[Auth] Linked new account to existing user:', profile.username);
     } else {
-      // Create new user + account, plus default AI preferences so the rest of
-      // the product has sane data to read from the moment the creator signs up.
-      user = await prisma.user.create({
-        data: {
-          name: profile.name || profile.username,
-          instagramAccounts: {
-            create: {
-              igUserId: igUserId,
-              igUsername: profile.username,
-              igName: profile.name,
-              igProfilePic: profile.profile_picture_url,
-              accessToken: encrypt(longTokenData.access_token),
-              tokenExpiresAt: tokenExpiresAt,
-            },
-          },
-          preferences: { create: {} },
-        },
-      });
-      console.log('[Auth] Created new user + account for:', profile.username);
+      // INSTAGRAM IS CONNECT-ONLY. It is not a signup method.
+      //
+      // This branch used to CREATE a user from an Instagram profile alone,
+      // with no email and no password. Those accounts have no reset target, no
+      // receipt destination, and no way to be told their token expired — and
+      // because control of the Instagram account was sufficient to reach them,
+      // they were a password-free, email-verification-free login into whatever
+      // workspace owned that account.
+      //
+      // Unreachable in practice: /auth/instagram now requires a session and a
+      // verified email before minting the state token, and the callback takes
+      // its user id from that signed token. This stays as a fail-closed guard.
+      console.warn('[Auth] Instagram callback had no authenticated user; refusing to create one.');
+      return res.redirect(`${frontendUrl()}/register?error=login_required_to_connect`);
     }
 
     // Step 6: Subscribe this account to webhook events
@@ -1076,16 +1170,34 @@ router.get('/instagram/callback', async (req, res) => {
       console.error('[Auth] Webhook subscription failed:', err.response?.data || err.message);
     }
 
-    // Step 7: Set session cookie so the user is "logged in", on a FRESH
-    // session id — completing OAuth is a privilege transition like any login.
-    await startAuthenticatedSession(req, { userId: user.id, igUsername: profile.username });
+    // Step 7: Re-establish the session on a FRESH id. Completing OAuth is a
+    // privilege transition like any login.
+    //
+    // This also RECOVERS the mobile browser-switch case: the callback may have
+    // landed in a browser that never had a session, and because the user's id
+    // travelled inside the signed state we can log them in here rather than
+    // stranding them on an error page.
+    //
+    // userEmail is carried too. Its absence on this path was a live bug: the
+    // admin logout heuristic used `!igUsername` to decide whether a session
+    // was a regular-user one, which silently logged password-login admins out
+    // of the main app.
+    await startAuthenticatedSession(req, {
+      userId: user.id,
+      userEmail: user.email,
+      igUsername: profile.username,
+      sessionVersion: user.sessionVersion,
+    });
 
-    console.log('[Auth] Login complete. Redirecting to dashboard.');
-    res.redirect(`${process.env.FRONTEND_URL}/dashboard`);
+    console.log('[Auth] Instagram connect complete. Redirecting to dashboard.');
+    res.redirect(`${frontendUrl()}/dashboard`);
 
   } catch (error) {
+    // error.response?.data is Meta's error JSON. Never log the error object
+    // itself: on an axios failure error.config.data holds the token-exchange
+    // body, which contains the app secret and the authorization code.
     console.error('[Auth] OAuth callback error:', error.response?.data || error.message);
-    res.redirect(`${process.env.FRONTEND_URL}?error=oauth_failed`);
+    res.redirect(`${frontendUrl()}?error=oauth_failed`);
   }
 });
 

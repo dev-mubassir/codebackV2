@@ -403,3 +403,15 @@ server.listen(PORT, () => {
   console.log('='.repeat(50));
   console.log('');
 });
+
+// ============================================
+// 404 and error handling
+//
+// Extracted to middleware/errorHandlers.js so the TEST HARNESS mounts the
+// identical code — a harness whose error shape differs from production tests
+// nothing about the error shape.
+// ============================================
+const { notFoundHandler, errorHandler } = require('./middleware/errorHandlers');
+
+app.use(notFoundHandler);
+app.use(errorHandler);
