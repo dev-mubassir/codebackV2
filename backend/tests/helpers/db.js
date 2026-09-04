@@ -17,7 +17,6 @@ export const uniq = (label) => `${label}-${Date.now()}-${seq++}`;
 export async function resetDb() {
   await prisma.adminLog.deleteMany({});
   await prisma.webhookLog.deleteMany({});
-  await prisma.usageEvent.deleteMany({});
   await prisma.notification.deleteMany({});
   await prisma.replyGeneration.deleteMany({});
   await prisma.brandDeal.deleteMany({});
@@ -29,7 +28,6 @@ export async function resetDb() {
   await prisma.instagramAccount.deleteMany({});
   await prisma.creatorPreference.deleteMany({});
   await prisma.businessProfile.deleteMany({});
-  await prisma.subscription.deleteMany({});
   await prisma.user.deleteMany({});
 }
 
