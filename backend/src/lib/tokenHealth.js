@@ -14,7 +14,9 @@
 
 const prisma = require('./prisma');
 const instagram = require('./instagram');
-const email = require('./email');
+// Bound as `mailer`, never `email` — see routes/auth.js. A local `email`
+// variable shadowing this module silently broke registration once already.
+const mailer = require('./email');
 
 const frontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -43,7 +45,7 @@ async function markNeedsReconnect(accountId, { reason = 'token_invalid' } = {}) 
 
   if (account?.user?.email) {
     try {
-      await email.sendTokenExpiry(account.user.email, {
+      await mailer.sendTokenExpiry(account.user.email, {
         igUsername: account.igUsername,
         reconnectUrl: `${frontendUrl()}/dashboard`,
       });

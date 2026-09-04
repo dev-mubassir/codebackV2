@@ -13,7 +13,9 @@
  */
 
 const prisma = require('../lib/prisma');
-const email = require('../lib/email');
+// Bound as `mailer`, never `email` — see routes/auth.js. A local `email`
+// variable shadowing this module silently broke registration once already.
+const mailer = require('../lib/email');
 
 const frontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -47,7 +49,7 @@ async function expireFinishedTrials() {
 
     if (subscription.user?.email) {
       try {
-        await email.sendTrialEnding(subscription.user.email, {
+        await mailer.sendTrialEnding(subscription.user.email, {
           daysLeft: 0,
           dashboardUrl: `${frontendUrl()}/dashboard`,
         });
@@ -87,7 +89,7 @@ async function sendTrialEndingWarnings({ intervalMs = 6 * 60 * 60 * 1000 } = {})
   for (const subscription of ending) {
     if (!subscription.user?.email) continue;
     try {
-      await email.sendTrialEnding(subscription.user.email, {
+      await mailer.sendTrialEnding(subscription.user.email, {
         daysLeft: 1,
         dashboardUrl: `${frontendUrl()}/dashboard`,
       });

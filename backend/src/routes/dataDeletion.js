@@ -23,7 +23,9 @@ const crypto = require('crypto');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { hashIgUserId } = require('../lib/igIdentity');
-const email = require('../lib/email');
+// Bound as `mailer`, never `email` — see routes/auth.js. A local `email`
+// variable shadowing this module silently broke registration once already.
+const mailer = require('../lib/email');
 
 /** base64url -> Buffer (Meta uses URL-safe base64 without padding). */
 function b64urlDecode(value) {
@@ -229,7 +231,7 @@ router.post('/deauthorize', async (req, res) => {
       // symptom is silence.
       if (account.user?.email) {
         try {
-          await email.sendTokenExpiry(account.user.email, {
+          await mailer.sendTokenExpiry(account.user.email, {
             igUsername: account.igUsername,
             reconnectUrl: `${(process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')}/dashboard`,
           });
