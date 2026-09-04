@@ -220,28 +220,29 @@ app.use(sessionMiddleware);
 // session is loaded and before route handlers.
 app.use(originGuard);
 
-// JSON body parser — but we need raw body for webhook signature verification
-// So we parse JSON manually for the webhook route, and use express.json() for everything else
-app.use((req, res, next) => {
-  if (req.originalUrl && req.originalUrl.includes('webhook') && req.method === 'POST') {
-    // For webhook POST: collect raw body for signature verification
-    let rawBody = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => { rawBody += chunk; });
-    req.on('end', () => {
-      req.rawBody = rawBody;
-      try {
-        req.body = JSON.parse(rawBody);
-      } catch (e) {
-        req.body = {};
-      }
-      next();
-    });
-  } else {
-    // For all other routes: use standard JSON parser
-    express.json()(req, res, next);
-  }
-});
+// JSON body parser. Meta's webhook signature is an HMAC over the bytes on the
+// wire, so the raw body is captured here via `verify` — body-parser hands us
+// the exact Buffer it is about to parse, before any decoding.
+//
+// This replaces a hand-rolled parser that branched on
+// `req.originalUrl.includes('webhook')`. That branch was wrong three ways:
+//   - it matched the QUERY STRING, so `POST /anything?x=webhook` took the raw
+//     path on every route,
+//   - the raw path had NO size limit, buffering unbounded input into memory
+//     before any signature check ran, and
+//   - it called req.setEncoding('utf8') and accumulated a string, so the HMAC
+//     was computed over re-encoded text (any non-UTF-8 byte becomes U+FFFD and
+//     can never round-trip) and any downstream body parser hit raw-body's
+//     "stream encoding should not be set" 500.
+// A Buffer keeps the bytes exact and the limit applies to every route.
+app.use(
+  express.json({
+    limit: '1mb',
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 // URL-encoded body parser (for form submissions)
 app.use(express.urlencoded({ extended: true }));
