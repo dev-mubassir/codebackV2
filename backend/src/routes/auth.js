@@ -21,7 +21,16 @@ const { startAuthenticatedSession, saveSession } = require('../lib/session');
 const { logAdminAction } = require('../lib/auditLogger');
 const { hashPassword, verifyPassword, burnEquivalentWork } = require('../lib/password');
 const authTokens = require('../lib/authTokens');
-const email = require('../lib/email');
+// Imported as `mailer`, NOT `email`.
+//
+// It was `email`, and the register handler destructures
+// `const { name, email, password } = req.body` — which SHADOWED the module
+// with the user's address string. `mailer.sendVerification(...)` was therefore
+// `undefined` and threw, and because the send is wrapped in a try/catch that
+// only logs, registration silently never sent a verification email. In any
+// environment. `email` is too obvious a local name in auth code for a module
+// to claim.
+const mailer = require('../lib/email');
 const google = require('../lib/google');
 const oauthState = require('../lib/oauthState');
 const igIdentity = require('../lib/igIdentity');
@@ -211,27 +220,35 @@ router.post('/register', registerLimiter, async (req, res) => {
 
     // Send the verification link. A failure here must NOT fail registration —
     // the account exists and the user can request another link — but it must
-    // be logged loudly, because silently unverifiable accounts are invisible.
+    // be logged loudly, and the RESPONSE MUST NOT CLAIM THE MAIL WAS SENT.
+    // Telling someone to check an inbox that will never receive anything is
+    // how an account becomes permanently stuck with no visible cause.
+    let verificationSent = false;
     try {
       const { rawToken, expiresInMinutes } = await authTokens.issueToken({
         userId: user.id,
         type: 'EMAIL_VERIFY',
         requestIp: req.ip,
       });
-      await email.sendVerification(user.email, {
+      await mailer.sendVerification(user.email, {
         url: `${frontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}`,
         expiresInMinutes,
       });
+      verificationSent = true;
     } catch (mailErr) {
       console.error('[Auth] Verification email failed to send:', mailErr.message);
     }
 
     console.log(`[Auth] New user registered: ${user.id}`);
 
+    // No enumeration concern here: the caller already knows this address has
+    // an account, because they just created it.
     res.status(201).json({
-      message: 'Account created. Check your email to confirm your address.',
+      message: verificationSent
+        ? 'Account created. Check your email to confirm your address.'
+        : "Account created, but we couldn't send the confirmation email. Use \"Resend\" from your profile to try again.",
       user: sanitizeUser(user),
-      emailVerificationSent: true,
+      emailVerificationSent: verificationSent,
     });
   } catch (error) {
     console.error('[Auth] Registration error:', error.message);
@@ -346,10 +363,38 @@ router.post('/forgot-password', forgotPasswordIpLimiter, async (req, res) => {
     message: 'If that email address has an account, a reset link is on its way.',
   };
 
+  /**
+   * Returned when the mail transport is known to be broken.
+   *
+   * It must NOT promise delivery — telling someone a link is on its way when
+   * the send failed leaves them waiting forever for mail that will never
+   * arrive, with no way to find out.
+   *
+   * It must also NOT be address-dependent. A reset send is only ATTEMPTED for
+   * an address that exists, so if only those requests degraded, the degraded
+   * response would itself prove the address has an account. lib/email tracks
+   * transport health globally, and the check below runs BEFORE the user lookup
+   * — so while the transport is down, every address gets this answer.
+   */
+  const DEGRADED = {
+    error:
+      'We could not send email just now. This is a problem on our side, not with your account. Try again shortly.',
+    code: 'EMAIL_UNAVAILABLE',
+  };
+
   try {
     const { email: rawEmail } = req.body || {};
     if (!rawEmail || typeof rawEmail !== 'string') {
       return res.json(GENERIC);
+    }
+
+    // BEFORE the lookup, so the answer cannot depend on whether the address
+    // exists. 503 also stops a client caching it as a success.
+    if (mailer.isDegraded()) {
+      console.error(
+        `[Auth] forgot-password refused: mail transport is degraded (${mailer.degradedReason()})`
+      );
+      return res.status(503).json(DEGRADED);
     }
 
     const normalizedEmail = rawEmail.trim().toLowerCase();
@@ -382,15 +427,36 @@ router.post('/forgot-password', forgotPasswordIpLimiter, async (req, res) => {
       requestIp: req.ip,
     });
 
-    await email.sendPasswordReset(user.email, {
-      url: `${frontendUrl()}/reset-password?token=${encodeURIComponent(rawToken)}`,
-      expiresInMinutes,
-    });
+    try {
+      await mailer.sendPasswordReset(user.email, {
+        url: `${frontendUrl()}/reset-password?token=${encodeURIComponent(rawToken)}`,
+        expiresInMinutes,
+      });
+    } catch (sendError) {
+      // The send FAILED. Do not tell them a link is on its way.
+      //
+      // lib/email has already marked the transport degraded, so every
+      // subsequent request — for any address, existing or not — now gets this
+      // same 503 until the flag clears. That is what keeps this from becoming
+      // an enumeration oracle: the first failing request is the only one that
+      // could correlate to a real address, and it is indistinguishable from
+      // the transport simply having gone down a moment earlier.
+      //
+      // The token was already issued and stays valid; a retry once mail works
+      // will invalidate it and send a fresh one.
+      console.error(`[Auth] forgot-password: reset email failed to send: ${sendError.message}`);
+      // Mark it here as well as inside deliver(). The flag is what makes the
+      // NEXT request — for any address, existing or not — return the same
+      // degraded answer, and it must not depend on which layer raised the
+      // error.
+      mailer.markDegraded(sendError.message);
+      return res.status(503).json(DEGRADED);
+    }
 
     return res.json(GENERIC);
   } catch (error) {
-    // Even a genuine failure returns the generic success body. A 500 here
-    // would reveal that the address exists and something downstream broke.
+    // Anything else — a database failure, say. Still generic: a 500 naming the
+    // problem would reveal that the address got far enough to have one.
     console.error('[Auth] forgot-password error:', error.message);
     return res.json(GENERIC);
   }
@@ -527,10 +593,20 @@ router.post('/resend-verification', resendVerificationLimiter, requireAuth, asyn
       type: 'EMAIL_VERIFY',
       requestIp: req.ip,
     });
-    await email.sendVerification(user.email, {
-      url: `${frontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}`,
-      expiresInMinutes,
-    });
+    try {
+      await mailer.sendVerification(user.email, {
+        url: `${frontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}`,
+        expiresInMinutes,
+      });
+    } catch (sendError) {
+      // Authenticated route, so no enumeration concern — say plainly that it
+      // failed rather than claiming an inbox will receive something.
+      console.error(`[Auth] resend-verification failed to send: ${sendError.message}`);
+      return res.status(503).json({
+        error: 'We could not send email just now. This is a problem on our side. Try again shortly.',
+        code: 'EMAIL_UNAVAILABLE',
+      });
+    }
 
     return res.json({ message: 'Confirmation email sent. Check your inbox.' });
   } catch (error) {
@@ -583,10 +659,19 @@ router.post('/add-email', requireAuth, async (req, res) => {
       type: 'EMAIL_VERIFY',
       requestIp: req.ip,
     });
-    await email.sendVerification(user.email, {
-      url: `${frontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}`,
-      expiresInMinutes,
-    });
+    try {
+      await mailer.sendVerification(user.email, {
+        url: `${frontendUrl()}/verify-email?token=${encodeURIComponent(rawToken)}`,
+        expiresInMinutes,
+      });
+    } catch (sendError) {
+      console.error(`[Auth] add-email verification failed to send: ${sendError.message}`);
+      // The address IS saved; only the mail failed. Say exactly that.
+      return res.status(503).json({
+        error: 'Your address was saved, but we could not send the confirmation email. Use "Resend" to try again.',
+        code: 'EMAIL_UNAVAILABLE',
+      });
+    }
 
     return res.json({ message: 'Confirmation email sent. Check your inbox to finish.' });
   } catch (error) {

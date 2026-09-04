@@ -74,8 +74,59 @@ function createResendTransport(apiKey) {
 }
 
 function pickTransport() {
+  // HARD GUARANTEE: tests never reach a real mailbox.
+  //
+  // tests/setup/env.js deletes RESEND_API_KEY, but Vitest re-injects
+  // backend/.env into process.env AFTER setup files run, so the key is present
+  // again by the time a test executes. Without this line the suite would send
+  // live email through the production Resend account to non-existent
+  // @test.codeback addresses — burning the daily cap and generating hard
+  // bounces against the domain real password-reset mail goes out on.
+  //
+  // Checked here rather than in the test setup because this is the last point
+  // before the network, and it cannot be bypassed by env ordering.
+  if (process.env.NODE_ENV === 'test') return consoleTransport;
+
   const key = (process.env.RESEND_API_KEY || '').trim();
   return key ? createResendTransport(key) : consoleTransport;
+}
+
+/**
+ * Transport health.
+ *
+ * THE ENUMERATION SUBTLETY. A password-reset send is only ATTEMPTED when the
+ * address actually has an account. So if a transport failure produced a
+ * different response, that different response would itself prove the address
+ * exists — reintroducing exactly the account-enumeration oracle the endpoint
+ * is built to prevent.
+ *
+ * The fix is to make the degraded response address-INDEPENDENT: once a send
+ * fails, every forgot-password request gets the degraded answer for the next
+ * DEGRADED_TTL_MS, whether or not that address has an account. A transport
+ * outage is a property of the mail provider, not of any one address, so
+ * reporting it uniformly leaks nothing.
+ */
+const DEGRADED_TTL_MS = 5 * 60 * 1000;
+let degradedUntil = 0;
+let lastFailureReason = null;
+
+function markTransportFailed(reason) {
+  degradedUntil = Date.now() + DEGRADED_TTL_MS;
+  lastFailureReason = reason;
+}
+
+function markTransportHealthy() {
+  degradedUntil = 0;
+  lastFailureReason = null;
+}
+
+/** Is the mail transport currently known to be broken? */
+function isDegraded() {
+  return Date.now() < degradedUntil;
+}
+
+function degradedReason() {
+  return isDegraded() ? lastFailureReason : null;
 }
 
 // Resolved per call rather than cached at module load, so tests can flip the
@@ -85,7 +136,22 @@ async function deliver(to, { subject, text, html }) {
     throw new Error('email: refusing to send with no recipient');
   }
   const transport = pickTransport();
-  const result = await transport.send({ to, subject, text, html });
+
+  let result;
+  try {
+    result = await transport.send({ to, subject, text, html });
+  } catch (err) {
+    // Log the FULL error server-side. This is the only place the provider's
+    // own message survives, and it is usually the thing that names the cause
+    // ("The mail.siffty.com domain is not verified", say).
+    markTransportFailed(err.message);
+    console.error(
+      `[email] FAILED to send "${subject}" via ${transport.name}: ${err.message}`
+    );
+    throw err;
+  }
+
+  markTransportHealthy();
   console.log(`[email] sent "${subject}" via ${transport.name} to ${to.replace(/^(.).*(@.*)$/, '$1***$2')}`);
   return result;
 }
@@ -93,6 +159,26 @@ async function deliver(to, { subject, text, html }) {
 module.exports = {
   /** Which transport WOULD be used right now. For boot logging and tests. */
   activeTransport: () => pickTransport().name,
+
+  /**
+   * True when a recent send failed. Callers use this to avoid PROMISING
+   * delivery they cannot make — see the enumeration note above for why the
+   * degraded response must be returned uniformly, not just to addresses that
+   * happen to exist.
+   */
+  isDegraded,
+  degradedReason,
+  /**
+   * Mark the transport degraded from OUTSIDE this module.
+   *
+   * Callers invoke this in their own catch blocks so the degraded state does
+   * not depend on WHERE the failure was raised. deliver() sets it too, but a
+   * caller that wraps or replaces a send would otherwise leave the flag clear
+   * and reintroduce the per-address difference this exists to prevent.
+   */
+  markDegraded: markTransportFailed,
+  /** Test seam: clear the degraded flag between cases. */
+  _resetHealth: markTransportHealthy,
 
   sendPasswordReset: (to, { url, expiresInMinutes }) =>
     deliver(to, templates.passwordReset({ url, expiresInMinutes })),
