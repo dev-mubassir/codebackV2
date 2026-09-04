@@ -418,7 +418,7 @@ async function main() {
   check('Server refuses to start when SKIP_SIGNATURE_VERIFICATION=true in production', exitCode === 1);
   check(
     'Server startup logs fatal security error message',
-    prodStderr.includes('FATAL SECURITY MISCONFIGURATION: SKIP_SIGNATURE_VERIFICATION=true is strictly forbidden in production mode')
+    prodStderr.includes('SKIP_SIGNATURE_VERIFICATION=true is forbidden in production')
   );
 
   // ===============================

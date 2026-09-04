@@ -10,13 +10,19 @@
 const { getJobSystem } = require('../lib/queue');
 const { processMessageAnalysis, sweepStalledAnalyses } = require('./messageAnalysisJob');
 const { pruneWebhookPayloads } = require('./retentionJob');
+const { expireFinishedTrials, sendTrialEndingWarnings } = require('./trialJob');
+const { runHousekeeping } = require('./purgeJob');
 
 const QUEUE_NAME = 'ai-processing';
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const TRIAL_INTERVAL_MS = 60 * 60 * 1000;        // hourly: a 3-day trial needs finer granularity than the retention sweep
+const HOUSEKEEPING_INTERVAL_MS = 6 * 60 * 60 * 1000;
 let started = false;
 let sweepTimer = null;
 let retentionTimer = null;
+let trialTimer = null;
+let housekeepingTimer = null;
 
 function startWorkers() {
   const jobSystem = getJobSystem(QUEUE_NAME, { concurrency: 3 });
@@ -63,6 +69,32 @@ function startWorkers() {
     runRetention();
     retentionTimer = setInterval(runRetention, RETENTION_INTERVAL_MS);
     if (typeof retentionTimer.unref === 'function') retentionTimer.unref();
+
+    // Trial lifecycle. Hourly, because a 3-day trial expiring up to six hours
+    // late is a user still being charged nothing while auto-reply keeps
+    // sending on their behalf.
+    const runTrials = async () => {
+      try {
+        await expireFinishedTrials();
+        await sendTrialEndingWarnings({ intervalMs: TRIAL_INTERVAL_MS });
+      } catch (err) {
+        console.error('[Jobs] Trial sweep failed:', err.message);
+      }
+    };
+    runTrials();
+    trialTimer = setInterval(runTrials, TRIAL_INTERVAL_MS);
+    if (typeof trialTimer.unref === 'function') trialTimer.unref();
+
+    // Housekeeping: webhook_deliveries (MANDATORY — every inbound DM writes a
+    // row, see FINDINGS.md D4), expired auth tokens, spent OAuth nonces, and
+    // ledger rows past their retention date.
+    const runHousekeep = () =>
+      runHousekeeping().catch((err) =>
+        console.error('[Jobs] Housekeeping sweep failed:', err.message)
+      );
+    runHousekeep();
+    housekeepingTimer = setInterval(runHousekeep, HOUSEKEEPING_INTERVAL_MS);
+    if (typeof housekeepingTimer.unref === 'function') housekeepingTimer.unref();
 
     started = true;
     console.log(`[Jobs] AI processing worker started (mode: ${jobSystem.mode}).`);

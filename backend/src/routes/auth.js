@@ -24,6 +24,7 @@ const authTokens = require('../lib/authTokens');
 const email = require('../lib/email');
 const google = require('../lib/google');
 const oauthState = require('../lib/oauthState');
+const igIdentity = require('../lib/igIdentity');
 const { requireAuth } = require('../middleware/auth');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
@@ -1051,66 +1052,85 @@ router.get('/instagram/callback', async (req, res) => {
           })
         : null);
 
-    if (existingAccount) {
-      // Reconnect: update the SAME account row with a fresh token. Because
-      // igUserId is globally unique, this never creates a duplicate account
-      // — all historical contacts/conversations/messages remain attached to
-      // this row and are never touched here.
-      const targetUserId = currentUserId || existingAccount.userId;
+    // ------------------------------------------------------------------
+    // PHASE 2 — the identity ledger decides, atomically, whether this link
+    // is permitted and whether it earns a trial.
+    //
+    // This REPLACES the old conversation-count guard. That guard asked "does
+    // moving this row lose history?", which is a proxy for the real question
+    // and answers it wrong in both directions: an account with contacts but
+    // no conversations transferred silently (handing over every customer's
+    // username and profile picture), and a genuine business moving workspaces
+    // was permanently stuck once a single conversation existed.
+    //
+    // The ledger asks the real questions instead — is this account blocked, is
+    // it actively linked elsewhere, and has it already consumed a trial — and
+    // does the grant, the stamp and the link count in ONE transaction.
+    // ------------------------------------------------------------------
+    const connectingUser = await prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: { id: true, email: true, emailVerifiedAt: true, sessionVersion: true },
+    });
+    if (!connectingUser) {
+      console.warn('[Auth] Instagram callback for a user that no longer exists; refusing.');
+      return res.redirect(`${frontendUrl()}/login?error=login_required_to_connect`);
+    }
 
-      // Cross-tenant re-link. Completing OAuth for an account that already
-      // belongs to someone else used to move the row — and therefore every
-      // Contact / Conversation / Message / AIAnalysis hanging off it — to
-      // whoever happened to be logged in. The old guard only counted
-      // BrandDeal rows, so an account with thousands of DMs and no brand
-      // deal transferred silently.
-      //
-      // Conversation history is the thing that must never move. If any
-      // exists, refuse; the tenants involved are not named in the response.
-      if (targetUserId !== existingAccount.userId) {
-        const conversationCount = await prisma.conversation.count({
-          where: { instagramAccountId: existingAccount.id },
+    const claim = await igIdentity.claimInstagramIdentity({
+      userId: currentUserId,
+      igUserId,
+      emailVerified: Boolean(connectingUser.emailVerifiedAt),
+    });
+
+    if (!claim.ok && claim.reason === 'blocked') {
+      console.warn(`[Auth] Instagram connect refused: identity is blocked.`);
+      await logAdminAction(
+        currentUserId,
+        'ACCOUNT_LINK_BLOCKED',
+        'INSTAGRAM_ACCOUNT',
+        null,
+        { attemptedByUserId: currentUserId, reason: 'blocked' },
+        req.ip
+      );
+      return res.redirect(`${frontendUrl()}/dashboard?error=account_blocked`);
+    }
+
+    if (!claim.ok && claim.reason === 'connected_elsewhere') {
+      // Every rejection is logged with the user id and a timestamp, so abuse
+      // can be told apart from a confused legitimate customer — the two look
+      // identical at the moment of refusal.
+      console.warn(
+        `[Auth] Instagram connect refused: already actively linked to another workspace (${claim.conversationCount} conversation(s) there).`
+      );
+      await logAdminAction(
+        currentUserId,
+        'ACCOUNT_RELINK_BLOCKED',
+        'INSTAGRAM_ACCOUNT',
+        claim.activeAccountId,
+        {
+          attemptedByUserId: currentUserId,
+          currentOwnerUserId: claim.ownerUserId,
+          conversationCount: claim.conversationCount,
+        },
+        req.ip
+      );
+
+      // The response deliberately does not name the current owner.
+      if (req.accepts('json') && !req.accepts('html')) {
+        return res.status(409).json({
+          error: 'Account already connected',
+          message:
+            'That Instagram account is connected to another Codeback workspace. Disconnect it there first, or contact support if you cannot reach that workspace.',
         });
-
-        if (conversationCount > 0) {
-          console.warn(
-            `[Auth] Re-link BLOCKED: IG account ${igUserId} holds ${conversationCount} conversation(s) owned by another workspace.`
-          );
-
-          await logAdminAction(
-            targetUserId,
-            'ACCOUNT_RELINK_BLOCKED',
-            'INSTAGRAM_ACCOUNT',
-            existingAccount.id,
-            {
-              igUserId,
-              attemptedByUserId: targetUserId,
-              currentOwnerUserId: existingAccount.userId,
-              conversationCount,
-            },
-            req.ip
-          );
-
-          if (req.accepts('json') && !req.accepts('html')) {
-            return res.status(409).json({
-              error: 'Account already connected',
-              message: 'That Instagram account is already connected to another Codeback account.',
-            });
-          }
-          return res.redirect(`${process.env.FRONTEND_URL}?error=account_already_connected`);
-        }
-
-        // No history to lose, so the transfer is allowed — but it is still a
-        // change of ownership and is recorded as one.
-        await logAdminAction(
-          targetUserId,
-          'ACCOUNT_RELINK_TRANSFERRED',
-          'INSTAGRAM_ACCOUNT',
-          existingAccount.id,
-          { igUserId, fromUserId: existingAccount.userId, toUserId: targetUserId },
-          req.ip
-        );
       }
+      return res.redirect(`${frontendUrl()}/dashboard?error=account_already_connected`);
+    }
+
+    if (existingAccount) {
+      // Reconnect: update the SAME account row with a fresh token. All
+      // historical contacts/conversations/messages remain attached to this row
+      // and are never touched here.
+      const targetUserId = currentUserId;
 
       await prisma.instagramAccount.update({
         // By primary key, not by igUserId — that column is no longer unique.

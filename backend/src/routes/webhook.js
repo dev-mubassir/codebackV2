@@ -35,9 +35,29 @@ router.get('/', (req, res) => {
 
   console.log('[Webhook] Verification request received:', { mode, token: token ? '***' : undefined });
 
-  if (mode === 'subscribe' && token === process.env.WEBHOOK_VERIFY_TOKEN) {
+  const expected = process.env.WEBHOOK_VERIFY_TOKEN;
+
+  // FAIL CLOSED ON AN UNSET TOKEN. The old comparison was a plain `===`, so
+  // with WEBHOOK_VERIFY_TOKEN unset a request carrying no hub.verify_token
+  // evaluated `undefined === undefined` -> true, and any Meta app could
+  // complete the subscription handshake against this endpoint.
+  if (!expected) {
+    console.error('[Webhook] WEBHOOK_VERIFY_TOKEN is not set — refusing to verify.');
+    return res.status(503).send('Verification is not configured');
+  }
+
+  // Timing-safe, matching the POST path. The GET token is a low-value one-shot
+  // handshake secret, but there is no reason for the two paths to disagree.
+  const provided = typeof token === 'string' ? token : '';
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  const tokenMatches = a.length === b.length && crypto.timingSafeEqual(a, b);
+
+  if (mode === 'subscribe' && tokenMatches) {
     console.log('[Webhook] Verified successfully with Meta!');
-    return res.status(200).send(challenge);
+    // Coerce to a string: `?hub.challenge=a&hub.challenge=b` arrives as an
+    // array, and res.send(array) returns JSON where Meta expects a plain echo.
+    return res.status(200).send(String(challenge ?? ''));
   }
 
   console.warn('[Webhook] Verification failed — token mismatch or invalid mode.');
@@ -54,6 +74,43 @@ router.post('/', async (req, res) => {
   if (!verifySignature(req.rawBody, signatureHeader)) {
     console.warn('[Webhook] Rejected request: invalid or missing X-Hub-Signature-256.');
     return res.status(401).send('Invalid signature');
+  }
+
+  // ------------------------------------------------------------------
+  // DELIVERY-LEVEL IDEMPOTENCY. After signature verification, before any
+  // processing, before the 200.
+  //
+  // Message-level dedupe on Message.igMessageId already existed, but it only
+  // catches the duplicate at the point of INSERT — a Meta retry still re-ran
+  // processEntry, rewrote lastWebhookAt, wrote a duplicate WebhookLog row
+  // containing the customer's message text, and re-fetched contact profiles
+  // over the Graph API. An event carrying no `mid` got no dedupe at all.
+  //
+  // The key is SHA-256 of the RAW BODY, not (entry.id, entry.time): two
+  // genuinely different deliveries for one account inside the same second
+  // would collide on that pair and the second real customer message would be
+  // silently dropped. A body hash cannot collide across different deliveries,
+  // and if Meta ever re-serializes a retry the hash simply differs and we fall
+  // through to message-level dedupe — today's behaviour. Failure is safe by
+  // construction.
+  //
+  // req.rawBody is the exact Buffer body-parser handed us (index.js verify),
+  // so this hashes the same bytes Meta signed.
+  // ------------------------------------------------------------------
+  if (req.rawBody) {
+    const deliveryHash = crypto.createHash('sha256').update(req.rawBody).digest('hex');
+    try {
+      await prisma.webhookDelivery.create({ data: { provider: 'meta', deliveryHash } });
+    } catch (err) {
+      if (err.code === 'P2002') {
+        // Already seen. Meta gets its 200 — anything else invites more retries.
+        console.log('[Webhook] Duplicate delivery ignored (idempotency hit).');
+        return res.status(200).send('EVENT_RECEIVED');
+      }
+      // A bookkeeping failure must never drop a real customer message, so fall
+      // through and process. The message-level guard is still behind us.
+      console.error('[Webhook] Delivery idempotency write failed:', err.message);
+    }
   }
 
   const body = req.body || {};

@@ -19,6 +19,8 @@
  */
 
 const prisma = require('../lib/prisma');
+const { hasActiveEntitlement } = require('../lib/igIdentity');
+const { handleMetaError } = require('../lib/tokenHealth');
 const aiService = require('../services/aiService');
 const { getOrCreatePreferences } = require('../services/preferencesService');
 const { getOrCreateBusinessProfile } = require('../services/businessProfileService');
@@ -199,6 +201,26 @@ async function processMessageAnalysis(job) {
 
   const { conversation } = message;
   const userId = conversation.instagramAccount.userId;
+
+  // ENTITLEMENT GATE. On trial expiry, AI classification and automatic replies
+  // stop; the inbox stays fully readable and nothing is deleted.
+  //
+  // The message is already persisted and already visible in the inbox by the
+  // time this runs — the webhook writes it before enqueuing. So skipping here
+  // costs the user nothing except the AI layer, which is exactly what the
+  // trial was for. It is marked 'skipped' rather than 'failed' so the stalled
+  // -analysis sweeper does not keep retrying it forever, and so an operator
+  // can tell "not entitled" from "the model errored".
+  //
+  // This is also a spend control: without it, an expired tenant's inbound DMs
+  // keep costing Gemini calls indefinitely.
+  if (!(await hasActiveEntitlement(userId))) {
+    await prisma.message
+      .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
+      .catch(() => {});
+    console.log(`[messageAnalysisJob] Skipped ${messageId}: no active entitlement for user ${userId}.`);
+    return;
+  }
 
   await prisma.message.update({ where: { id: message.id }, data: { aiStatus: 'processing' } }).catch(() => {});
 
@@ -580,6 +602,11 @@ async function maybeAutoReply({
       igResponse = await instagram.sendMessage(contact.igsid, replyText, accessToken);
     } catch (apiErr) {
       console.error(`[AutoReply] Instagram sendMessage failed:`, apiErr.response?.data?.error?.message || apiErr.message);
+      // If the token is dead, flag the account and email the owner ONCE, then
+      // stop. Without this the queue retried against a token that would never
+      // work again — burning quota indefinitely while the dashboard reported
+      // the account as healthy.
+      await handleMetaError(apiErr, instagramAccount.id).catch(() => {});
       return;
     }
 

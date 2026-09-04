@@ -25,6 +25,11 @@ process.env.NODE_ENV = 'test';
 // stable across runs. These are test-only values and are never real secrets.
 process.env.SESSION_SECRET = 'test-session-secret-not-a-real-secret-000000';
 process.env.TOKEN_ENCRYPTION_KEY = 'a'.repeat(64);
+// Deterministic, test-only. The pepper in particular must be STABLE across a
+// run: every InstagramIdentity hash derives from it, so a per-run value would
+// make the ledger unmatchable between test cases.
+process.env.OAUTH_STATE_SECRET = 'test-oauth-state-secret-not-a-real-secret-0000';
+process.env.IG_IDENTITY_PEPPER = 'test-ig-identity-pepper-not-a-real-secret-0000';
 
 process.env.INSTAGRAM_APP_ID = 'test-app-id';
 process.env.INSTAGRAM_APP_SECRET = 'test-app-secret';
@@ -43,7 +48,16 @@ delete process.env.ADMIN_PASSWORD;
 delete process.env.ADMIN_PASSWORD_HASH;
 delete process.env.ADMIN_EMAILS;
 
-// Never let a test reach a real queue, a real Redis, or a real AI provider.
+// Never let a test reach a real queue, a real Redis, a real AI provider — or
+// a real MAILBOX. RESEND_API_KEY is present in backend/.env, and without this
+// the suite would send live email through the production Resend account to
+// @test.codeback addresses that do not exist: burning the 100/day cap and
+// generating hard bounces that damage sending reputation for the domain the
+// real password-reset emails go out on.
+//
+// With the key absent, lib/email falls back to the console transport, which is
+// also what makes the reset link assertable in tests.
+delete process.env.RESEND_API_KEY;
 delete process.env.REDIS_URL;
 delete process.env.GEMINI_API_KEY;
 delete process.env.OPENAI_API_KEY;

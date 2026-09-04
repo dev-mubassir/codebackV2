@@ -11,6 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
+const { handleMetaError } = require('../lib/tokenHealth');
 const { requireAuth } = require('../middleware/auth');
 const { requireWorkspace } = require('../middleware/authorize');
 const instagram = require('../lib/instagram');
@@ -589,6 +590,16 @@ router.post('/conversations/:id/reply', async (req, res) => {
     } catch (apiError) {
       const errorData = apiError.response?.data?.error || {};
       console.error('[API] Instagram API error:', errorData);
+
+      // A dead token is a different problem from a rejected message: flag the
+      // account, email the owner once, and tell the user to reconnect rather
+      // than presenting it as a transient upstream failure.
+      if (await handleMetaError(apiError, conversation.instagramAccount.id).catch(() => false)) {
+        return res.status(400).json({
+          error: 'Instagram disconnected this account. Reconnect it to keep replying.',
+          code: 'NEEDS_RECONNECT',
+        });
+      }
 
       // Check for 24-hour window violation
       if (errorData.code === 10 || errorData.error_subcode === 2534015) {

@@ -55,6 +55,11 @@ export async function resetDb() {
  *   the lazy-rehash-on-login path is supposed to migrate.
  * @param {boolean} [opts.withPassword=true]
  *   false produces a Google-only account (passwordHash null).
+ * @param {boolean} [opts.withTrial=true]
+ *   Gives the user an ACTIVE trial. Defaults to true because AI classification
+ *   and auto-reply are gated on entitlement, so without it most fixtures would
+ *   silently exercise the "expired" path instead of what they mean to test.
+ *   Set false when the test is ABOUT entitlement.
  */
 export async function createUser({
   email,
@@ -63,6 +68,7 @@ export async function createUser({
   emailVerified = true,
   hashWith = 'bcrypt',
   withPassword = true,
+  withTrial = true,
 } = {}) {
   let passwordHash = null;
   if (withPassword) {
@@ -84,9 +90,37 @@ export async function createUser({
       onboardingCompleted: true,
       businessProfile: { create: { businessName: name, autoReplyMode: 'human_only' } },
       preferences: { create: {} },
+      ...(withTrial
+        ? {
+            subscription: {
+              create: {
+                status: 'TRIALING',
+                trialStartedAt: new Date(),
+                trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+              },
+            },
+          }
+        : {}),
     },
   });
   return { user, password };
+}
+
+/** Force a user's trial into the expired state, for entitlement tests. */
+export async function expireTrial(userId) {
+  return prisma.subscription.upsert({
+    where: { userId },
+    create: {
+      userId,
+      status: 'TRIAL_EXPIRED',
+      trialStartedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+      trialEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    },
+    update: {
+      status: 'TRIAL_EXPIRED',
+      trialEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    },
+  });
 }
 
 /** An Instagram account owned by `userId`, optionally carrying real history. */
