@@ -365,3 +365,51 @@ export async function getAdminSettings() {
 }
 
 export default api;
+
+// ---- Password reset & email verification ----
+
+/**
+ * Ask for a reset link. Always resolves the same way whether or not the
+ * address has an account — the backend returns an identical response either
+ * way, and surfacing a difference here would reintroduce the account
+ * enumeration the endpoint is designed to prevent.
+ */
+export async function forgotPassword(email) {
+  const { data } = await api.post('/auth/forgot-password', { email });
+  return data;
+}
+
+/** Complete a reset. Invalidates every other session for this account. */
+export async function resetPassword({ token, password, confirmPassword }) {
+  const { data } = await api.post('/auth/reset-password', { token, password, confirmPassword });
+  return data;
+}
+
+/** Confirm an email address. POST, not GET — mail clients pre-fetch links. */
+export async function verifyEmail(token) {
+  const { data } = await api.post('/auth/verify-email', { token });
+  return data;
+}
+
+/** Request another confirmation email for the logged-in account. */
+export async function resendVerification() {
+  const { data } = await api.post('/auth/resend-verification');
+  return data;
+}
+
+/** Attach an email to a legacy Instagram-created account that has none. */
+export async function addEmail(email) {
+  const { data } = await api.post('/auth/add-email', { email });
+  return data;
+}
+
+/** Add a password to a Google-only account. */
+export async function setPassword({ password, confirmPassword }) {
+  const { data } = await api.post('/auth/set-password', { password, confirmPassword });
+  return data;
+}
+
+/** Where to send the browser to start Google sign-in. */
+export function getGoogleAuthUrl() {
+  return `${BACKEND_URL}/auth/google`;
+}

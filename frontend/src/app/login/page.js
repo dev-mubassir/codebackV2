@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { login } from '@/lib/api';
+import { login, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
 import { auth, validation } from '@/content/copy';
 import styles from './login.module.css';
@@ -91,6 +91,22 @@ export default function LoginPage() {
             {loading ? auth.login.submitting : auth.login.submit}
           </button>
         </form>
+
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <Link href="/forgot-password" className={styles.authLink}>
+            Forgot your password?
+          </Link>
+        </div>
+
+        {/*
+          Full-page navigation, not fetch(): this starts an OAuth redirect
+          chain that ends on the backend, so it must leave the SPA entirely.
+        */}
+        <div style={{ marginTop: 16 }}>
+          <a href={getGoogleAuthUrl()} className={`btn ${styles.submitBtn}`} style={{ display: 'block', textAlign: 'center' }}>
+            Continue with Google
+          </a>
+        </div>
 
         <div className={styles.authFooter}>
           {auth.login.footer}

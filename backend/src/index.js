@@ -161,36 +161,62 @@ if (!isProduction && looksPublic) {
 function buildSessionStore() {
   const REDIS_URL = process.env.REDIS_URL;
 
-  if (!REDIS_URL) {
-    if (isProduction) {
-      console.warn('[Session] WARNING: REDIS_URL is not set — using in-memory sessions in production.');
-      console.warn('[Session]          Every restart or deploy will log all users out, sessions are not');
-      console.warn('[Session]          shared across instances, and memory grows unbounded. Set REDIS_URL.');
-    } else {
-      console.log('[Session] REDIS_URL not set — using in-memory session store (fine for local dev).');
+  // Redis stays the preferred store when it is actually provisioned. This
+  // branch is dormant by design — REDIS_URL is unset everywhere today.
+  if (REDIS_URL) {
+    try {
+      const IORedis = require('ioredis');
+      const { RedisStore } = require('connect-redis');
+
+      const client = new IORedis(REDIS_URL, {
+        maxRetriesPerRequest: null,
+        enableReadyCheck: false,
+      });
+      client.on('error', (err) => console.error('[Session] Redis client error:', err.message));
+
+      console.log('[Session] Using Redis-backed session store.');
+      return new RedisStore({ client, prefix: 'codeback:sess:' });
+    } catch (err) {
+      console.error('[Session] FATAL: REDIS_URL is set but the Redis session store failed to initialize:', err.message);
+      if (isProduction) {
+        throw new Error('Redis session store is configured but unavailable — refusing to fall back to MemoryStore in production.');
+      }
+      console.warn('[Session] Falling back to the Postgres session store (non-production only).');
     }
-    return undefined; // express-session falls back to MemoryStore
   }
 
+  // Postgres-backed sessions. This replaces the MemoryStore fallback, which
+  // was the single worst thing about the previous setup: sessions lived in one
+  // process, so every restart logged everyone out, a second instance could not
+  // see the first instance's sessions, and memory grew without bound. All of
+  // that was permitted in PRODUCTION behind nothing but a console warning.
+  //
+  // Postgres is already a hard dependency, so this needs no new infrastructure
+  // and removes the fallback path entirely — there is no longer any way to end
+  // up on MemoryStore by accident.
   try {
-    const IORedis = require('ioredis');
-    const { RedisStore } = require('connect-redis');
+    const pgSession = require('connect-pg-simple')(session);
+    const { Pool } = require('pg');
 
-    const client = new IORedis(REDIS_URL, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    pool.on('error', (err) => console.error('[Session] Postgres session pool error:', err.message));
+
+    console.log('[Session] Using Postgres-backed session store (table: user_sessions).');
+    return new pgSession({
+      pool,
+      tableName: 'user_sessions',
+      // The table is owned by the session store, not by Prisma — it is
+      // deliberately absent from schema.prisma so `prisma migrate diff` does
+      // not fight the library over its shape.
+      createTableIfMissing: true,
+      // Sweep expired rows hourly; without this the table only ever grows.
+      pruneSessionInterval: 60 * 60,
     });
-    client.on('error', (err) => console.error('[Session] Redis client error:', err.message));
-
-    console.log('[Session] Using Redis-backed session store.');
-    return new RedisStore({ client, prefix: 'codeback:sess:' });
   } catch (err) {
-    console.error('[Session] FATAL: REDIS_URL is set but the Redis session store failed to initialize:', err.message);
-    if (isProduction) {
-      throw new Error('Redis session store is configured but unavailable — refusing to fall back to MemoryStore in production.');
-    }
-    console.warn('[Session] Falling back to in-memory sessions (non-production only).');
-    return undefined;
+    console.error('[Session] FATAL: could not initialize the Postgres session store:', err.message);
+    throw new Error(
+      'Session storage is unavailable. Refusing to start with in-memory sessions.'
+    );
   }
 }
 
@@ -198,7 +224,11 @@ function buildSessionStore() {
 const sessionMiddleware = session({
   name: 'codeback.sid',
   store: buildSessionStore(),
-  secret: SESSION_SECRET,
+  // An ARRAY, not a string. express-session signs with the first entry and
+  // accepts any of them when verifying, so a future rotation can prepend a new
+  // secret and keep old cookies valid until they expire, instead of logging
+  // every user out at once. SESSION_SECRET_PREVIOUS is optional.
+  secret: [SESSION_SECRET, ...(process.env.SESSION_SECRET_PREVIOUS ? [process.env.SESSION_SECRET_PREVIOUS.trim()] : [])],
   resave: false,
   saveUninitialized: false,
   cookie: {

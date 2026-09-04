@@ -17,6 +17,18 @@ export const uniq = (label) => `${label}-${Date.now()}-${seq++}`;
 export async function resetDb() {
   await prisma.adminLog.deleteMany({});
   await prisma.webhookLog.deleteMany({});
+  // Auth-hardening tables. The first three cascade from User, but deleting
+  // them explicitly keeps the teardown order readable and independent of
+  // whether a given test created a user at all.
+  await prisma.authToken.deleteMany({});
+  await prisma.authIdentity.deleteMany({});
+  await prisma.subscription.deleteMany({});
+  // No relation to User by design — these survive account deletion, so
+  // nothing else clears them.
+  await prisma.instagramIdentity.deleteMany({});
+  await prisma.oAuthNonce.deleteMany({});
+  await prisma.deletionRequest.deleteMany({});
+  await prisma.webhookDelivery.deleteMany({});
   await prisma.notification.deleteMany({});
   await prisma.replyGeneration.deleteMany({});
   await prisma.brandDeal.deleteMany({});
@@ -32,13 +44,43 @@ export async function resetDb() {
 }
 
 /** A registered tenant with a known password, ready to log in over HTTP. */
-export async function createUser({ email, name = 'Test User', password = 'correct-horse-1' } = {}) {
-  const bcrypt = (await import('bcryptjs')).default;
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.emailVerified=true]
+ *   Most tests want a usable account. Pass false to exercise the gates that
+ *   depend on an unproven address — Google auto-link refusal, and the trial
+ *   grant.
+ * @param {'bcrypt'|'argon2'} [opts.hashWith='bcrypt']
+ *   Defaults to bcrypt at cost 4 — cheap, and it is exactly the legacy shape
+ *   the lazy-rehash-on-login path is supposed to migrate.
+ * @param {boolean} [opts.withPassword=true]
+ *   false produces a Google-only account (passwordHash null).
+ */
+export async function createUser({
+  email,
+  name = 'Test User',
+  password = 'correct-horse-1',
+  emailVerified = true,
+  hashWith = 'bcrypt',
+  withPassword = true,
+} = {}) {
+  let passwordHash = null;
+  if (withPassword) {
+    if (hashWith === 'argon2') {
+      const { hashPassword } = await import('../../src/lib/password.js');
+      passwordHash = await hashPassword(password);
+    } else {
+      const bcrypt = (await import('bcryptjs')).default;
+      passwordHash = await bcrypt.hash(password, 4);
+    }
+  }
+
   const user = await prisma.user.create({
     data: {
       email: email || `${uniq('user')}@test.codeback`,
       name,
-      passwordHash: await bcrypt.hash(password, 4),
+      passwordHash,
+      emailVerifiedAt: emailVerified ? new Date() : null,
       onboardingCompleted: true,
       businessProfile: { create: { businessName: name, autoReplyMode: 'human_only' } },
       preferences: { create: {} },

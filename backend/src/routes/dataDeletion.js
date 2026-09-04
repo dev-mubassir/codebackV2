@@ -71,21 +71,34 @@ function parseSignedRequest(signedRequest, appSecret) {
  * Returns the number of Instagram accounts removed.
  */
 async function eraseInstagramUserData(igUserId) {
-  const account = await prisma.instagramAccount.findUnique({
+  // ALL rows for this Instagram id, not one. igUserId is no longer globally
+  // unique — a disconnected row is retained as history, and a workspace
+  // transfer leaves the previous owner's row behind. A deletion request from
+  // Meta covers the person, not one link, so every row must go or their
+  // message history survives the erasure they asked for.
+  const accounts = await prisma.instagramAccount.findMany({
     where: { igUserId: String(igUserId) },
     select: { id: true, userId: true },
   });
 
-  if (!account) return 0;
+  if (accounts.length === 0) return 0;
 
-  await prisma.instagramAccount.delete({ where: { id: account.id } });
+  await prisma.instagramAccount.deleteMany({
+    where: { id: { in: accounts.map((a) => a.id) } },
+  });
 
-  const remaining = await prisma.instagramAccount.count({ where: { userId: account.userId } });
-  if (remaining === 0) {
-    await prisma.user.delete({ where: { id: account.userId } }).catch(() => {});
+  // Each owning user loses their profile too, unless they still have another
+  // connected account — otherwise we keep a profile for someone who asked to
+  // be forgotten.
+  const ownerIds = [...new Set(accounts.map((a) => a.userId))];
+  for (const userId of ownerIds) {
+    const remaining = await prisma.instagramAccount.count({ where: { userId } });
+    if (remaining === 0) {
+      await prisma.user.delete({ where: { id: userId } }).catch(() => {});
+    }
   }
 
-  return 1;
+  return accounts.length;
 }
 
 // ============================================

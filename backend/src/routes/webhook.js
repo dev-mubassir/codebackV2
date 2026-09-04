@@ -140,10 +140,21 @@ async function processEntry(entry, fullBody) {
   });
 
   // Find the Codeback Instagram account that matches this IG User ID
-  const account = await prisma.instagramAccount.findUnique({
-    where: { igUserId: igUserId },
-    include: { user: true },
-  });
+  // igUserId is no longer globally unique: disconnected rows persist as
+  // history. Prefer the ACTIVE link (at most one exists, enforced by
+  // ig_one_active_link); fall back to any row so that a delivery for a
+  // disconnected account is still distinguishable from one for an account we
+  // have never seen.
+  const account =
+    (await prisma.instagramAccount.findFirst({
+      where: { igUserId, connectionStatus: 'CONNECTED' },
+      include: { user: true },
+    })) ||
+    (await prisma.instagramAccount.findFirst({
+      where: { igUserId },
+      include: { user: true },
+      orderBy: { createdAt: 'desc' },
+    }));
 
   if (!account) {
     console.warn('[Webhook] No account found for IG User ID:', igUserId);

@@ -1,0 +1,113 @@
+/**
+ * Email content, in one place.
+ *
+ * Every template returns { subject, text, html }. Plain text is not optional —
+ * a text/plain alternative materially improves deliverability and is what most
+ * spam filters score against.
+ *
+ * No template ever embeds a secret other than the one-time link it exists to
+ * deliver, and no template logs.
+ */
+
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@siffty.com';
+
+/** Shared shell so every message looks like it came from the same product. */
+function wrap(heading, bodyHtml) {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:24px;background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1a1a1a;">
+    <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;">
+      <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;">${heading}</h1>
+      ${bodyHtml}
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 16px;" />
+      <p style="margin:0;font-size:12px;color:#6b7280;">
+        Codeback · Questions? Reply to this email or write to
+        <a href="mailto:${SUPPORT_EMAIL}" style="color:#6b7280;">${SUPPORT_EMAIL}</a>
+      </p>
+    </div>
+  </body>
+</html>`;
+}
+
+function button(url, label) {
+  return `<p style="margin:24px 0;">
+      <a href="${url}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;">${label}</a>
+    </p>
+    <p style="margin:0 0 8px;font-size:13px;color:#6b7280;">If the button does not work, paste this into your browser:</p>
+    <p style="margin:0;font-size:13px;word-break:break-all;color:#374151;">${url}</p>`;
+}
+
+const templates = {
+  passwordReset({ url, expiresInMinutes }) {
+    return {
+      subject: 'Reset your Codeback password',
+      text:
+        `Someone asked to reset the password for this Codeback account.\n\n` +
+        `Reset it here (link expires in ${expiresInMinutes} minutes, and works once):\n${url}\n\n` +
+        `If this wasn't you, ignore this email — your password has not changed.\n\n` +
+        `Codeback · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        'Reset your password',
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Someone asked to reset the password for this Codeback account.</p>
+         ${button(url, 'Reset password')}
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">This link expires in ${expiresInMinutes} minutes and can only be used once. If this wasn't you, ignore this email — your password has not changed.</p>`
+      ),
+    };
+  },
+
+  verification({ url, expiresInMinutes }) {
+    return {
+      subject: 'Confirm your email for Codeback',
+      text:
+        `Confirm this email address to finish setting up your Codeback account.\n\n` +
+        `Confirm here (link expires in ${expiresInMinutes} minutes):\n${url}\n\n` +
+        `You need a confirmed email before you can start your trial.\n\n` +
+        `Codeback · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        'Confirm your email',
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Confirm this email address to finish setting up your Codeback account.</p>
+         ${button(url, 'Confirm email')}
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">This link expires in ${expiresInMinutes} minutes. You need a confirmed email before you can start your trial.</p>`
+      ),
+    };
+  },
+
+  tokenExpiry({ igUsername, reconnectUrl }) {
+    const who = igUsername ? `@${igUsername}` : 'your Instagram account';
+    return {
+      subject: `Reconnect ${who} — Codeback has stopped receiving your DMs`,
+      text:
+        `Instagram's access token for ${who} is no longer valid, so Codeback has stopped receiving new DMs for it.\n\n` +
+        `Nothing has been deleted — your inbox history is intact. Reconnecting takes about ten seconds:\n${reconnectUrl}\n\n` +
+        `Until you reconnect, new messages will not appear and auto-replies will not send.\n\n` +
+        `Codeback · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        `Reconnect ${who}`,
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Instagram's access token for <strong>${who}</strong> is no longer valid, so Codeback has stopped receiving new DMs for it.</p>
+         <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">Nothing has been deleted — your inbox history is intact.</p>
+         ${button(reconnectUrl, 'Reconnect Instagram')}
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">Until you reconnect, new messages will not appear and auto-replies will not send.</p>`
+      ),
+    };
+  },
+
+  trialEnding({ daysLeft, dashboardUrl }) {
+    const when = daysLeft <= 0 ? 'has ended' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
+    return {
+      subject: `Your Codeback trial ${when}`,
+      text:
+        `Your Codeback trial ${when}.\n\n` +
+        `When it ends, automatic replies and AI classification stop. Your inbox stays readable and nothing is deleted — you keep full access to your message history.\n\n` +
+        `${dashboardUrl}\n\n` +
+        `Codeback · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        `Your trial ${when}`,
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Your Codeback trial ${when}.</p>
+         <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">When it ends, automatic replies and AI classification stop. <strong>Your inbox stays readable and nothing is deleted</strong> — you keep full access to your message history.</p>
+         ${button(dashboardUrl, 'Open Codeback')}`
+      ),
+    };
+  },
+};
+
+module.exports = templates;

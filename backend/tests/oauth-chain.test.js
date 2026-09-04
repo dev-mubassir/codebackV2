@@ -84,7 +84,7 @@ describe('C4 — OAuth state parameter', () => {
 
     await agent.get('/auth/instagram/callback').query({ code: 'real-auth-code' });
 
-    const account = await prisma.instagramAccount.findUnique({ where: { igUserId } });
+    const account = await prisma.instagramAccount.findFirst({ where: { igUserId } });
     expect(account, 'a callback with no state must not connect an account').toBeNull();
   });
 
@@ -99,7 +99,7 @@ describe('C4 — OAuth state parameter', () => {
       .get('/auth/instagram/callback')
       .query({ code: 'real-auth-code', state: 'attacker-chosen-state' });
 
-    const account = await prisma.instagramAccount.findUnique({ where: { igUserId } });
+    const account = await prisma.instagramAccount.findFirst({ where: { igUserId } });
     expect(account, 'a callback with a mismatched state must not connect an account').toBeNull();
   });
 
@@ -116,7 +116,7 @@ describe('C4 — OAuth state parameter', () => {
     setIgUser(secondIg);
     await agent.get('/auth/instagram/callback').query({ code: 'real-auth-code', state });
 
-    const replayed = await prisma.instagramAccount.findUnique({ where: { igUserId: secondIg } });
+    const replayed = await prisma.instagramAccount.findFirst({ where: { igUserId: secondIg } });
     expect(replayed, 'a consumed state must not authorize a second callback').toBeNull();
   });
 
@@ -129,7 +129,7 @@ describe('C4 — OAuth state parameter', () => {
 
     await agent.get('/auth/instagram/callback').query({ code: 'real-auth-code', state });
 
-    const account = await prisma.instagramAccount.findUnique({ where: { igUserId } });
+    const account = await prisma.instagramAccount.findFirst({ where: { igUserId } });
     expect(account, 'a correctly-stated callback must connect the account').not.toBeNull();
     expect(account.userId).toBe(user.id);
   });
