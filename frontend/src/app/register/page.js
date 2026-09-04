@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { register } from '@/lib/api';
+import { register, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
 import { auth, errors, validation } from '@/content/copy';
 import styles from '../login/login.module.css';
@@ -130,6 +130,25 @@ export default function RegisterPage() {
             {loading ? auth.register.submitting : auth.register.submit}
           </button>
         </form>
+
+        {/*
+          Same entry point as the login page. The backend route is identical
+          for both: /auth/google creates the account if the Google address is
+          new and logs in if it already exists, so signup and sign-in need no
+          separate handling here.
+
+          A plain <a>, not a Link or fetch — this starts an OAuth redirect
+          chain that ends on the backend, so it must leave the SPA entirely.
+        */}
+        <div style={{ marginTop: 16 }}>
+          <a
+            href={getGoogleAuthUrl()}
+            className={`btn ${styles.submitBtn}`}
+            style={{ display: 'block', textAlign: 'center' }}
+          >
+            Continue with Google
+          </a>
+        </div>
 
         <div className={styles.authFooter}>
           {auth.register.footer}
