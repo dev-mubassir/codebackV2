@@ -24,7 +24,9 @@ async function requireAdmin(req, res, next) {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.session.userId },
-      include: { instagramAccounts: true },
+      // Only igUsername is read below. `true` would also load accessToken
+      // (encrypted Meta token) into memory on every admin-gated request.
+      include: { instagramAccounts: { select: { igUsername: true } } },
     });
 
     if (!user) {

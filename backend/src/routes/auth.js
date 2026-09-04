@@ -33,7 +33,30 @@ const registerLimiter = createRateLimiter({
   message: 'Too many accounts created from this network. Wait a few minutes and try again.',
 });
 
-// Helper to sanitize user object
+/**
+ * The only shape of InstagramAccount that may leave the server.
+ *
+ * `accessToken` is an AES-256-GCM ciphertext of a live Meta Graph token and has
+ * no reason to reach a browser. Including the relation as `true` pulls it in,
+ * and sanitizeUser() below is a shallow deny-list that cannot strip it — so
+ * every include of this relation must go through this select, never `true`.
+ */
+const INSTAGRAM_ACCOUNT_PUBLIC_SELECT = {
+  id: true,
+  igUserId: true,
+  igUsername: true,
+  igName: true,
+  igProfilePic: true,
+  tokenExpiresAt: true,
+  tokenStatus: true,
+  connectionStatus: true,
+};
+
+// Helper to sanitize user object.
+//
+// NOTE: this is a SHALLOW deny-list — it strips top-level passwordHash and
+// nothing else. It does not descend into included relations, so it is not a
+// substitute for selecting the right columns in the first place.
 function sanitizeUser(user) {
   if (!user) return null;
   const { passwordHash, ...safe } = user;
@@ -132,15 +155,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       where: { email: normalizedEmail },
       include: {
         businessProfile: true,
-        instagramAccounts: {
-          select: {
-            id: true,
-            igUserId: true,
-            igUsername: true,
-            igName: true,
-            connectionStatus: true,
-          },
-        },
+        instagramAccounts: { select: INSTAGRAM_ACCOUNT_PUBLIC_SELECT },
       },
     });
 
@@ -461,18 +476,7 @@ router.get('/me', async (req, res) => {
       where: { id: userId },
       include: {
         businessProfile: true,
-        instagramAccounts: {
-          select: {
-            id: true,
-            igUserId: true,
-            igUsername: true,
-            igName: true,
-            igProfilePic: true,
-            tokenExpiresAt: true,
-            tokenStatus: true,
-            connectionStatus: true,
-          },
-        },
+        instagramAccounts: { select: INSTAGRAM_ACCOUNT_PUBLIC_SELECT },
       },
     });
 
@@ -549,7 +553,7 @@ router.put('/profile', async (req, res) => {
       data: updateData,
       include: {
         businessProfile: true,
-        instagramAccounts: true,
+        instagramAccounts: { select: INSTAGRAM_ACCOUNT_PUBLIC_SELECT },
       },
     });
 

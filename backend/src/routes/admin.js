@@ -361,7 +361,8 @@ router.get('/users/export/csv', async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { instagramAccounts: true }
+      // Only igUsername reaches the CSV; `true` would also load accessToken.
+      include: { instagramAccounts: { select: { igUsername: true } } }
     });
 
     let csv = 'User ID,Name,Email,Role,Is Suspended,Connected Accounts,Created At\n';
