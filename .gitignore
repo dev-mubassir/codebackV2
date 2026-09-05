@@ -19,6 +19,7 @@ dist/
 
 # Backend specific
 backend/.env
+backend/local.env
 backend/certs/
 backend/prisma/*.db
 backend/prisma/*.db-journal

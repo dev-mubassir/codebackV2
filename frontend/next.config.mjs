@@ -13,7 +13,7 @@ const nextConfig = {
       },
     ];
   },
-  allowedDevOrigins: ['app.siffty.com', 'localhost', 'local.codeback.test'],
+  allowedDevOrigins: ['app.siffty.com', 'app.citykirana.in', 'localhost', 'local.codeback.test'],
 };
 
 export default nextConfig;
