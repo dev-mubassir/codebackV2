@@ -4,6 +4,8 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { forgotPassword, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import BrandLogo from '@/app/components/BrandLogo';
+import GoogleIcon from '@/app/components/GoogleIcon';
 import { auth, validation } from '@/content/copy';
 import styles from '../login/login.module.css';
 
@@ -49,7 +51,7 @@ export default function ForgotPasswordPage() {
     <div className={styles.authContainer}>
       <div className={styles.authCard}>
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
+          <div className={styles.authLogo}><BrandLogo size={40} /></div>
           <h1 className={styles.authTitle}>{auth.forgotPassword.title}</h1>
           <p className={styles.authSubtitle}>{auth.forgotPassword.subtitle}</p>
         </div>
@@ -72,9 +74,16 @@ export default function ForgotPasswordPage() {
             <a
               href={getGoogleAuthUrl()}
               className={`btn btn-primary ${styles.submitBtn}`}
-              style={{ display: 'block', textAlign: 'center' }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 12,
+                minHeight: 40,
+              }}
             >
-              Continue with Google
+              <GoogleIcon size={18} />
+              <span>Continue with Google</span>
             </a>
           </div>
         ) : sent ? (

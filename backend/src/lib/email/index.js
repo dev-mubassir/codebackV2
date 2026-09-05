@@ -16,6 +16,7 @@
  */
 
 const templates = require('./templates');
+const quota = require('./quota');
 
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@mail.siffty.com';
 const REPLY_TO_EMAIL = process.env.REPLY_TO_EMAIL || process.env.SUPPORT_EMAIL || undefined;
@@ -131,10 +132,28 @@ function degradedReason() {
 
 // Resolved per call rather than cached at module load, so tests can flip the
 // env var between cases without re-importing the module.
-async function deliver(to, { subject, text, html }) {
+async function deliver(to, type, { subject, text, html }) {
   if (!to || typeof to !== 'string') {
     throw new Error('email: refusing to send with no recipient');
   }
+
+  // Quota BEFORE the transport. Hitting the cap trips the same health gate as
+  // a provider outage, so callers get one honest failure mode rather than two:
+  // forgot-password already answers 503 uniformly for every address when the
+  // transport is degraded, and that behaviour is exactly right here too.
+  const allowed = quota.check(type, to);
+  if (!allowed.ok) {
+    const { sentToday, cap, reserve } = quota.stats();
+    console.error(
+      `[email] QUOTA BLOCKED "${subject}" (${type}) — ${allowed.detail}. ` +
+        `Today: ${sentToday}/${cap}, ${reserve} reserved for critical sends.`
+    );
+    markTransportFailed(`email quota: ${allowed.detail}`);
+    const err = new Error(`Email quota reached: ${allowed.detail}`);
+    err.quota = allowed.reason;
+    throw err;
+  }
+
   const transport = pickTransport();
 
   let result;
@@ -151,8 +170,15 @@ async function deliver(to, { subject, text, html }) {
     throw err;
   }
 
+  // Consume quota only on SUCCESS — a provider failure must not burn capacity
+  // that a later, working send needs.
+  quota.recordSend(type, to);
   markTransportHealthy();
-  console.log(`[email] sent "${subject}" via ${transport.name} to ${to.replace(/^(.).*(@.*)$/, '$1***$2')}`);
+
+  const { sentToday, cap } = quota.stats();
+  console.log(
+    `[email] sent "${subject}" via ${transport.name} to ${to.replace(/^(.).*(@.*)$/, '$1***$2')} [${sentToday}/${cap} today]`
+  );
   return result;
 }
 
@@ -180,15 +206,21 @@ module.exports = {
   /** Test seam: clear the degraded flag between cases. */
   _resetHealth: markTransportHealthy,
 
+  // CRITICAL — someone is blocked right now and waiting on this.
   sendPasswordReset: (to, { url, expiresInMinutes }) =>
-    deliver(to, templates.passwordReset({ url, expiresInMinutes })),
+    deliver(to, 'passwordReset', templates.passwordReset({ url, expiresInMinutes })),
 
   sendVerification: (to, { url, expiresInMinutes }) =>
-    deliver(to, templates.verification({ url, expiresInMinutes })),
+    deliver(to, 'verification', templates.verification({ url, expiresInMinutes })),
 
+  // DEFERRABLE — informational; yields headroom to the two above.
   sendTokenExpiry: (to, { igUsername, reconnectUrl }) =>
-    deliver(to, templates.tokenExpiry({ igUsername, reconnectUrl })),
+    deliver(to, 'tokenExpiry', templates.tokenExpiry({ igUsername, reconnectUrl })),
 
   sendTrialEnding: (to, { daysLeft, dashboardUrl }) =>
-    deliver(to, templates.trialEnding({ daysLeft, dashboardUrl })),
+    deliver(to, 'trialEnding', templates.trialEnding({ daysLeft, dashboardUrl })),
+
+  /** Current quota position, for boot logging and tests. */
+  quotaStats: quota.stats,
+  _resetQuota: quota._reset,
 };

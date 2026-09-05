@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { resetPassword } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import PasswordInput from '@/app/components/PasswordInput';
 import { auth, validation } from '@/content/copy';
 import styles from '../login/login.module.css';
 
@@ -86,9 +87,8 @@ function ResetPasswordForm() {
         <form onSubmit={handleSubmit}>
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="password">New password</label>
-            <input
+            <PasswordInput
               id="password"
-              type="password"
               className="input"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -101,9 +101,8 @@ function ResetPasswordForm() {
 
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="confirmPassword">Confirm new password</label>
-            <input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               className="input"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}

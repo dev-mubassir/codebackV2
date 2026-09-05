@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import GoogleIcon from '@/app/components/GoogleIcon';
+import BrandLogo from '@/app/components/BrandLogo';
+import PasswordInput from '@/app/components/PasswordInput';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { auth, validation } from '@/content/copy';
 import styles from './login.module.css';
@@ -41,7 +44,7 @@ export default function LoginPage() {
         <AuthErrorBanner />
 
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
+          <div className={styles.authLogo}><BrandLogo size={40} /></div>
           <h1 className={styles.authTitle}>{auth.login.title}</h1>
           <p className={styles.authSubtitle}>{auth.login.subtitle}</p>
         </div>
@@ -58,7 +61,7 @@ export default function LoginPage() {
             <label className={styles.formLabel} htmlFor="email">
               {auth.login.emailLabel}
             </label>
-            <input
+            <PasswordInput
               id="email"
               type="email"
               className="input"
@@ -76,7 +79,6 @@ export default function LoginPage() {
             </label>
             <input
               id="password"
-              type="password"
               className="input"
               placeholder="••••••••"
               value={password}
@@ -106,8 +108,19 @@ export default function LoginPage() {
           chain that ends on the backend, so it must leave the SPA entirely.
         */}
         <div style={{ marginTop: 16 }}>
-          <a href={getGoogleAuthUrl()} className={`btn ${styles.submitBtn}`} style={{ display: 'block', textAlign: 'center' }}>
-            Continue with Google
+          <a
+            href={getGoogleAuthUrl()}
+            className={`btn ${styles.submitBtn}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              minHeight: 40,
+            }}
+          >
+            <GoogleIcon size={18} />
+            <span>Continue with Google</span>
           </a>
         </div>
 

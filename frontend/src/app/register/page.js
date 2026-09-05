@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { register, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import GoogleIcon from '@/app/components/GoogleIcon';
+import BrandLogo from '@/app/components/BrandLogo';
+import PasswordInput from '@/app/components/PasswordInput';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { auth, errors, validation } from '@/content/copy';
 import styles from '../login/login.module.css';
@@ -50,7 +53,7 @@ export default function RegisterPage() {
         <AuthErrorBanner />
 
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
+          <div className={styles.authLogo}><BrandLogo size={40} /></div>
           <h1 className={styles.authTitle}>{auth.register.title}</h1>
           <p className={styles.authSubtitle}>{auth.register.subtitle}</p>
         </div>
@@ -67,7 +70,7 @@ export default function RegisterPage() {
             <label className={styles.formLabel} htmlFor="name">
               {auth.register.nameLabel}
             </label>
-            <input
+            <PasswordInput
               id="name"
               type="text"
               className="input"
@@ -100,7 +103,6 @@ export default function RegisterPage() {
             </label>
             <input
               id="password"
-              type="password"
               className="input"
               placeholder="••••••••"
               value={password}
@@ -113,9 +115,8 @@ export default function RegisterPage() {
             <label className={styles.formLabel} htmlFor="confirmPassword">
               {auth.register.confirmPasswordLabel}
             </label>
-            <input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               className="input"
               placeholder="••••••••"
               value={confirmPassword}
@@ -147,9 +148,16 @@ export default function RegisterPage() {
           <a
             href={getGoogleAuthUrl()}
             className={`btn ${styles.submitBtn}`}
-            style={{ display: 'block', textAlign: 'center' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              minHeight: 40,
+            }}
           >
-            Continue with Google
+            <GoogleIcon size={18} />
+            <span>Continue with Google</span>
           </a>
         </div>
 
