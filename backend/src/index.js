@@ -178,10 +178,37 @@ if (isProduction && process.env.ADMIN_USERNAME && !process.env.ADMIN_PASSWORD_HA
 
 // Loud warning for the dangerous "production deployment running in dev mode"
 // case: public URLs but NODE_ENV !== production disables production safeguards.
+const LOCAL_URL_PATTERN = /localhost|127\.0\.0\.1|local\.codeback\.test/;
 const looksPublic = [process.env.FRONTEND_URL, process.env.BACKEND_URL]
-  .some((u) => u && !/localhost|127\.0\.0\.1|local\.codeback\.test/.test(u));
+  .some((u) => u && !LOCAL_URL_PATTERN.test(u));
 if (!isProduction && looksPublic) {
   console.warn('[Server] WARNING: Public FRONTEND_URL/BACKEND_URL detected while NODE_ENV is not "production". Production safeguards (secure cookies, strict CORS/headers gating) are relaxed. Set NODE_ENV=production for public deployments.');
+}
+
+// The mirror case is worse than a warning deserves: NODE_ENV=production with
+// FRONTEND_URL/BACKEND_URL left at (or defaulted to) localhost. The server
+// boots fine and then quietly builds password-reset, verification, and OAuth
+// links that only resolve on the machine running this process — exactly the
+// class of bug a wrong env var NAME would also cause, and just as silent.
+// Two separate checks rather than one combined one, so a deploy missing only
+// one of the two names itself instead of a generic message.
+if (isProduction) {
+  const frontendUrlValue = (process.env.FRONTEND_URL || '').trim();
+  if (!frontendUrlValue || LOCAL_URL_PATTERN.test(frontendUrlValue)) {
+    console.error(
+      `[Server] FATAL: FRONTEND_URL is ${frontendUrlValue ? `still "${frontendUrlValue}"` : 'not set'} in production. ` +
+        'It builds every password-reset, verification, and OAuth-redirect link. Set it to the public frontend URL.'
+    );
+    process.exit(1);
+  }
+  const backendUrlValue = (process.env.BACKEND_URL || '').trim();
+  if (!backendUrlValue || LOCAL_URL_PATTERN.test(backendUrlValue)) {
+    console.error(
+      `[Server] FATAL: BACKEND_URL is ${backendUrlValue ? `still "${backendUrlValue}"` : 'not set'} in production. ` +
+        'It feeds the CORS allowlist and derives the Google OAuth redirect URI. Set it to the public backend URL.'
+    );
+    process.exit(1);
+  }
 }
 
 /**

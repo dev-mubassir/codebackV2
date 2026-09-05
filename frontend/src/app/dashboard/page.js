@@ -11,9 +11,8 @@ import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { dashboard as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
 import { categoryLabel, replyModeLabel, replyModeSendsAutomatically, tokenStatusLabel, connectionStatusLabel } from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
+import { BACKEND_URL } from '@/lib/backendUrl';
 import styles from './dashboard.module.css';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
 /**
  * Dashboard — what arrived, what needs the user personally, which accounts are
