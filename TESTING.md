@@ -40,6 +40,67 @@ verification link is printed to the server console — search the log for
 
 ---
 
+## 0. The full signup walk — run this FIRST, once `mail.siffty.com` is verified
+
+Everything below assumes a verified, connected account. This is how you get
+one, and it is the path that was dead-ending with a blank screen.
+
+**Blocked until DNS is in.** Until `mail.siffty.com` verifies, step 0.2 fails
+with a 503 and the verification link only appears in the server console
+(`[email:console] LINK:` — no, in fact it will *not*: with a key present the
+Resend transport is used and simply fails, so watch for `[email] FAILED`).
+
+### Do
+
+1. **Register** at `https://app.citykirana.in/register` with a **fresh
+   address** you can read — `mubassirs1999@gmail.com` is the one from the
+   original repro. Use a password.
+2. Watch the response. It now tells the truth either way:
+   - `"Account created. Check your email to confirm your address."` — sent
+   - `"Account created, but we couldn't send the confirmation email…"` — not sent
+3. **Open the verification email** and click the link. It goes to
+   `/verify-email?token=…`.
+4. **Log in**, then click **Connect Instagram**.
+
+### Expect
+
+| Step | Expected |
+|---|---|
+| 0.1 register | 201, and `emailVerificationSent: true` |
+| 0.2 email arrives | Subject "Confirm your email for Codeback", from `noreply@mail.siffty.com` |
+| 0.3 click link | "Your email address is confirmed." |
+| 0.4 connect Instagram | Redirects to Instagram — **not** bounced back to `/profile` |
+| 0.5 after authorising | Lands on `/dashboard`, account connected |
+| 0.6 trial | `TRIALING`, 3 days |
+
+Confirm the trial:
+```bash
+cd C:\codeback\backend && node -e "require('dotenv').config();const p=require('./src/lib/prisma');p.subscription.findMany({select:{status:true,trialStartedAt:true,trialEndsAt:true}}).then(r=>{console.log(r);return p.\$disconnect()})"
+```
+
+### If you try to connect BEFORE verifying
+
+This is the case that used to show a blank screen. It should now:
+
+- **Not start OAuth at all.** The Connect button refuses up front and explains
+  why, in place, with a link to your profile.
+- If you reach `/profile?error=email_unverified` directly, the page renders the
+  reason **and** a **Resend verification email** button, showing the address it
+  will send to — so a typo at registration is visible and fixable.
+- While the domain is unverified, that resend button reports the honest
+  failure (`We could not send email just now…`) rather than claiming success.
+
+### If it fails
+
+| Symptom | Meaning |
+|---|---|
+| Registration says it couldn't send | Domain still unverified. Check `[email] FAILED` in the log for the verbatim Resend error. |
+| Connect button does nothing and shows no message | The pre-redirect guard fired but the banner did not render — report it, that is a UI regression. |
+| Bounced to `/profile` with a blank page | The `?error=` rendering regressed. 19 codes are mapped in `content/copy.js` under `errors.oauthCallback`. |
+| Connected but no trial | Check `emailVerifiedAt` is set. The trial is refused without it by design. |
+
+---
+
 ## 1. Mobile Instagram OAuth across a browser switch
 
 **This is the one that structurally could not work before.** State used to live

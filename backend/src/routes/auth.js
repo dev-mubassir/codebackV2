@@ -411,9 +411,31 @@ router.post('/forgot-password', forgotPasswordIpLimiter, async (req, res) => {
     // A user with no password signed up with Google. Minting a reset token for
     // them would create a password on an account that deliberately has none,
     // turning "sign in with Google" into a second, weaker credential.
+    //
+    // Returning GENERIC here was a dead end: the user is told a link is on its
+    // way, no mail is ever sent, and they wait forever with no route forward.
+    // So this branch now says plainly what is going on.
+    //
+    // NON-ENUMERATION NOTE — read before "simplifying" this.
+    // This DOES distinguish a Google-only account from a non-existent address,
+    // and that is a deliberate, accepted trade: the alternative is a permanent
+    // dead end for every Google user who forgets they used Google. What is
+    // still protected is the more valuable distinction — a PASSWORD account is
+    // indistinguishable from no account at all, because both fall through to
+    // GENERIC below.
+    //
+    // The response shape must stay cheap. Doing extra work here (a send, a
+    // hash, another query) would make this branch measurably slower and turn
+    // the timing into the very oracle the body no longer is. See
+    // tests/coverage-gaps.test.js.
     if (!user.passwordHash) {
       console.log(`[Auth] Reset requested for a Google-only account (${user.id}); no token issued.`);
-      return res.json(GENERIC);
+      return res.json({
+        message:
+          'This address signs in with Google. Use “Continue with Google” to get back in — there is no password to reset.',
+        code: 'GOOGLE_ACCOUNT',
+        signInUrl: `${frontendUrl()}/login`,
+      });
     }
 
     if (!maySendResetTo(normalizedEmail)) {
@@ -1336,6 +1358,13 @@ router.get('/me', requireAuth, async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      // Verification state must be visible to the client. Without it the
+      // frontend cannot disable the Connect button up front and can only
+      // discover the problem by starting OAuth and being bounced back with an
+      // ?error= it then has to render. Booleans only — never the timestamp.
+      emailVerified: Boolean(user.emailVerifiedAt),
+      needsEmail: !user.email,
+      hasPassword: Boolean(user.passwordHash),
       onboardingCompleted: user.onboardingCompleted,
       businessProfile: user.businessProfile,
       instagramAccounts: user.instagramAccounts,

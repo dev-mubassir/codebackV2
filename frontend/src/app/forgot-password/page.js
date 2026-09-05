@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { forgotPassword } from '@/lib/api';
+import { forgotPassword, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
 import { auth, validation } from '@/content/copy';
 import styles from '../login/login.module.css';
@@ -19,6 +19,7 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [googleAccount, setGoogleAccount] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSubmit(e) {
@@ -26,11 +27,18 @@ export default function ForgotPasswordPage() {
     setError('');
     setLoading(true);
     try {
-      await forgotPassword(email);
-      setSent(true);
+      const res = await forgotPassword(email);
+      // A Google-only account has no password to reset. Showing the generic
+      // "check your inbox" here left those users waiting for mail that was
+      // never sent, with no way to discover why.
+      if (res?.code === 'GOOGLE_ACCOUNT') {
+        setGoogleAccount(true);
+      } else {
+        setSent(true);
+      }
     } catch (err) {
-      // Only a transport/500 failure can land here; the endpoint returns 200
-      // for every business outcome by design.
+      // 503 EMAIL_UNAVAILABLE lands here: the send genuinely failed, so the
+      // honest answer is "we could not send it", not "check your inbox".
       setError(err.response?.data?.error || validation.genericError || 'Something went wrong. Try again.');
     } finally {
       setLoading(false);
@@ -53,7 +61,23 @@ export default function ForgotPasswordPage() {
           </div>
         )}
 
-        {sent ? (
+        {googleAccount ? (
+          <div role="status" style={{ textAlign: 'center', padding: '8px 0 4px' }}>
+            <p style={{ margin: '0 0 8px', fontSize: 15, lineHeight: 1.5 }}>
+              This address signs in with Google.
+            </p>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--text-tertiary)' }}>
+              There is no password to reset — use Continue with Google instead.
+            </p>
+            <a
+              href={getGoogleAuthUrl()}
+              className={`btn btn-primary ${styles.submitBtn}`}
+              style={{ display: 'block', textAlign: 'center' }}
+            >
+              Continue with Google
+            </a>
+          </div>
+        ) : sent ? (
           <div role="status" style={{ textAlign: 'center', padding: '8px 0 4px' }}>
             <p style={{ margin: '0 0 20px', fontSize: 15, lineHeight: 1.5 }}>
               {auth.forgotPassword.sent}

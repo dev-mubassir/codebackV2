@@ -196,6 +196,46 @@ describe('email failure — the send is not swallowed', () => {
   });
 });
 
+describe('Google-only accounts get a route forward, not a dead end', () => {
+  it('says plainly that the address signs in with Google', async () => {
+    const { user } = await createUser({ withPassword: false });
+
+    const res = await request(app)
+      .post('/auth/forgot-password')
+      .set('X-Forwarded-For', nextIp())
+      .send({ email: user.email });
+
+    expect(res.status).toBe(200);
+    expect(res.body.code, 'the old generic reply left them waiting forever').toBe('GOOGLE_ACCOUNT');
+    expect(res.body.message).toMatch(/google/i);
+    expect(res.body.signInUrl, 'and it must offer the way in').toBeTruthy();
+
+    // Still no token — the whole point is that there is no password to reset.
+    expect(await prisma.authToken.count({ where: { userId: user.id } })).toBe(0);
+  });
+
+  it('THE BOUNDARY: a PASSWORD account is still indistinguishable from no account', async () => {
+    // This is the distinction that must stay hidden. Revealing "Google vs
+    // password" is an accepted trade; revealing "exists vs does not" is not.
+    const { user } = await createUser({});
+
+    const real = await request(app)
+      .post('/auth/forgot-password')
+      .set('X-Forwarded-For', nextIp())
+      .send({ email: user.email });
+    const fake = await request(app)
+      .post('/auth/forgot-password')
+      .set('X-Forwarded-For', nextIp())
+      .send({ email: `ghost-${uniq('g')}@test.codeback` });
+
+    expect(real.status).toBe(fake.status);
+    expect(
+      JSON.stringify(real.body),
+      'a password account and a non-existent address must remain identical'
+    ).toBe(JSON.stringify(fake.body));
+  });
+});
+
 describe('email failure — registration does not falsely promise', () => {
   it('reports emailVerificationSent: false when the send fails', async () => {
     stubSend('sendVerification', async () => {

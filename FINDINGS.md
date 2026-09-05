@@ -226,6 +226,58 @@ on any database that applied the phantom Cashfree migrations. Recreating that
 name would make the migration fail precisely on the drifted databases it is
 meant to fix.
 
+### D5. Two auth endpoints exist with NO UI — both are dead ends for real users
+
+`POST /auth/set-password` and `POST /auth/add-email` are implemented, tested and
+reachable, but **nothing in the frontend calls either**. Each leaves a real
+population stuck:
+
+**`set-password` — Google-only users.** A user who signed in with Google has
+`passwordHash = NULL`. Forgot-password now tells them plainly to use Google
+(rather than the old dead-end "a reset link is on its way"), but there is still
+no way for them to ADD a password. Until the UI exists, Google is their only
+route in — if they ever lose access to that Google account, they lose the
+Codeback account with it.
+
+**When the UI is built:** the `GOOGLE_ACCOUNT` response from
+`POST /auth/forgot-password` should link to it, so the reply becomes "use
+Google, or set a password" rather than "use Google". The response already
+carries `signInUrl`; add the set-password link alongside it.
+
+**`add-email` — null-email accounts.** These came from the old
+Instagram-creates-users path. There are zero in the dev database and the path no
+longer exists, so this is latent rather than active — but if production has any,
+those users cannot add an address, cannot verify, and therefore cannot ever be
+granted a trial. Check the production survey before assuming there are none.
+
+### D6. forgot-password now distinguishes a Google account — a deliberate trade
+
+`POST /auth/forgot-password` returns `code: GOOGLE_ACCOUNT` for a
+`passwordHash = NULL` account instead of the generic reply.
+
+**This does reveal that the address exists.** That is a knowing trade, not an
+oversight:
+
+- **What is given up:** an attacker submitting an address learns "a Google
+  account exists here" — for Google-only accounts specifically.
+- **What is kept:** a PASSWORD account remains byte-identical to a
+  non-existent address, both in body and in timing. That is the more valuable
+  half and is asserted in `tests/email-failure-handling.test.js`
+  ("THE BOUNDARY") and `tests/coverage-gaps.test.js` (timing).
+- **What it buys:** every Google user who forgets they used Google previously
+  hit a permanent dead end — told mail was coming, none ever sent.
+
+**A stricter alternative exists if this is ever revisited:** send the "you
+signed in with Google" explanation BY EMAIL instead of showing it on screen.
+That reaches only someone who controls the address, so it fixes the dead end
+with no on-screen difference and no enumeration at all. It was not chosen
+because it costs a send and depends on mail being healthy — the very thing that
+was broken when this was written.
+
+**Do not "simplify" that branch by adding work to it.** It must stay cheap. A
+send, a hash, or another query there would make it measurably slower than the
+generic path and turn the timing into the oracle the body no longer is.
+
 ## Credentials — handled outside the repo, do not touch in code
 
 ### C1. Hardcoded admin credentials in a tracked file

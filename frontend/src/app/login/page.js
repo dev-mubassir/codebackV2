@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { login, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { auth, validation } from '@/content/copy';
 import styles from './login.module.css';
 
@@ -37,6 +38,8 @@ export default function LoginPage() {
   return (
     <div className={styles.authContainer}>
       <div className={styles.authCard}>
+        <AuthErrorBanner />
+
         <div className={styles.authHeader}>
           <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
           <h1 className={styles.authTitle}>{auth.login.title}</h1>
