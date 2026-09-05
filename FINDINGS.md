@@ -226,6 +226,33 @@ on any database that applied the phantom Cashfree migrations. Recreating that
 name would make the migration fail precisely on the drifted databases it is
 meant to fix.
 
+### D7. The email daily counter stays IN MEMORY until the Redis work
+
+`lib/email/quota.js` holds the global daily send counter in process memory,
+exactly like `lib/rateLimit.js`. A restart resets it to zero, so a process that
+restarts mid-day can exceed the real provider limit.
+
+**Decided: leave it.** Single instance, deploys are rare, and pre-launch volume
+is far below the 80/day cap — the window where a restart could matter is
+narrow, and the failure mode is "sent a few more emails than intended", not a
+security or data problem.
+
+**When it gets persisted:** at the same time as the rate limiter, as part of
+the post-approval Redis work — not before. Both have the same shape (an
+in-memory counter that should be shared and durable), both are gated on the
+same `REDIS_URL` conditional that is currently dormant, and doing them together
+means one migration and one set of tests rather than two.
+
+**The trigger to revisit is not a date, it is either of:**
+- more than one instance running, or
+- deploys becoming frequent enough that mid-day restarts are routine
+
+Either makes the reset window wide enough to matter. Until then this is a known,
+accepted limitation rather than an outstanding bug.
+
+Related: `index.js` still has the `TODO(post-review)` about `REDIS_URL` only
+warning in production. Same workstream.
+
 ### D5. Two auth endpoints exist with NO UI — both are dead ends for real users
 
 `POST /auth/set-password` and `POST /auth/add-email` are implemented, tested and
