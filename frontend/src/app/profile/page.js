@@ -181,7 +181,7 @@ export default function ProfilePage() {
             <div className={styles.formGrid}>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>{t.details.nameLabel}</label>
-                <PasswordInput
+                <input
                   type="text"
                   className={styles.formInput}
                   value={name}
@@ -212,7 +212,7 @@ export default function ProfilePage() {
             <div className={styles.formGrid}>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>{t.details.currentPasswordLabel}</label>
-                <input
+                <PasswordInput
                   className={styles.formInput}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}

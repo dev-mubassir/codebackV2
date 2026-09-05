@@ -310,7 +310,11 @@ describe('email transport contract', () => {
       const freshEmail = (await import('../src/lib/email/index.js')).default;
 
       await expect(
-        freshEmail.sendPasswordReset('someone@example.com', { url: 'https://x/y', expiresInMinutes: 30 })
+        // A DELIVERABLE-looking address on purpose: @example.com is now
+        // refused by the undeliverable-recipient guard and would be routed to
+        // the console transport, so the Resend branch would never be reached
+        // and this test would pass without testing anything.
+        freshEmail.sendPasswordReset('contract-test@siffty.com', { url: 'https://x/y', expiresInMinutes: 30 })
       ).rejects.toThrow(/not verified|Resend rejected/i);
     } finally {
       vi.doUnmock('resend');

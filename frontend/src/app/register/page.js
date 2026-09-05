@@ -70,7 +70,7 @@ export default function RegisterPage() {
             <label className={styles.formLabel} htmlFor="name">
               {auth.register.nameLabel}
             </label>
-            <PasswordInput
+            <input
               id="name"
               type="text"
               className="input"
@@ -101,7 +101,7 @@ export default function RegisterPage() {
             <label className={styles.formLabel} htmlFor="password">
               {auth.register.passwordLabel}
             </label>
-            <input
+            <PasswordInput
               id="password"
               className="input"
               placeholder="••••••••"

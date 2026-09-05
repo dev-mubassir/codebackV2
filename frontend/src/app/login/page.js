@@ -61,7 +61,7 @@ export default function LoginPage() {
             <label className={styles.formLabel} htmlFor="email">
               {auth.login.emailLabel}
             </label>
-            <PasswordInput
+            <input
               id="email"
               type="email"
               className="input"
@@ -77,7 +77,7 @@ export default function LoginPage() {
             <label className={styles.formLabel} htmlFor="password">
               {auth.login.passwordLabel}
             </label>
-            <input
+            <PasswordInput
               id="password"
               className="input"
               placeholder="••••••••"

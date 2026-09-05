@@ -85,7 +85,7 @@ export default function AdminLoginPage() {
             <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
               {t.login.usernameLabel}
             </label>
-            <PasswordInput
+            <input
               type="text"
               className="input"
               placeholder={t.login.usernamePlaceholder}
@@ -100,7 +100,7 @@ export default function AdminLoginPage() {
             <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
               {t.login.passwordLabel}
             </label>
-            <input
+            <PasswordInput
               className="input"
               placeholder={t.login.passwordPlaceholder}
               value={password}

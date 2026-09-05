@@ -74,6 +74,39 @@ function createResendTransport(apiKey) {
   };
 }
 
+/**
+ * Domains that CANNOT receive mail, ever.
+ *
+ * RFC 2606 / RFC 6761 reserve .test, .example, .invalid and .localhost
+ * precisely so they can never resolve. `test.codeback` is this project's own
+ * fixture domain and is equally undeliverable. A send to any of them can only
+ * produce a BOUNCE, and bounces damage the sending reputation of the domain
+ * real password resets go out on.
+ *
+ * This existed as a NODE_ENV=test check, which only covered the vitest suite.
+ * It did NOT cover scripts/walkthrough.js, which drives a real server running
+ * NODE_ENV=development with a live key — and that produced two real bounces
+ * against @test.codeback before this guard was added. Seed scripts, the
+ * backfill scripts and the background jobs are all in the same position.
+ *
+ * Checking the RECIPIENT rather than the environment is what makes this hold
+ * for every caller, present and future.
+ */
+const UNDELIVERABLE_SUFFIXES = [
+  '.test',
+  '.example',
+  '.invalid',
+  '.localhost',
+  'test.codeback',
+  '@example.com',
+  '@example.org',
+];
+
+function isUndeliverable(address) {
+  const a = String(address || '').trim().toLowerCase();
+  return UNDELIVERABLE_SUFFIXES.some((suffix) => a.endsWith(suffix));
+}
+
 function pickTransport() {
   // HARD GUARANTEE: tests never reach a real mailbox.
   //
@@ -154,6 +187,18 @@ async function deliver(to, type, { subject, text, html }) {
     throw err;
   }
 
+  // Never hand an undeliverable address to a real provider. This is checked
+  // AFTER the quota (so a blocked fixture send does not consume capacity) and
+  // BEFORE the transport is selected for delivery.
+  if (isUndeliverable(to) && pickTransport().name !== 'console') {
+    console.warn(
+      `[email] REFUSED to send "${subject}" to an undeliverable address (${to}). ` +
+        'Reserved/fixture domains can only bounce, and bounces damage sender reputation. ' +
+        'Logging to console instead.'
+    );
+    return consoleTransport.send({ to, subject, text, html });
+  }
+
   const transport = pickTransport();
 
   let result;
@@ -203,6 +248,8 @@ module.exports = {
    * and reintroduce the per-address difference this exists to prevent.
    */
   markDegraded: markTransportFailed,
+  /** Exposed so tests and scripts can assert the guard's coverage. */
+  isUndeliverable,
   /** Test seam: clear the degraded flag between cases. */
   _resetHealth: markTransportHealthy,
 

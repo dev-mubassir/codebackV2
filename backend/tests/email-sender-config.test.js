@@ -109,3 +109,39 @@ describe('the diagnostic sender must never be production config', () => {
     ).toEqual([]);
   });
 });
+
+describe('undeliverable recipients can never reach a real provider', () => {
+  const mailer = require('../src/lib/email/index.js');
+
+  it('reserved and fixture domains are refused', () => {
+    for (const addr of [
+      'someone@test.codeback',
+      'a@foo.test',
+      'b@example.com',
+      'c@thing.invalid',
+      'd@my.localhost',
+    ]) {
+      expect(mailer.isUndeliverable(addr), `${addr} must be refused`).toBe(true);
+    }
+  });
+
+  it('real addresses are NOT refused', () => {
+    for (const addr of ['real@gmail.com', 'user@siffty.com', 'x@mail.siffty.com']) {
+      expect(mailer.isUndeliverable(addr), `${addr} must be allowed`).toBe(false);
+    }
+  });
+
+  it('THE REGRESSION: the guard is on the RECIPIENT, not on NODE_ENV', () => {
+    // A NODE_ENV=test check covers the vitest suite only. It did NOT cover
+    // scripts/walkthrough.js, which drives a real server in development mode
+    // with a live key — and that sent two emails to @test.codeback that
+    // bounced. Checking the recipient is what makes the guard hold for every
+    // caller: walkthrough, seed scripts, backfills and background jobs.
+    const source = readFileSync(join(BACKEND, 'src', 'lib', 'email', 'index.js'), 'utf8');
+    expect(source).toContain('isUndeliverable');
+    const guardLine = source
+      .split('\n')
+      .find((l) => l.includes('isUndeliverable(to)'));
+    expect(guardLine, 'deliver() must consult the recipient guard').toBeTruthy();
+  });
+});
