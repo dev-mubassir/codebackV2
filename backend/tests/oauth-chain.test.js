@@ -84,7 +84,7 @@ describe('C4 — OAuth state parameter', () => {
 
     await agent.get('/auth/instagram/callback').query({ code: 'real-auth-code' });
 
-    const account = await prisma.instagramAccount.findUnique({ where: { igUserId } });
+    const account = await prisma.instagramAccount.findFirst({ where: { igUserId } });
     expect(account, 'a callback with no state must not connect an account').toBeNull();
   });
 
@@ -99,7 +99,7 @@ describe('C4 — OAuth state parameter', () => {
       .get('/auth/instagram/callback')
       .query({ code: 'real-auth-code', state: 'attacker-chosen-state' });
 
-    const account = await prisma.instagramAccount.findUnique({ where: { igUserId } });
+    const account = await prisma.instagramAccount.findFirst({ where: { igUserId } });
     expect(account, 'a callback with a mismatched state must not connect an account').toBeNull();
   });
 
@@ -116,7 +116,7 @@ describe('C4 — OAuth state parameter', () => {
     setIgUser(secondIg);
     await agent.get('/auth/instagram/callback').query({ code: 'real-auth-code', state });
 
-    const replayed = await prisma.instagramAccount.findUnique({ where: { igUserId: secondIg } });
+    const replayed = await prisma.instagramAccount.findFirst({ where: { igUserId: secondIg } });
     expect(replayed, 'a consumed state must not authorize a second callback').toBeNull();
   });
 
@@ -129,7 +129,7 @@ describe('C4 — OAuth state parameter', () => {
 
     await agent.get('/auth/instagram/callback').query({ code: 'real-auth-code', state });
 
-    const account = await prisma.instagramAccount.findUnique({ where: { igUserId } });
+    const account = await prisma.instagramAccount.findFirst({ where: { igUserId } });
     expect(account, 'a correctly-stated callback must connect the account').not.toBeNull();
     expect(account.userId).toBe(user.id);
   });
@@ -159,7 +159,7 @@ describe("C2 — re-link must not transfer another tenant's account", () => {
     const { res, userA, account } = await attemptRelink({ withConversation: true });
 
     expect(res.status).toBe(409);
-    expect(JSON.stringify(res.body)).toMatch(/already connected to another/i);
+    expect(JSON.stringify(res.body)).toMatch(/connected to another/i);
 
     const after = await prisma.instagramAccount.findUnique({ where: { id: account.id } });
     expect(after.userId, 'ownership must remain with the original tenant').toBe(userA.id);
@@ -190,17 +190,45 @@ describe("C2 — re-link must not transfer another tenant's account", () => {
     expect(log.targetId).toBe(account.id);
   });
 
-  it('allows (and audit-logs) a transfer when the account has no history', async () => {
-    const { userB, account } = await attemptRelink({ withConversation: false });
+  /**
+   * BEHAVIOUR CHANGED DELIBERATELY IN PHASE 2.
+   *
+   * This previously asserted that an account with no conversation history
+   * TRANSFERS silently to whoever completes OAuth for it. That was the wrong
+   * rule in both directions:
+   *
+   *   - it leaked. Contact rows hang off instagramAccountId and were never
+   *     counted, so a workspace with contacts but no conversations handed the
+   *     new tenant every customer's username, name and profile picture.
+   *   - it was also too strict. A real business moving workspaces was
+   *     permanently stuck the moment one conversation existed.
+   *
+   * An ACTIVE link now blocks a different user regardless of history, and the
+   * refusal tells them how to proceed. Releasing the account is an explicit
+   * act by its current owner (disconnect), not a side effect of someone else
+   * signing in.
+   */
+  it('refuses a different user even when the account has NO history', async () => {
+    const { res, userA, account } = await attemptRelink({ withConversation: false });
+
+    expect(res.status, 'an active link elsewhere is refused regardless of history').toBe(409);
 
     const after = await prisma.instagramAccount.findUnique({ where: { id: account.id } });
-    expect(after.userId, 'a history-free account may transfer').toBe(userB.id);
+    expect(after.userId, 'ownership must not move silently').toBe(userA.id);
 
     const log = await prisma.adminLog.findFirst({
-      where: { action: 'ACCOUNT_RELINK_TRANSFERRED' },
+      where: { action: 'ACCOUNT_RELINK_BLOCKED' },
       orderBy: { createdAt: 'desc' },
     });
-    expect(log, 'a permitted transfer must still be audit-logged').not.toBeNull();
+    expect(log, 'every refusal is logged so abuse can be told from confusion').not.toBeNull();
+  });
+
+  it('the refusal tells the user how to proceed', async () => {
+    const { res } = await attemptRelink({ withConversation: true });
+    expect(
+      JSON.stringify(res.body),
+      'a blocked legitimate owner needs a route forward, not just a wall'
+    ).toMatch(/disconnect it there first|contact support/i);
   });
 
   it('the original owner reconnecting their own account is unaffected', async () => {

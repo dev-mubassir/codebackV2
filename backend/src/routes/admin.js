@@ -14,7 +14,7 @@ const prisma = require('../lib/prisma');
 const { requireAdmin } = require('../middleware/adminAuth');
 const { logAdminAction } = require('../lib/auditLogger');
 const instagram = require('../lib/instagram');
-const { encrypt, decrypt } = require('../lib/crypto');
+const { encrypt, decrypt, readAccountToken, writeAccountToken } = require('../lib/crypto');
 const { getAIStats } = require('../services/aiService');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession } = require('../lib/session');
@@ -167,20 +167,47 @@ router.get('/me', async (req, res) => {
 });
 
 // POST /api/admin/logout — Log out of Admin panel
-router.post('/logout', (req, res) => {
-  if (req.session) {
-    delete req.session.isAdmin;
-    delete req.session.adminUsername;
-    delete req.session.adminUserId;
-    // Safety net: clean up userId if a stale session had it set by the
-    // old admin-login code (which used to set req.session.userId too).
-    // This prevents a logged-out admin from accidentally staying
-    // authenticated as the admin user on regular-user API routes.
-    if (req.session.userId && !req.session.igUsername) {
-      delete req.session.userId;
-    }
+router.post('/logout', async (req, res) => {
+  if (!req.session) {
+    return res.json({ success: true, message: 'Logged out' });
   }
-  res.json({ success: true, message: 'Logged out' });
+
+  // If this session is IMPERSONATING, admin logout must end the impersonation
+  // too — and it must destroy the session outright.
+  //
+  // The previous version cleared only isAdmin/adminUsername/adminUserId and
+  // left impersonatedUserId and userId alone, deleting userId solely when
+  // `!req.session.igUsername`. Two things went wrong:
+  //
+  //   1. An admin who logged out WHILE IMPERSONATING kept a fully
+  //      authenticated ordinary session for the VICTIM's tenant, with no admin
+  //      marker and no further audit trail. That is a privilege-escalation
+  //      path that also erases its own evidence.
+  //   2. The !igUsername heuristic was written against the OAuth session shape
+  //      and does not know about password logins, which never set igUsername —
+  //      so it silently logged real admins out of the main app.
+  const wasImpersonating = req.session.impersonatedUserId || null;
+  const adminId = req.session.adminOriginalUserId || req.session.adminUserId || null;
+
+  if (wasImpersonating) {
+    await logAdminAction(
+      adminId,
+      'USER_IMPERSONATE_EXIT',
+      'USER',
+      wasImpersonating,
+      { status: 'Impersonation ended by admin logout', impersonatedUserId: wasImpersonating },
+      req.ip
+    );
+  }
+
+  // Destroy rather than selectively delete. Picking fields off a session is
+  // how the case above was missed in the first place; a privilege transition
+  // deserves a clean slate.
+  req.session.destroy((err) => {
+    if (err) console.error('[Admin] Error destroying session on logout:', err);
+    res.clearCookie('codeback.sid');
+    res.json({ success: true, message: 'Logged out' });
+  });
 });
 
 // Apply requireAdmin to all remaining admin endpoints
@@ -361,7 +388,8 @@ router.get('/users/export/csv', async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { instagramAccounts: true }
+      // Only igUsername reaches the CSV; `true` would also load accessToken.
+      include: { instagramAccounts: { select: { igUsername: true } } }
     });
 
     let csv = 'User ID,Name,Email,Role,Is Suspended,Connected Accounts,Created At\n';
@@ -621,17 +649,18 @@ router.post('/accounts/:id/refresh-token', async (req, res) => {
       return res.status(404).json({ error: 'That account no longer exists.' });
     }
 
-    const currentToken = decrypt(account.accessToken);
-    const longTokenData = await instagram.exchangeForLongLivedToken(
-      currentToken,
-      process.env.INSTAGRAM_APP_SECRET
-    );
+    // ig_refresh_token, NOT ig_exchange_token. The latter expects a
+    // SHORT-lived token; calling it with an already-long-lived one is rejected
+    // by Meta, and the catch below then wrote NEEDS_RECONNECT — so this button
+    // most likely marked healthy accounts broken every time it was used.
+    const currentToken = readAccountToken(account);
+    const longTokenData = await instagram.refreshLongLivedToken(currentToken);
 
     const tokenExpiresAt = new Date(Date.now() + (longTokenData.expires_in * 1000));
     const updated = await prisma.instagramAccount.update({
       where: { id },
       data: {
-        accessToken: encrypt(longTokenData.access_token),
+        ...writeAccountToken(longTokenData.access_token),
         tokenExpiresAt: tokenExpiresAt,
         tokenStatus: 'VALID',
       }
@@ -657,10 +686,17 @@ router.post('/accounts/:id/refresh-token', async (req, res) => {
     });
   } catch (error) {
     console.error('[Admin API] Token refresh error:', error.message);
-    await prisma.instagramAccount.update({
-      where: { id: req.params.id },
-      data: { tokenStatus: 'NEEDS_RECONNECT' }
-    });
+    // Only flag the account when Meta says the TOKEN is the problem. A network
+    // blip or a 500 from Meta is not evidence that the user must reconnect,
+    // and marking it so sends them a needless "reconnect your account" email.
+    //
+    // Also note this update used to sit unguarded inside the catch: if it
+    // rejected, it escaped as an unhandled rejection.
+    if (instagram.isTokenInvalidError(error)) {
+      await prisma.instagramAccount
+        .update({ where: { id: req.params.id }, data: { tokenStatus: 'NEEDS_RECONNECT' } })
+        .catch((e) => console.error('[Admin API] Could not flag account:', e.message));
+    }
 
     res.status(502).json({
       error: "Couldn't refresh access with Meta.",
@@ -924,8 +960,7 @@ router.get('/settings', async (req, res) => {
         port: process.env.PORT || 5000,
         frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
         redirectUri: process.env.REDIRECT_URI || 'Not configured',
-        skipSignatureVerification: process.env.SKIP_SIGNATURE_VERIFICATION === 'true',
-        nodeEnv: process.env.NODE_ENV || 'development',
+          nodeEnv: process.env.NODE_ENV || 'development',
       }
     });
   } catch (error) {

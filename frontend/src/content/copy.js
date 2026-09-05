@@ -679,6 +679,43 @@ export const errors = {
     no_code: 'Instagram sign-in was cancelled before it finished. Try connecting again if that was a mistake.',
     account_already_connected: 'That Instagram account is already connected to another Codeback account.',
     oauth_failed: "Couldn't connect that Instagram account. Try connecting again.",
+
+    // ---- Previously rendered as NOTHING AT ALL ----
+    //
+    // The backend emits 19 distinct ?error= codes; only five were listed here,
+    // and only the landing page read the param. Everything redirected to
+    // /profile, /dashboard, /login or /register produced a silent bounce with
+    // a blank screen — the user saw a page reload and no explanation.
+    email_unverified:
+      'Confirm your email address before connecting Instagram. We need a verified address so we can tell you if your connection ever breaks.',
+    email_required:
+      'Add an email address to your account before connecting Instagram.',
+    login_required_to_connect:
+      'Log in first — Instagram connects to an existing Codeback account, it is not a way to sign up.',
+    session_expired: 'Your session ended. Log in again to continue.',
+    missing_scopes:
+      "Instagram didn't grant the permissions Codeback needs. Reconnect and accept both — without message access no DMs can arrive.",
+    account_blocked:
+      'That Instagram account cannot be connected. Contact support if you think this is wrong.',
+    account_suspended: 'This account is suspended. Contact support.',
+    instagram_cancelled:
+      'Instagram sign-in was cancelled before it finished. Try connecting again if that was a mistake.',
+    instagram_failed: "Couldn't connect that Instagram account. Try connecting again.",
+
+    // Google flow. Rendered for completeness — Google sign-in is confirmed
+    // working, but these must not be silent if they ever do fire.
+    google_failed: "Couldn't sign you in with Google. Try again.",
+    google_not_configured: 'Google sign-in is not set up on this server.',
+    google_cancelled: 'Google sign-in was cancelled.',
+    google_no_code: "Google sign-in didn't complete. Try again.",
+    google_no_email: 'Google did not share an email address, which Codeback needs.',
+    google_invalid_state:
+      "We couldn't complete Google sign-in. Try again from the login page.",
+    google_email_unverified:
+      'Google has not verified that email address, so it cannot be used to sign in here.',
+    link_requires_verified_email:
+      'An account already uses that email address but has not confirmed it. Log in with your password and confirm your email first, then link Google.',
+
     generic: "Couldn't connect that Instagram account. Try connecting again.",
   },
 };

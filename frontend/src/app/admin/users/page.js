@@ -6,9 +6,8 @@ import Icon from '@/app/components/Icon';
 import { admin as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
 import { roleLabel } from '@/content/labels';
 import { formatDate, formatCount } from '@/content/format';
+import { BACKEND_URL } from '@/lib/backendUrl';
 import styles from '../admin.module.css';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState([]);

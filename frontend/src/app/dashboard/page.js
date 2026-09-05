@@ -2,16 +2,17 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { io } from 'socket.io-client';
 import { getMe, getAccounts, getInstagramAuthUrl, disconnectAccount, getDashboardSummary, getAnalyticsSummary } from '@/lib/api';
 import AppShell from '@/app/components/AppShell';
 import Icon from '@/app/components/Icon';
+import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { dashboard as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
 import { categoryLabel, replyModeLabel, replyModeSendsAutomatically, tokenStatusLabel, connectionStatusLabel } from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
+import { BACKEND_URL } from '@/lib/backendUrl';
 import styles from './dashboard.module.css';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
 /**
  * Dashboard — what arrived, what needs the user personally, which accounts are
@@ -31,6 +32,9 @@ export default function DashboardPage() {
   const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const isRedirectingRef = useRef(false);
+  // Why the connect button refused, if it did. Rendered inline so the user
+  // never leaves the page to find out.
+  const [connectBlocked, setConnectBlocked] = useState(null);
 
   const fetchAnalytics = useCallback(async (timeRange = '24h') => {
     try {
@@ -135,6 +139,24 @@ export default function DashboardPage() {
 
   function handleConnect(e) {
     if (e) e.preventDefault();
+
+    // CATCH IT BEFORE THE REDIRECT.
+    //
+    // The backend refuses to start a connect for an unverified address and
+    // bounces to /profile?error=email_unverified. That is correct — a trial
+    // needs a confirmed address — but sending someone through Instagram's
+    // consent screen only to reject them on the way back is a bad way to
+    // deliver the news. Say it here instead. The error rendering stays as a
+    // fallback, because the redirect is also reachable directly.
+    if (user && user.needsEmail) {
+      setConnectBlocked('email_required');
+      return;
+    }
+    if (user && user.emailVerified === false) {
+      setConnectBlocked('email_unverified');
+      return;
+    }
+
     if (isRedirectingRef.current) return;
     isRedirectingRef.current = true;
     setIsRedirecting(true); // keep this for the UI (aria-disabled, opacity, spin)
@@ -184,6 +206,36 @@ export default function DashboardPage() {
 
   return (
     <AppShell activeRoute="/dashboard">
+      <AuthErrorBanner />
+
+      {/* The connect button refused before starting OAuth. Rendered here so
+          the reason appears in place, without a round trip through Instagram
+          and back. */}
+      {connectBlocked && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex', gap: 10, alignItems: 'flex-start',
+            padding: '12px 14px', marginBottom: 16, borderRadius: 10,
+            background: 'var(--color-error-bg, #fef2f2)',
+            border: '1px solid var(--color-error-border, #fecaca)',
+            color: 'var(--color-error-text, #991b1b)',
+            fontSize: 14, lineHeight: 1.5,
+          }}
+        >
+          <span style={{ flexShrink: 0, marginTop: 2 }}>
+            <Icon name="alertTriangle" size={15} />
+          </span>
+          <div style={{ flex: 1 }}>
+            <div>{errors.oauthCallback[connectBlocked] || errors.oauthCallback.generic}</div>
+            <div style={{ marginTop: 8 }}>
+              <Link href="/profile" className="btn" style={{ fontSize: 13, padding: '6px 12px' }}>
+                Go to your profile
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
       <div className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>

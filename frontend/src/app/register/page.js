@@ -3,8 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { register } from '@/lib/api';
+import { register, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import GoogleIcon from '@/app/components/GoogleIcon';
+import BrandLogo from '@/app/components/BrandLogo';
+import PasswordInput from '@/app/components/PasswordInput';
+import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { auth, errors, validation } from '@/content/copy';
 import styles from '../login/login.module.css';
 
@@ -46,8 +50,10 @@ export default function RegisterPage() {
   return (
     <div className={styles.authContainer}>
       <div className={styles.authCard}>
+        <AuthErrorBanner />
+
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
+          <div className={styles.authLogo}><BrandLogo size={40} /></div>
           <h1 className={styles.authTitle}>{auth.register.title}</h1>
           <p className={styles.authSubtitle}>{auth.register.subtitle}</p>
         </div>
@@ -95,9 +101,8 @@ export default function RegisterPage() {
             <label className={styles.formLabel} htmlFor="password">
               {auth.register.passwordLabel}
             </label>
-            <input
+            <PasswordInput
               id="password"
-              type="password"
               className="input"
               placeholder="••••••••"
               value={password}
@@ -110,9 +115,8 @@ export default function RegisterPage() {
             <label className={styles.formLabel} htmlFor="confirmPassword">
               {auth.register.confirmPasswordLabel}
             </label>
-            <input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               className="input"
               placeholder="••••••••"
               value={confirmPassword}
@@ -130,6 +134,32 @@ export default function RegisterPage() {
             {loading ? auth.register.submitting : auth.register.submit}
           </button>
         </form>
+
+        {/*
+          Same entry point as the login page. The backend route is identical
+          for both: /auth/google creates the account if the Google address is
+          new and logs in if it already exists, so signup and sign-in need no
+          separate handling here.
+
+          A plain <a>, not a Link or fetch — this starts an OAuth redirect
+          chain that ends on the backend, so it must leave the SPA entirely.
+        */}
+        <div style={{ marginTop: 16 }}>
+          <a
+            href={getGoogleAuthUrl()}
+            className={`btn ${styles.submitBtn}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              minHeight: 40,
+            }}
+          >
+            <GoogleIcon size={18} />
+            <span>Continue with Google</span>
+          </a>
+        </div>
 
         <div className={styles.authFooter}>
           {auth.register.footer}

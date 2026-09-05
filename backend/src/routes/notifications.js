@@ -6,8 +6,13 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
+const { requireWorkspace } = require('../middleware/authorize');
 
+// The canonical chain. requireWorkspace resolves the caller's owned
+// Instagram account ids once and attaches them, so handlers scope on
+// req.ownedAccountIds rather than each re-deriving ownership.
 router.use(requireAuth);
+router.use(requireWorkspace);
 
 // ============================================
 // GET /api/notifications

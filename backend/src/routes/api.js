@@ -11,7 +11,9 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
+const { handleMetaError } = require('../lib/tokenHealth');
 const { requireAuth } = require('../middleware/auth');
+const { requireWorkspace } = require('../middleware/authorize');
 const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
 const aiService = require('../services/aiService');
@@ -21,7 +23,11 @@ const { normalizeCategory } = require('../lib/constants');
 const { emitToUser } = require('../lib/socket');
 
 // All API routes require authentication
+// The canonical chain. requireWorkspace resolves the caller's owned
+// Instagram account ids once and attaches them, so handlers scope on
+// req.ownedAccountIds rather than each re-deriving ownership.
 router.use(requireAuth);
+router.use(requireWorkspace);
 
 async function getOwnedAccountIds(userId) {
   const accounts = await prisma.instagramAccount.findMany({
@@ -584,6 +590,16 @@ router.post('/conversations/:id/reply', async (req, res) => {
     } catch (apiError) {
       const errorData = apiError.response?.data?.error || {};
       console.error('[API] Instagram API error:', errorData);
+
+      // A dead token is a different problem from a rejected message: flag the
+      // account, email the owner once, and tell the user to reconnect rather
+      // than presenting it as a transient upstream failure.
+      if (await handleMetaError(apiError, conversation.instagramAccount.id).catch(() => false)) {
+        return res.status(400).json({
+          error: 'Instagram disconnected this account. Reconnect it to keep replying.',
+          code: 'NEEDS_RECONNECT',
+        });
+      }
 
       // Check for 24-hour window violation
       if (errorData.code === 10 || errorData.error_subcode === 2534015) {

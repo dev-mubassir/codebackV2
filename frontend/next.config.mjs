@@ -1,7 +1,9 @@
+import { BACKEND_URL } from './src/lib/backendUrl.js';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async rewrites() {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+    const backendUrl = BACKEND_URL;
     return [
       {
         source: '/api/:path*',
@@ -13,7 +15,7 @@ const nextConfig = {
       },
     ];
   },
-  allowedDevOrigins: ['app.siffty.com', 'localhost', 'local.codeback.test'],
+  allowedDevOrigins: ['app.siffty.com', 'app.citykirana.in', 'localhost', 'local.codeback.test'],
 };
 
 export default nextConfig;

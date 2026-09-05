@@ -66,7 +66,7 @@ describe('C1 — Meta data deletion callback', () => {
     expect(res.body.confirmation_code, 'Meta requires a confirmation_code').toBeTruthy();
     expect(res.body.url, 'Meta requires a status URL').toContain('/data-deletion');
 
-    expect(await prisma.instagramAccount.findUnique({ where: { igUserId } })).toBeNull();
+    expect(await prisma.instagramAccount.findFirst({ where: { igUserId } })).toBeNull();
     expect(await prisma.conversation.count({ where: { instagramAccountId: account.id } })).toBe(0);
     expect(await prisma.contact.count({ where: { instagramAccountId: account.id } })).toBe(0);
   });
@@ -121,7 +121,7 @@ describe('C1 — Meta data deletion callback', () => {
       .send({ signed_request: signedRequest({ user_id: igA }) });
 
     expect(await prisma.user.findUnique({ where: { id: user.id } })).not.toBeNull();
-    expect(await prisma.instagramAccount.findUnique({ where: { igUserId: igB } })).not.toBeNull();
+    expect(await prisma.instagramAccount.findFirst({ where: { igUserId: igB } })).not.toBeNull();
   });
 
   it('rejects a request signed with the wrong secret and deletes nothing', async () => {
@@ -135,7 +135,7 @@ describe('C1 — Meta data deletion callback', () => {
 
     expect(res.status).toBe(400);
     expect(
-      await prisma.instagramAccount.findUnique({ where: { igUserId } }),
+      await prisma.instagramAccount.findFirst({ where: { igUserId } }),
       'a forged signature must not delete a tenant'
     ).not.toBeNull();
   });
@@ -157,7 +157,7 @@ describe('C1 — Meta data deletion callback', () => {
       .send({ signed_request: `${sig}.${tamperedPayload}` });
 
     expect(res.status).toBe(400);
-    expect(await prisma.instagramAccount.findUnique({ where: { igUserId: victimIg } })).not.toBeNull();
+    expect(await prisma.instagramAccount.findFirst({ where: { igUserId: victimIg } })).not.toBeNull();
   });
 
   it('rejects a missing signed_request', async () => {

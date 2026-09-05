@@ -15,10 +15,17 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
+const instagram = require('../lib/instagram');
+const { readAccountToken } = require('../lib/crypto');
 const { requireAuth } = require('../middleware/auth');
+const { requireWorkspace } = require('../middleware/authorize');
 
 // All routes require authentication
+// The canonical chain. requireWorkspace resolves the caller's owned
+// Instagram account ids once and attaches them, so handlers scope on
+// req.ownedAccountIds rather than each re-deriving ownership.
 router.use(requireAuth);
+router.use(requireWorkspace);
 
 // ============================================
 // GET /api/accounts
@@ -78,9 +85,31 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'That account no longer exists.' });
     }
 
+    // REVOKE AT META FIRST, before we lose the ability to.
+    //
+    // Marking the row disconnected without revoking leaves a live, valid
+    // long-lived token attached to the user's Instagram account for up to 60
+    // days. "Disconnect" should mean the permission is actually gone, not that
+    // we stopped looking at it. Best-effort: a revoke failure must not block
+    // the user from disconnecting, but it is logged.
+    try {
+      await instagram.revokePermissions(account.igUserId, readAccountToken(account));
+      console.log('[Accounts] Revoked Instagram permissions for', account.igUsername);
+    } catch (err) {
+      console.error(
+        '[Accounts] Permission revoke failed (continuing with disconnect):',
+        err.response?.data?.error?.message || err.message
+      );
+    }
+
     if (purge) {
       // Explicit, irreversible data deletion — cascades to contacts,
       // conversations, messages, AI analyses, brand deals, etc.
+      //
+      // The InstagramIdentity ledger row is NOT touched: it has no relation to
+      // this table precisely so that deleting an account cannot reset a
+      // consumed trial. Purging is a data-deletion right, not a way to get a
+      // second free trial.
       await prisma.instagramAccount.delete({ where: { id: id } });
       console.log('[Accounts] Purged account and all historical data:', account.igUsername);
       return res.json({ message: 'Account and its history deleted' });
@@ -88,7 +117,19 @@ router.delete('/:id', async (req, res) => {
 
     await prisma.instagramAccount.update({
       where: { id: id },
-      data: { connectionStatus: 'DISCONNECTED', disconnectedAt: new Date() },
+      data: {
+        connectionStatus: 'DISCONNECTED',
+        disconnectedAt: new Date(),
+        // Clear the stored token. Once revoked it is useless, and keeping a
+        // dead secret at rest has no upside. Both representations are cleared;
+        // access_token is NOT NULL until the D3 cleanup migration, so it gets
+        // an explicit tombstone rather than null.
+        accessToken: 'revoked',
+        tokenCiphertext: null,
+        tokenIv: null,
+        tokenAuthTag: null,
+        tokenStatus: 'NEEDS_RECONNECT',
+      },
     });
 
     console.log('[Accounts] Disconnected account (history preserved):', account.igUsername);

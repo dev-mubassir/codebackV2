@@ -3,8 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { login } from '@/lib/api';
+import { login, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import GoogleIcon from '@/app/components/GoogleIcon';
+import BrandLogo from '@/app/components/BrandLogo';
+import PasswordInput from '@/app/components/PasswordInput';
+import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { auth, validation } from '@/content/copy';
 import styles from './login.module.css';
 
@@ -37,8 +41,10 @@ export default function LoginPage() {
   return (
     <div className={styles.authContainer}>
       <div className={styles.authCard}>
+        <AuthErrorBanner />
+
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}><Icon name="zap" size={20} /></div>
+          <div className={styles.authLogo}><BrandLogo size={40} /></div>
           <h1 className={styles.authTitle}>{auth.login.title}</h1>
           <p className={styles.authSubtitle}>{auth.login.subtitle}</p>
         </div>
@@ -71,9 +77,8 @@ export default function LoginPage() {
             <label className={styles.formLabel} htmlFor="password">
               {auth.login.passwordLabel}
             </label>
-            <input
+            <PasswordInput
               id="password"
-              type="password"
               className="input"
               placeholder="••••••••"
               value={password}
@@ -91,6 +96,33 @@ export default function LoginPage() {
             {loading ? auth.login.submitting : auth.login.submit}
           </button>
         </form>
+
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <Link href="/forgot-password" className={styles.authLink}>
+            Forgot your password?
+          </Link>
+        </div>
+
+        {/*
+          Full-page navigation, not fetch(): this starts an OAuth redirect
+          chain that ends on the backend, so it must leave the SPA entirely.
+        */}
+        <div style={{ marginTop: 16 }}>
+          <a
+            href={getGoogleAuthUrl()}
+            className={`btn ${styles.submitBtn}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              minHeight: 40,
+            }}
+          >
+            <GoogleIcon size={18} />
+            <span>Continue with Google</span>
+          </a>
+        </div>
 
         <div className={styles.authFooter}>
           {auth.login.footer}

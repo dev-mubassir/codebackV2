@@ -1,11 +1,25 @@
 /**
- * Builds an Express app that mounts the REAL auth router with the REAL
- * session middleware, without starting a server, Socket.io, or the job
- * workers (src/index.js does all three as an import side effect).
+ * Builds an Express app that mounts the REAL routers with the REAL middleware,
+ * without starting a server, Socket.io, or the job workers (src/index.js does
+ * all three as an import side effect).
  *
- * Session config mirrors src/index.js:182-198, minus `secure`, which is
- * driven by NODE_ENV=production there and would stop supertest's plain-HTTP
- * requests from ever receiving the cookie.
+ * PARITY WITH PRODUCTION IS THE POINT. Two things differ from src/index.js,
+ * both deliberate, both narrow:
+ *
+ *   1. `secure` is forced false on the cookie. In production it follows
+ *      NODE_ENV, and a Secure cookie is never stored or resent by supertest's
+ *      plain-HTTP agent, so every authenticated test would silently 401.
+ *
+ *   2. The session store is the default MemoryStore rather than Postgres.
+ *      Tests run single-process and are torn down between files, so the
+ *      properties Postgres buys (cross-instance sharing, restart survival)
+ *      are not under test here.
+ *
+ * Everything else — middleware ORDER, the body parser, the origin guard, the
+ * security headers — matches. In particular the body parser now uses the same
+ * express.json({ verify }) that captures req.rawBody as an exact Buffer, so a
+ * webhook signature test exercises the real thing. A harness that parsed
+ * bodies differently from production would test nothing.
  */
 
 import express from 'express';
@@ -14,10 +28,17 @@ import cookieParser from 'cookie-parser';
 
 import security from '../../src/lib/security.js';
 import authRoutes from '../../src/routes/auth.js';
+import errorHandlers from '../../src/middleware/errorHandlers.js';
 
 const { securityHeaders, originGuard } = security;
 
-export function buildTestApp() {
+/**
+ * @param {object} [options]
+ * @param {Record<string, import('express').Router>} [options.mount]
+ *   Extra routers to mount, keyed by path — e.g. { '/api': apiRoutes }.
+ *   `/auth` is always mounted.
+ */
+export function buildTestApp({ mount = {} } = {}) {
   const app = express();
 
   app.use(securityHeaders);
@@ -35,10 +56,20 @@ export function buildTestApp() {
   );
 
   app.use(originGuard);
-  app.use(express.json());
+
+  // Identical to src/index.js. `verify` hands us the exact bytes body-parser
+  // is about to parse, which is what the webhook HMAC must be computed over.
+  app.use(
+    express.json({
+      limit: '1mb',
+      verify: (req, res, buf) => {
+        req.rawBody = buf;
+      },
+    })
+  );
   app.use(express.urlencoded({ extended: true }));
 
-  // Mirrors the bare-root OAuth shim in src/index.js:295-300.
+  // Mirrors the bare-root OAuth shim in src/index.js.
   app.get('/', (req, res) => {
     if (req.query.code) {
       const qs = new URLSearchParams();
@@ -50,11 +81,25 @@ export function buildTestApp() {
   });
 
   app.use('/auth', authRoutes);
+  for (const [path, router] of Object.entries(mount)) {
+    app.use(path, router);
+  }
+
+  // The SAME terminal middleware production uses. Without these the harness
+  // falls through to Express's default handler and returns HTML stack traces,
+  // so any test asserting the error contract would be testing the harness
+  // rather than the app.
+  app.use(errorHandlers.notFoundHandler);
+  app.use(errorHandlers.errorHandler);
 
   return app;
 }
 
-/** Pull the codeback.sid cookie VALUE (not the whole Set-Cookie header). */
+/**
+ * The decoded value of the codeback.sid cookie, so tests can assert that a
+ * session id ROTATED (session fixation) rather than merely that a cookie was
+ * set.
+ */
 export function sessionIdFrom(res) {
   const raw = res.headers['set-cookie'];
   if (!raw) return null;

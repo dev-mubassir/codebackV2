@@ -7,6 +7,8 @@ import AppShell from '@/app/components/AppShell';
 import { getMe, updateProfile, deleteAccount, getInstagramAuthUrl, getBusinessProfile } from '@/lib/api';
 import { getCategoryMetadata, parseBusinessTypes } from '@/lib/businessTemplates';
 import Icon from '@/app/components/Icon';
+import PasswordInput from '@/app/components/PasswordInput';
+import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { account as t, common, errors, empty, confirm as confirmCopy, toast, validation } from '@/content/copy';
 import { replyModeLabel, roleLabel, connectionStatusLabel, tokenStatusLabel, toneLabel } from '@/content/labels';
 import { formatDate } from '@/content/format';
@@ -119,6 +121,10 @@ export default function ProfilePage() {
   return (
     <AppShell activeRoute="/profile">
       <div className={styles.container}>
+        {/* Renders the ?error= the backend redirected with. email_unverified
+            additionally offers a resend, since knowing the problem is not the
+            same as being able to fix it. */}
+        <AuthErrorBanner />
         {/* Page Header */}
         <div className={styles.pageHeader}>
           <div>
@@ -206,8 +212,7 @@ export default function ProfilePage() {
             <div className={styles.formGrid}>
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>{t.details.currentPasswordLabel}</label>
-                <input
-                  type="password"
+                <PasswordInput
                   className={styles.formInput}
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
@@ -216,8 +221,7 @@ export default function ProfilePage() {
 
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>{t.details.newPasswordLabel}</label>
-                <input
-                  type="password"
+                <PasswordInput
                   className={styles.formInput}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
@@ -227,8 +231,7 @@ export default function ProfilePage() {
 
               <div className={styles.formGroup}>
                 <label className={styles.formLabel}>{t.details.confirmPasswordLabel}</label>
-                <input
-                  type="password"
+                <PasswordInput
                   className={styles.formInput}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}

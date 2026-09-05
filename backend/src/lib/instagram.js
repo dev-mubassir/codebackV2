@@ -11,6 +11,14 @@ const INSTAGRAM_GRAPH_URL = 'https://graph.instagram.com';
 const INSTAGRAM_OAUTH_URL = 'https://api.instagram.com/oauth/access_token';
 
 /**
+ * The permissions this app actually uses. Exported so the OAuth callback can
+ * compare them against what Meta reports as GRANTED — a user can untick a
+ * permission on the consent screen, and without that comparison the connect
+ * silently "succeeds" while no webhook will ever arrive.
+ */
+const REQUIRED_SCOPES = ['instagram_business_basic', 'instagram_business_manage_messages'];
+
+/**
  * Build the Instagram OAuth authorization URL.
  * Uses Instagram Login (Business Login for Instagram) — no Facebook Page needed.
  *
@@ -28,7 +36,7 @@ function getAuthorizationUrl(appId, redirectUri, state) {
   // messages/message_reactions/messaging_seen only. Asking for permissions
   // with no demonstrable use case is a standard App Review rejection, and it
   // over-scopes every tenant's token in the meantime.
-  const scopes = ['instagram_business_basic', 'instagram_business_manage_messages'].join(',');
+  const scopes = REQUIRED_SCOPES.join(',');
 
   return (
     `https://www.instagram.com/oauth/authorize` +
@@ -77,6 +85,30 @@ async function exchangeForLongLivedToken(shortLivedToken, appSecret) {
   });
 
   return response.data; // { access_token, token_type, expires_in }
+}
+
+/**
+ * REFRESH a long-lived token (extends it by another 60 days).
+ * GET https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token
+ *
+ * NOT the same call as exchangeForLongLivedToken. That one uses
+ * grant_type=ig_exchange_token, which expects a SHORT-lived token and rejects
+ * an already-long-lived one. The admin "refresh token" button used it anyway,
+ * so Meta rejected the call and the catch block then wrote
+ * tokenStatus: 'NEEDS_RECONNECT' — meaning the one manual refresh control
+ * most likely marked HEALTHY accounts broken.
+ *
+ * Meta requires the token to be at least 24 hours old and still valid.
+ * Returns: { access_token, token_type, expires_in }
+ */
+async function refreshLongLivedToken(longLivedToken) {
+  const response = await axios.get(`${INSTAGRAM_GRAPH_URL}/refresh_access_token`, {
+    params: {
+      grant_type: 'ig_refresh_token',
+      access_token: longLivedToken,
+    },
+  });
+  return response.data;
 }
 
 /**
@@ -137,6 +169,38 @@ async function subscribeToWebhooks(igUserId, accessToken) {
 }
 
 /**
+ * Revoke this app's permissions on an Instagram account.
+ *
+ * DELETE https://graph.instagram.com/v22.0/{IG_ID}/permissions
+ *
+ * Called on user-initiated disconnect. Without it, marking the row
+ * DISCONNECTED leaves a live long-lived token attached to the user's account
+ * for up to 60 days — "disconnect" would mean "we stopped looking", not "the
+ * permission is gone".
+ */
+async function revokePermissions(igUserId, accessToken) {
+  const response = await axios.delete(`${INSTAGRAM_GRAPH_URL}/v22.0/${igUserId}/permissions`, {
+    params: { access_token: accessToken },
+  });
+  return response.data;
+}
+
+/**
+ * Is this error Meta telling us the token is dead?
+ *
+ * Code 190 is OAuthException "invalid/expired access token". Subcodes 458/463
+ * /467 are the reauthorization variants. Distinguishing these from a transient
+ * failure is what lets the caller STOP RETRYING instead of burning quota on a
+ * token that will never work again.
+ */
+function isTokenInvalidError(error) {
+  const meta = error?.response?.data?.error;
+  if (!meta) return false;
+  if (meta.code === 190) return true;
+  return [458, 459, 460, 463, 464, 467].includes(meta.error_subcode);
+}
+
+/**
  * Send a text message via the Instagram Messaging API.
  * POST https://graph.instagram.com/v22.0/me/messages
  * 
@@ -163,9 +227,13 @@ async function sendMessage(recipientIgsid, text, accessToken) {
 }
 
 module.exports = {
+  REQUIRED_SCOPES,
+  revokePermissions,
+  isTokenInvalidError,
   getAuthorizationUrl,
   exchangeCodeForToken,
   exchangeForLongLivedToken,
+  refreshLongLivedToken,
   fetchMyProfile,
   fetchUserProfile,
   subscribeToWebhooks,

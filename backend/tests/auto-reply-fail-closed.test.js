@@ -136,6 +136,16 @@ describe('auto-reply with no business profile', () => {
         passwordHash: await bcrypt.hash('correct-horse-1', 4),
         onboardingCompleted: true,
         preferences: { create: {} },
+        // An ACTIVE trial. AI classification is gated on entitlement, so
+        // without this the job would skip before reaching the auto-reply gate
+        // and the test would pass for entirely the wrong reason.
+        subscription: {
+          create: {
+            status: 'TRIALING',
+            trialStartedAt: new Date(),
+            trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+          },
+        },
         ...(withProfile
           ? { businessProfile: { create: { businessName: 'Test Co', autoReplyMode: 'smart' } } }
           : {}),

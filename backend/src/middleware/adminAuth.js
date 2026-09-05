@@ -22,9 +22,19 @@ async function requireAdmin(req, res, next) {
   }
 
   try {
+    // Explicit select. The Instagram relation is no longer loaded at all —
+    // admin identity no longer looks at igUsername, and `true` would have
+    // pulled the encrypted Meta token into memory on every admin request.
     const user = await prisma.user.findUnique({
       where: { id: req.session.userId },
-      include: { instagramAccounts: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        isSuspended: true,
+        emailVerifiedAt: true,
+      },
     });
 
     if (!user) {
@@ -36,19 +46,30 @@ async function requireAdmin(req, res, next) {
       return res.status(403).json({ error: 'This account is suspended. Contact support.' });
     }
 
-    // Configured admin emails or usernames
+    // Configured admin emails.
+    //
+    // INSTAGRAM USERNAMES ARE NO LONGER ACCEPTED HERE. Matching ADMIN_EMAILS
+    // against a connected account's igUsername keyed super-admin — which can
+    // impersonate any tenant — on a MUTABLE, EXTERNALLY CONTROLLED attribute,
+    // and then wrote role: 'ADMIN' to that user's row permanently. Instagram
+    // handles are globally unique so a live one cannot be squatted, but a
+    // renamed or released handle can be claimed by anyone. Admin identity now
+    // keys only on a verified email address.
     const adminEmails = (process.env.ADMIN_EMAILS || '')
       .split(',')
       .map(e => e.trim().toLowerCase())
       .filter(Boolean);
 
     const userEmail = user.email ? user.email.toLowerCase() : '';
-    const igUsernames = user.instagramAccounts.map(a => (a.igUsername || '').toLowerCase());
 
-    const isEmailAdmin = adminEmails.length > 0 && (
-      adminEmails.includes(userEmail) ||
-      igUsernames.some(u => adminEmails.includes(u) || adminEmails.includes(`@${u}`))
-    );
+    // The address must also be PROVEN. An unverified email is an unproven
+    // claim, and granting admin on one would let anyone who registers with a
+    // configured address take the panel without ever receiving mail there.
+    const isEmailAdmin =
+      adminEmails.length > 0 &&
+      Boolean(userEmail) &&
+      Boolean(user.emailVerifiedAt) &&
+      adminEmails.includes(userEmail);
 
     // Grant access only to an explicit ADMIN role or a configured ADMIN_EMAILS
     // match. The old "first user is automatically admin" rule was removed — it

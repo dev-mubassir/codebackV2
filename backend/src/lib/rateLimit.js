@@ -7,7 +7,30 @@
  * consume another endpoint's budget.
  */
 
-function createRateLimiter({ windowMs, max, message } = {}) {
+/**
+ * Normalise a request path into a stable bucket key.
+ *
+ * THE BUG THIS FIXES. The key used to be `${ip}:${req.baseUrl}${req.path}`
+ * verbatim. Express routers are created with default options, so caseSensitive
+ * and strict are both false — /auth/login, /auth/LOGIN and /auth/login/ all
+ * reach the same handler, but req.path returns whatever the client sent. That
+ * produced a SEPARATE COUNTER PER SPELLING: an attacker got the full limit
+ * again for every casing or trailing-slash variant, which is unlimited login
+ * attempts against one account for the cost of a trivial mutation.
+ *
+ * The same trick inserted an unbounded number of distinct keys into the map,
+ * which only expire after windowMs (an hour for registration) — a memory
+ * growth vector on top of the bypass.
+ *
+ * Lowercasing and stripping the trailing slash collapses every variant onto
+ * one bucket, which is what the limiter always intended.
+ */
+function normalisePath(req) {
+  const raw = `${req.baseUrl || ''}${req.path || ''}`;
+  return raw.toLowerCase().replace(/\/+$/, '') || '/';
+}
+
+function createRateLimiter({ windowMs, max, message, keyBy } = {}) {
   const limitWindow = windowMs || 15 * 60 * 1000;
   const limitMax = max || 20;
   const hits = new Map(); // key -> { count, resetAt }
@@ -24,7 +47,11 @@ function createRateLimiter({ windowMs, max, message } = {}) {
   return function rateLimit(req, res, next) {
     const now = Date.now();
     const ip = req.ip || req.connection?.remoteAddress || 'unknown';
-    const key = `${ip}:${req.baseUrl || ''}${req.path || ''}`;
+    // `keyBy` lets a limiter bucket on something other than the IP — e.g. the
+    // target email, so that distributed credential stuffing against ONE
+    // account is throttled even though every request comes from a new address.
+    const subject = typeof keyBy === 'function' ? keyBy(req) || ip : ip;
+    const key = `${subject}:${normalisePath(req)}`;
 
     let entry = hits.get(key);
     if (!entry || entry.resetAt <= now) {
@@ -48,4 +75,4 @@ function createRateLimiter({ windowMs, max, message } = {}) {
   };
 }
 
-module.exports = { createRateLimiter };
+module.exports = { createRateLimiter, normalisePath };

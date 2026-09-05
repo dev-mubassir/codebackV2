@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminLogin } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import PasswordInput from '@/app/components/PasswordInput';
 import { admin as t, errors } from '@/content/copy';
 import styles from '../admin.module.css';
 
@@ -99,8 +100,7 @@ export default function AdminLoginPage() {
             <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
               {t.login.passwordLabel}
             </label>
-            <input
-              type="password"
+            <PasswordInput
               className="input"
               placeholder={t.login.passwordPlaceholder}
               value={password}

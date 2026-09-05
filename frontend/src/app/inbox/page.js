@@ -19,9 +19,8 @@ import {
   replyModeSendsAutomatically,
 } from '@/content/labels';
 import { formatTime, formatTimeAgo, formatCurrency } from '@/content/format';
+import { BACKEND_URL } from '@/lib/backendUrl';
 import styles from './inbox.module.css';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 // Stored values, unchanged. Display wording comes from content/labels.js.
 const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];
 

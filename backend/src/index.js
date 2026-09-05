@@ -108,6 +108,58 @@ if (isProduction && !process.env.INSTAGRAM_APP_SECRET) {
   process.exit(1);
 }
 
+// ---- Auth hardening: fail loudly at BOOT, not at 3am on a user request ----
+//
+// Each of these is required in EVERY environment, because the failure mode of
+// a missing one is silent and delayed rather than obvious:
+//
+//   TOKEN_ENCRYPTION_KEY  used to fall back to sha256(SESSION_SECRET). That
+//     coupling meant rotating the session key silently made every stored
+//     Instagram token undecryptable, with no warning. The fallback is gone, so
+//     an unset key must now stop the boot rather than surfacing as a decrypt
+//     failure on the first DM.
+//
+//   OAUTH_STATE_SECRET    signs the OAuth state token. Unset, every Instagram
+//     and Google connect attempt fails at the point the user is mid-flow.
+//
+//   IG_IDENTITY_PEPPER    keys the trial-abuse ledger. Unset, the ledger
+//     cannot be read or written — and a fallback would be far worse than a
+//     crash, because it would silently hand every past trial user a new trial.
+const REQUIRED_SECRETS = [
+  ['TOKEN_ENCRYPTION_KEY', 'encrypts Instagram access tokens at rest', 'hex'],
+  ['OAUTH_STATE_SECRET', 'signs the OAuth state token (Instagram + Google)', 'base64'],
+  ['IG_IDENTITY_PEPPER', 'keys the trial-abuse ledger — CAN NEVER BE ROTATED', 'base64'],
+];
+
+for (const [name, purpose, encoding] of REQUIRED_SECRETS) {
+  const value = (process.env[name] || '').trim();
+  if (!value) {
+    console.error(`[Server] FATAL: ${name} is not set. It ${purpose}.`);
+    console.error(
+      `           Generate one with: node -e "console.log(require('crypto').randomBytes(32).toString('${encoding}'))"`
+    );
+    if (name === 'IG_IDENTITY_PEPPER') {
+      console.error('           BACK IT UP PERMANENTLY BEFORE USE — rotating it resets every trial.');
+    }
+    process.exit(1);
+  }
+}
+
+// TOKEN_ENCRYPTION_KEY has a shape requirement the others do not: it is used
+// directly as an AES-256 key, so it must decode to exactly 32 bytes.
+if (Buffer.from(process.env.TOKEN_ENCRYPTION_KEY.trim(), 'hex').length !== 32) {
+  console.error('[Server] FATAL: TOKEN_ENCRYPTION_KEY must be 32 bytes of hex (64 characters).');
+  console.error("           Generate one with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"");
+  process.exit(1);
+}
+
+// Email is not fatal, but a silent console transport in production means
+// password resets never arrive and nobody finds out until a user complains.
+if (isProduction && !(process.env.RESEND_API_KEY || '').trim()) {
+  console.warn('[Server] WARNING: RESEND_API_KEY is not set — password reset and verification');
+  console.warn('[Server]          emails will be LOGGED TO THE CONSOLE instead of sent.');
+}
+
 // An admin session can impersonate any tenant, so the admin credential is
 // effectively a master key to every customer's DMs. A plaintext password in
 // an environment variable is readable from the hosting dashboard, a log dump,
@@ -126,10 +178,37 @@ if (isProduction && process.env.ADMIN_USERNAME && !process.env.ADMIN_PASSWORD_HA
 
 // Loud warning for the dangerous "production deployment running in dev mode"
 // case: public URLs but NODE_ENV !== production disables production safeguards.
+const LOCAL_URL_PATTERN = /localhost|127\.0\.0\.1|local\.codeback\.test/;
 const looksPublic = [process.env.FRONTEND_URL, process.env.BACKEND_URL]
-  .some((u) => u && !/localhost|127\.0\.0\.1|local\.codeback\.test/.test(u));
+  .some((u) => u && !LOCAL_URL_PATTERN.test(u));
 if (!isProduction && looksPublic) {
   console.warn('[Server] WARNING: Public FRONTEND_URL/BACKEND_URL detected while NODE_ENV is not "production". Production safeguards (secure cookies, strict CORS/headers gating) are relaxed. Set NODE_ENV=production for public deployments.');
+}
+
+// The mirror case is worse than a warning deserves: NODE_ENV=production with
+// FRONTEND_URL/BACKEND_URL left at (or defaulted to) localhost. The server
+// boots fine and then quietly builds password-reset, verification, and OAuth
+// links that only resolve on the machine running this process — exactly the
+// class of bug a wrong env var NAME would also cause, and just as silent.
+// Two separate checks rather than one combined one, so a deploy missing only
+// one of the two names itself instead of a generic message.
+if (isProduction) {
+  const frontendUrlValue = (process.env.FRONTEND_URL || '').trim();
+  if (!frontendUrlValue || LOCAL_URL_PATTERN.test(frontendUrlValue)) {
+    console.error(
+      `[Server] FATAL: FRONTEND_URL is ${frontendUrlValue ? `still "${frontendUrlValue}"` : 'not set'} in production. ` +
+        'It builds every password-reset, verification, and OAuth-redirect link. Set it to the public frontend URL.'
+    );
+    process.exit(1);
+  }
+  const backendUrlValue = (process.env.BACKEND_URL || '').trim();
+  if (!backendUrlValue || LOCAL_URL_PATTERN.test(backendUrlValue)) {
+    console.error(
+      `[Server] FATAL: BACKEND_URL is ${backendUrlValue ? `still "${backendUrlValue}"` : 'not set'} in production. ` +
+        'It feeds the CORS allowlist and derives the Google OAuth redirect URI. Set it to the public backend URL.'
+    );
+    process.exit(1);
+  }
 }
 
 /**
@@ -161,36 +240,62 @@ if (!isProduction && looksPublic) {
 function buildSessionStore() {
   const REDIS_URL = process.env.REDIS_URL;
 
-  if (!REDIS_URL) {
-    if (isProduction) {
-      console.warn('[Session] WARNING: REDIS_URL is not set — using in-memory sessions in production.');
-      console.warn('[Session]          Every restart or deploy will log all users out, sessions are not');
-      console.warn('[Session]          shared across instances, and memory grows unbounded. Set REDIS_URL.');
-    } else {
-      console.log('[Session] REDIS_URL not set — using in-memory session store (fine for local dev).');
+  // Redis stays the preferred store when it is actually provisioned. This
+  // branch is dormant by design — REDIS_URL is unset everywhere today.
+  if (REDIS_URL) {
+    try {
+      const IORedis = require('ioredis');
+      const { RedisStore } = require('connect-redis');
+
+      const client = new IORedis(REDIS_URL, {
+        maxRetriesPerRequest: null,
+        enableReadyCheck: false,
+      });
+      client.on('error', (err) => console.error('[Session] Redis client error:', err.message));
+
+      console.log('[Session] Using Redis-backed session store.');
+      return new RedisStore({ client, prefix: 'codeback:sess:' });
+    } catch (err) {
+      console.error('[Session] FATAL: REDIS_URL is set but the Redis session store failed to initialize:', err.message);
+      if (isProduction) {
+        throw new Error('Redis session store is configured but unavailable — refusing to fall back to MemoryStore in production.');
+      }
+      console.warn('[Session] Falling back to the Postgres session store (non-production only).');
     }
-    return undefined; // express-session falls back to MemoryStore
   }
 
+  // Postgres-backed sessions. This replaces the MemoryStore fallback, which
+  // was the single worst thing about the previous setup: sessions lived in one
+  // process, so every restart logged everyone out, a second instance could not
+  // see the first instance's sessions, and memory grew without bound. All of
+  // that was permitted in PRODUCTION behind nothing but a console warning.
+  //
+  // Postgres is already a hard dependency, so this needs no new infrastructure
+  // and removes the fallback path entirely — there is no longer any way to end
+  // up on MemoryStore by accident.
   try {
-    const IORedis = require('ioredis');
-    const { RedisStore } = require('connect-redis');
+    const pgSession = require('connect-pg-simple')(session);
+    const { Pool } = require('pg');
 
-    const client = new IORedis(REDIS_URL, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    pool.on('error', (err) => console.error('[Session] Postgres session pool error:', err.message));
+
+    console.log('[Session] Using Postgres-backed session store (table: user_sessions).');
+    return new pgSession({
+      pool,
+      tableName: 'user_sessions',
+      // The table is owned by the session store, not by Prisma — it is
+      // deliberately absent from schema.prisma so `prisma migrate diff` does
+      // not fight the library over its shape.
+      createTableIfMissing: true,
+      // Sweep expired rows hourly; without this the table only ever grows.
+      pruneSessionInterval: 60 * 60,
     });
-    client.on('error', (err) => console.error('[Session] Redis client error:', err.message));
-
-    console.log('[Session] Using Redis-backed session store.');
-    return new RedisStore({ client, prefix: 'codeback:sess:' });
   } catch (err) {
-    console.error('[Session] FATAL: REDIS_URL is set but the Redis session store failed to initialize:', err.message);
-    if (isProduction) {
-      throw new Error('Redis session store is configured but unavailable — refusing to fall back to MemoryStore in production.');
-    }
-    console.warn('[Session] Falling back to in-memory sessions (non-production only).');
-    return undefined;
+    console.error('[Session] FATAL: could not initialize the Postgres session store:', err.message);
+    throw new Error(
+      'Session storage is unavailable. Refusing to start with in-memory sessions.'
+    );
   }
 }
 
@@ -198,7 +303,11 @@ function buildSessionStore() {
 const sessionMiddleware = session({
   name: 'codeback.sid',
   store: buildSessionStore(),
-  secret: SESSION_SECRET,
+  // An ARRAY, not a string. express-session signs with the first entry and
+  // accepts any of them when verifying, so a future rotation can prepend a new
+  // secret and keep old cookies valid until they expire, instead of logging
+  // every user out at once. SESSION_SECRET_PREVIOUS is optional.
+  secret: [SESSION_SECRET, ...(process.env.SESSION_SECRET_PREVIOUS ? [process.env.SESSION_SECRET_PREVIOUS.trim()] : [])],
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -220,28 +329,29 @@ app.use(sessionMiddleware);
 // session is loaded and before route handlers.
 app.use(originGuard);
 
-// JSON body parser — but we need raw body for webhook signature verification
-// So we parse JSON manually for the webhook route, and use express.json() for everything else
-app.use((req, res, next) => {
-  if (req.originalUrl && req.originalUrl.includes('webhook') && req.method === 'POST') {
-    // For webhook POST: collect raw body for signature verification
-    let rawBody = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk) => { rawBody += chunk; });
-    req.on('end', () => {
-      req.rawBody = rawBody;
-      try {
-        req.body = JSON.parse(rawBody);
-      } catch (e) {
-        req.body = {};
-      }
-      next();
-    });
-  } else {
-    // For all other routes: use standard JSON parser
-    express.json()(req, res, next);
-  }
-});
+// JSON body parser. Meta's webhook signature is an HMAC over the bytes on the
+// wire, so the raw body is captured here via `verify` — body-parser hands us
+// the exact Buffer it is about to parse, before any decoding.
+//
+// This replaces a hand-rolled parser that branched on
+// `req.originalUrl.includes('webhook')`. That branch was wrong three ways:
+//   - it matched the QUERY STRING, so `POST /anything?x=webhook` took the raw
+//     path on every route,
+//   - the raw path had NO size limit, buffering unbounded input into memory
+//     before any signature check ran, and
+//   - it called req.setEncoding('utf8') and accumulated a string, so the HMAC
+//     was computed over re-encoded text (any non-UTF-8 byte becomes U+FFFD and
+//     can never round-trip) and any downstream body parser hit raw-body's
+//     "stream encoding should not be set" 500.
+// A Buffer keeps the bytes exact and the limit applies to every route.
+app.use(
+  express.json({
+    limit: '1mb',
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 // URL-encoded body parser (for form submissions)
 app.use(express.urlencoded({ extended: true }));
@@ -372,3 +482,15 @@ server.listen(PORT, () => {
   console.log('='.repeat(50));
   console.log('');
 });
+
+// ============================================
+// 404 and error handling
+//
+// Extracted to middleware/errorHandlers.js so the TEST HARNESS mounts the
+// identical code — a harness whose error shape differs from production tests
+// nothing about the error shape.
+// ============================================
+const { notFoundHandler, errorHandler } = require('./middleware/errorHandlers');
+
+app.use(notFoundHandler);
+app.use(errorHandler);
