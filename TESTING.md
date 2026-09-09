@@ -25,8 +25,16 @@ cd C:\codeback\backend && npm start 2>&1 | grep -E "\[Auth\]|\[Webhook\]|\[Deaut
 And the tunnel, in a third:
 
 ```bash
-cd C:\codeback && .\cloudflared.exe tunnel run codeback
+cd C:\codeback && .\cloudflared.exe tunnel --config %USERPROFILE%\.cloudflared\config.yml run codeback
 ```
+
+(`%USERPROFILE%\.cloudflared\config.yml` is cloudflared's default config
+location, so it would find this file unaided — the flag is belt-and-braces,
+not a path anyone must edit.)
+
+`codeback` is a **locally-configured** tunnel — a connector started without
+`--config` ignores `config.yml` and will not route. Confirm exactly one
+process before continuing: `tasklist | findstr cloudflared`.
 
 Confirm before proceeding: `https://api.citykirana.in/health` returns
 `{"status":"ok"}` from your **phone**, not just your laptop. If it does not,

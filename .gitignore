@@ -69,6 +69,10 @@ skills-lock.json
 graphify-out/
 strix_runs/
 
+# Personal local-dev runbook — contains this machine's tunnel ID, local paths,
+# and a dev-only Postgres password. Not for a shared repo.
+LOCAL_DEV.md
+
 # Cloudflare
 .cloudflared/
 

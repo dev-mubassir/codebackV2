@@ -37,5 +37,12 @@
   "devDependencies": {
     "supertest": "^7.2.2",
     "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "argon2@0.45.1": true,
+    "msgpackr-extract@3.0.4": true,
+    "prisma@6.19.3": true
   }
 }
