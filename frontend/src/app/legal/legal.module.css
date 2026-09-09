@@ -1,11 +1,21 @@
-/* Shared layout for the public legal pages (privacy, terms, data deletion).
-   These must render for logged-out visitors and for Meta's reviewers, so they
-   deliberately depend on nothing from AppShell or the authenticated layout. */
+/* Shared layout for the public legal pages (privacy, terms, data deletion,
+   error, not-found). These must render for logged-out visitors and for
+   Meta's reviewers, so they deliberately depend on nothing from AppShell or
+   the authenticated layout — no auth check, no data fetch, no shared shell.
+   Fix note: this file used to define its own --bg/--text/--text-muted/
+   --border/--accent/--surface custom properties with hardcoded dark-theme
+   fallbacks. Those names were never defined anywhere else in the app, so
+   every var() here silently fell through to its fallback — a fixed dark
+   theme with no connection to the app's actual (light) design tokens.
+   It now references globals.css's real tokens directly (imported globally,
+   unconditionally, by the root layout — no AppShell dependency required for
+   that). The architectural independence above still stands; only the color
+   source changed. */
 
 .page {
   min-height: 100vh;
-  background: var(--bg, #0b0d12);
-  color: var(--text, #e6e8ee);
+  background: var(--bg-page);
+  color: var(--text-primary);
   padding: 48px 20px 96px;
 }
 
@@ -17,14 +27,14 @@
 .backLink {
   display: inline-block;
   margin-bottom: 32px;
-  color: var(--text-muted, #9aa3b2);
+  color: var(--text-secondary);
   text-decoration: none;
   font-size: 14px;
 }
 
 .backLink:hover,
 .backLink:focus-visible {
-  color: var(--text, #e6e8ee);
+  color: var(--text-primary);
   text-decoration: underline;
 }
 
@@ -36,7 +46,7 @@
 }
 
 .updated {
-  color: var(--text-muted, #9aa3b2);
+  color: var(--text-tertiary);
   font-size: 14px;
   margin: 0 0 40px;
 }
@@ -60,7 +70,7 @@
 .section p,
 .section li {
   line-height: 1.7;
-  color: var(--text-secondary, #c3c9d6);
+  color: var(--text-secondary);
   font-size: 15px;
 }
 
@@ -78,12 +88,12 @@
 }
 
 .callout {
-  border: 1px solid var(--border, #232838);
-  border-left: 3px solid var(--accent, #5b8cff);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--color-primary);
   border-radius: 8px;
   padding: 16px 18px;
   margin: 20px 0;
-  background: var(--surface, #12151d);
+  background: var(--bg-surface);
 }
 
 .callout p:last-child {
@@ -91,14 +101,14 @@
 }
 
 .section a {
-  color: var(--accent, #5b8cff);
+  color: var(--color-primary);
 }
 
 .contact {
-  border-top: 1px solid var(--border, #232838);
+  border-top: 1px solid var(--border-default);
   padding-top: 24px;
   margin-top: 40px;
-  color: var(--text-muted, #9aa3b2);
+  color: var(--text-secondary);
   font-size: 14px;
 }
 

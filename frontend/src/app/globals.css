@@ -21,6 +21,13 @@
   --border-strong: #d4d4d4;
   --border-subtle: #f0f0f0;
   --border-focus: #4169e1;
+  /* Dividers on the dark --bg-sidebar family. Identical value to
+     AppShell.module.css's hardcoded sidebarHeader/sidebarFooter
+     border-bottom — a real token instead of reusing --bg-sidebar-hover
+     (a hover-background variable) as a border color, which reads wrong.
+     AppShell itself is out of scope to edit this gate; only new
+     dark-panel CSS (inbox) uses this token so far. */
+  --border-sidebar: rgba(255, 255, 255, 0.08);
 
   /* Text */
   --text-primary: #171717;

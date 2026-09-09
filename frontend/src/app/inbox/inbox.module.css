@@ -2,6 +2,16 @@
  * Inbox Page Styles — Cloudflare SaaS Theme
  * ============================================ */
 
+/* Single source of truth for the header's dark brand block (.navBrand) and
+   .filterSidebar's width, so the two can never drift — see the sidebar-
+   alignment audit. Redefined again at the 1024px breakpoint alongside
+   .filterSidebar's own responsive width. This is NOT the same thing as
+   globals.css's --sidebar-width (240px), which sizes AppShell's unrelated
+   sidebar — do not conflate the two. */
+:root {
+  --inbox-sidebar-width: 220px;
+}
+
 .loadingScreen {
   display: flex;
   align-items: center;
@@ -35,23 +45,47 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  /* Full header height so .navBrand's own align-self: stretch has the full
+     height to fill. Does not change where the breadcrumb/current-page text
+     sit — they're still vertically centered by align-items above. */
+  align-self: stretch;
 }
 
+/* Dark treatment matching AppShell's .brand, so this
+   forms one continuous dark column with .filterSidebar directly beneath it.
+   width/flex-shrink come from --inbox-sidebar-width (defined above), the same
+   value .filterSidebar uses, so the two can never drift out of alignment.
+   margin-left cancels .globalNav's own `padding: 0 20px` so this block starts
+   flush with the true left edge (x=0), matching where .filterSidebar starts —
+   padding-left restores the original visual inset for the icon/text inside it.
+   border-radius removed: a rounded corner would leave a gap at the page's
+   actual top-left corner, which this block now occupies edge-to-edge. */
 .navBrand {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: none;
+  background: var(--bg-sidebar);
   border: none;
-  padding: 4px 6px;
-  margin-left: -6px;
-  border-radius: var(--radius-md);
+  padding: 4px 6px 4px 20px;
+  margin-left: -20px;
+  /* .globalNav's own `border-bottom: 1px solid
+     var(--border-default)` (below) must stay — it's still the correct
+     divider under the light breadcrumb/nav-actions side, and a single
+     border on the parent can't be half-removed by color alone. Instead
+     this block's own opaque background is extended 1px past its normal
+     stretched height (align-self: stretch computes size minus margins, so
+     a negative bottom margin adds exactly the border's width back) so it
+     paints over that one pixel row — only across this block's own width,
+     matching AppShell's brand area (which sits inside .sidebar, a column
+     with no border at all) forming one unbroken dark surface into
+     .filterSidebar directly beneath it. .globalNav's border is untouched. */
+  margin-bottom: -1px;
+  align-self: stretch;
+  width: var(--inbox-sidebar-width);
+  flex-shrink: 0;
+  border-radius: 0;
   cursor: pointer;
   transition: background var(--transition-fast);
-}
-
-.navBrand:hover {
-  background: var(--bg-surface-hover);
 }
 
 .navBrandIcon {
@@ -74,7 +108,8 @@
 .navBrandText {
   font-size: var(--text-md);
   font-weight: 700;
-  color: var(--text-primary);
+  /* White, matching AppShell's .brandName on the now-dark background. */
+  color: var(--text-sidebar-active);
 }
 
 .navBreadcrumb {
@@ -121,13 +156,18 @@
 /* ============================================
  * Column 1: Dedicated Vertical Filter Sidebar
  * ============================================ */
+/* Moved to the dark --bg-sidebar family to match
+   AppShell's sidebar (dashboard/profile/settings/notifications) and the
+   admin section, which both already use it — see the sidebar audit. */
 .filterSidebar {
-  width: 220px;
+  /* Sourced from --inbox-sidebar-width (defined at
+     the top of this file) instead of a literal, so .navBrand in the header
+     can never drift out of alignment with this panel. Value unchanged (220px). */
+  width: var(--inbox-sidebar-width);
   min-width: 200px;
   max-width: 240px;
   flex-shrink: 0;
-  border-right: 1px solid var(--border-default);
-  background: var(--bg-surface-secondary);
+  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -141,13 +181,20 @@
   gap: 4px;
 }
 
+/* Matched to AppShell's .navSectionLabel exactly —
+   font-weight 700->600, letter-spacing 0.05em->0.06em, padding 4px 8px 6px
+   ->12px 12px 6px, and color var(--text-tertiary) [6.76:1 contrast on
+   --bg-sidebar] -> rgba(255,255,255,0.35) [AppShell's literal, untokenized
+   value; ~3.2:1, fails WCAG AA]. Visual consistency with AppShell is the
+   explicit goal for this decorative, non-content label — accepted knowingly,
+   not missed. */
 .filterSectionTitle {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-tertiary);
-  padding: 4px 8px 6px;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 12px 12px 6px;
 }
 
 .filterItemList {
@@ -167,23 +214,22 @@
   border-radius: var(--radius-md);
   background: transparent;
   border: 1px solid transparent;
-  color: var(--text-secondary);
+  color: var(--text-sidebar);
   cursor: pointer;
   transition: all var(--transition-fast);
   text-align: left;
 }
 
 .filterItemBtn:hover {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
+  background: var(--bg-sidebar-hover);
+  color: var(--text-sidebar-active);
 }
 
 .filterItemBtnActive {
-  background: var(--bg-surface) !important;
-  color: var(--color-primary) !important;
+  background: var(--bg-sidebar-active) !important;
+  color: var(--text-sidebar-active) !important;
   font-weight: 600;
-  border-color: var(--border-default) !important;
-  box-shadow: var(--shadow-sm);
+  border-color: transparent !important;
 }
 
 .filterItemLeft {
@@ -209,7 +255,7 @@
   font-size: 10px;
   padding: 1px 6px;
   border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--bg-sidebar-hover);
   color: var(--text-tertiary);
   font-weight: 600;
   flex-shrink: 0;
@@ -224,7 +270,13 @@
 .filterSidebarFooter {
   margin-top: auto;
   padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
+  /* --border-default (#e5e5e5) is a light-theme token —
+     opaque and bright against --bg-sidebar. --border-sidebar matches
+     AppShell.module.css's own sidebarHeader/sidebarFooter divider weight
+     exactly (same rgba(255,255,255,0.08) value, added as a real token in
+     globals.css rather than reusing --bg-sidebar-hover, a background
+     variable, as a border color). */
+  border-top: 1px solid var(--border-sidebar);
   flex-shrink: 0;
 }
 
@@ -234,8 +286,8 @@
   gap: 10px;
   width: 100%;
   padding: 8px 10px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -243,9 +295,7 @@
 }
 
 .sidebarProfileBtn:hover {
-  background: var(--bg-surface-hover);
-  border-color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-sidebar-hover);
 }
 
 .sidebarProfileAvatar {
@@ -273,7 +323,7 @@
 .sidebarProfileName {
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-sidebar-active);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1441,8 +1491,15 @@
  * Responsive Media Queries for 3-Column Layout
  * ============================================ */
 @media (max-width: 1024px) {
+  /* Redefines the shared width variable itself, so
+     .filterSidebar (via width: var(--inbox-sidebar-width) above) and
+     .navBrand in the header both pick up 180px here automatically — one
+     source of truth at every breakpoint, not two numbers that have to be
+     kept in sync by hand. */
+  :root {
+    --inbox-sidebar-width: 180px;
+  }
   .filterSidebar {
-    width: 180px;
     min-width: 170px;
     padding: 10px 6px;
   }
