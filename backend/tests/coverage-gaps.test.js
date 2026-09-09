@@ -260,7 +260,10 @@ describe('trial expiry — AI stops, the inbox does not', () => {
     installMetaStubs();
   });
 
-  it('an expired trial is not entitled, and classification is SKIPPED not failed', async () => {
+  // TEMP (pre-Meta-review): entitlement gate is disabled in messageAnalysisJob.js
+  // (see the commented block there), so this test now asserts removed behavior.
+  // Restore alongside that gate.
+  it.skip('an expired trial is not entitled, and classification is SKIPPED not failed', async () => {
     const { processMessageAnalysis } = require('../src/jobs/messageAnalysisJob.js');
     const analyze = vi.spyOn(aiService, 'analyzeConversation');
 

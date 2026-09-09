@@ -403,6 +403,12 @@ async function handleIncomingMessage(account, messagingEvent) {
   const messageText = message.text || null;
   const messageType = message.attachments?.[0]?.type || 'text';
   const attachmentUrl = message.attachments?.[0]?.payload?.url || null;
+  // TEMP (pre-Meta-review): observability only — confirms the real Meta `type`
+  // value for reel/story shares from production logs (unverified in any test
+  // fixture as of Gate 0 §0.4). Remove once that value is confirmed.
+  if (messageType !== 'text') {
+    console.log('[Webhook] Non-text message type observed:', messageType);
+  }
   // Timestamp from Meta is often in milliseconds. If it's less than 1e11, it's seconds.
   const parsedTimestamp = typeof timestamp === 'number' ? (timestamp > 1e11 ? timestamp : timestamp * 1000) : parseInt(timestamp, 10);
   const igTimestamp = timestamp ? new Date(parsedTimestamp) : new Date();

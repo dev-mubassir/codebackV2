@@ -73,17 +73,22 @@ function startWorkers() {
     // Trial lifecycle. Hourly, because a 3-day trial expiring up to six hours
     // late is a user still being charged nothing while auto-reply keeps
     // sending on their behalf.
-    const runTrials = async () => {
-      try {
-        await expireFinishedTrials();
-        await sendTrialEndingWarnings({ intervalMs: TRIAL_INTERVAL_MS });
-      } catch (err) {
-        console.error('[Jobs] Trial sweep failed:', err.message);
-      }
-    };
-    runTrials();
-    trialTimer = setInterval(runTrials, TRIAL_INTERVAL_MS);
-    if (typeof trialTimer.unref === 'function') trialTimer.unref();
+    //
+    // TEMP (pre-Meta-review): trial entitlement gate disabled. Restore before
+    // re-enabling paid tiers. These sweeps email countdown/expiry notices for
+    // a product with no billing — a reviewer connecting an account must not
+    // receive them. See igIdentity.js hasActiveEntitlement().
+    // const runTrials = async () => {
+    //   try {
+    //     await expireFinishedTrials();
+    //     await sendTrialEndingWarnings({ intervalMs: TRIAL_INTERVAL_MS });
+    //   } catch (err) {
+    //     console.error('[Jobs] Trial sweep failed:', err.message);
+    //   }
+    // };
+    // runTrials();
+    // trialTimer = setInterval(runTrials, TRIAL_INTERVAL_MS);
+    // if (typeof trialTimer.unref === 'function') trialTimer.unref();
 
     // Housekeeping: webhook_deliveries (MANDATORY — every inbound DM writes a
     // row, see FINDINGS.md D4), expired auth tokens, spent OAuth nonces, and

@@ -143,9 +143,13 @@ export default function ProfilePage() {
               <div className={styles.heroName}>{user?.name || common.notSet}</div>
               <div className={styles.heroEmail}>{user?.email}</div>
               <div className={styles.heroBadges}>
-                <span className={styles.roleBadge}>
-                  <Icon name={user?.role === 'ADMIN' ? 'zap' : 'user'} size={12} /> {roleLabel(user?.role).label}
-                </span>
+                {/* TEMP (pre-Meta-review): role badge hidden for non-admin users — "Standard account"
+                    reads as a plan tier on a product with no tiers. Restore before launch. */}
+                {user?.role === 'ADMIN' && (
+                  <span className={styles.roleBadge}>
+                    <Icon name="zap" size={12} /> {roleLabel(user?.role).label}
+                  </span>
+                )}
               </div>
             </div>
           </div>

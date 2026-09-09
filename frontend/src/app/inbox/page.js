@@ -17,6 +17,7 @@ import {
   recommendedActionLabel,
   brandDealStatusLabel,
   replyModeSendsAutomatically,
+  messageTypePreviewLabel,
 } from '@/content/labels';
 import { formatTime, formatTimeAgo, formatCurrency } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
@@ -70,6 +71,15 @@ function matchesFolder(conv, folderId) {
     default:
       return conv.category === folderId;
   }
+}
+
+// TEMP (pre-Meta-review): conv.lastMessage may already be a raw `[messageType]`
+// token persisted by the backend for a textless attachment message (webhook.js
+// lastMessagePreview) before this fix existed, or fetched from an older row.
+// Reformat it for display without touching the stored value or the socket path.
+function displayPreview(lastMessage) {
+  const match = typeof lastMessage === 'string' && /^\[(.+)\]$/.exec(lastMessage);
+  return match ? messageTypePreviewLabel(match[1]) : lastMessage;
 }
 
 function InboxPageContent() {
@@ -248,7 +258,9 @@ function InboxPageContent() {
           c.id === data.conversationId
             ? {
               ...c,
-              lastMessage: data.message.content || `[${data.message.messageType || 'text'}]`,
+              // TEMP (pre-Meta-review): friendly label instead of a raw type token —
+              // see labels.js messageTypePreviewLabel().
+              lastMessage: data.message.content || messageTypePreviewLabel(data.message.messageType || 'text'),
               lastMessageAt: data.message.igTimestamp || new Date().toISOString(),
               unread: isCurrentlyOpen ? false : true,
               messagingWindow: isInbound
@@ -790,7 +802,7 @@ function InboxPageContent() {
                           title={`${prio.label} priority — scored ${conv.priorityScore || 0} out of 100`}
                         />
                         <p className={styles.convPreview}>
-                          {conv.lastMessage || empty.messages.title}
+                          {displayPreview(conv.lastMessage) || empty.messages.title}
                         </p>
                       </div>
 
@@ -1072,6 +1084,15 @@ function InboxPageContent() {
                         <div className={styles.messageAttachment}>
                           {msg.messageType === 'image' ? (
                             <img src={msg.attachmentUrl} alt="Attachment sent in this conversation" />
+                          ) : ['ig_reel', 'share', 'ig_post'].includes(msg.messageType) ? (
+                            /* TEMP (pre-Meta-review): the original guess ('share'/'story_mention')
+                               was wrong and matched almost nothing — confirmed via direct query
+                               against the live database that Instagram's real attachment types for
+                               a reel/post share are 'ig_reel', 'share', and 'ig_post' ('story_mention'
+                               never actually occurs). These carry no usable text — show a muted
+                               placeholder instead of a clickable link. 'image' and 'video' are
+                               unaffected and keep rendering as before. */
+                            <span className={styles.messageAttachmentPlaceholder}>Shared a reel or post</span>
                           ) : (
                             <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer">
                               <Icon name="paperclip" size={12} /> Attachment

@@ -799,6 +799,14 @@
   object-fit: contain;
 }
 
+/* TEMP (pre-Meta-review): muted, non-interactive placeholder for share/story_mention
+   attachments — see inbox/page.js messageAttachment rendering. One revert together. */
+.messageAttachmentPlaceholder {
+  display: inline-block;
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
 .messageTime {
   display: block;
   font-size: 10px;

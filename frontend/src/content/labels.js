@@ -320,3 +320,22 @@ export const NOTIFICATION_TYPE_LABELS = {
 export function notificationTypeLabel(value) {
   return lookup(NOTIFICATION_TYPE_LABELS, value);
 }
+
+// ============================================
+// Conversation list preview — non-text inbound messages.
+// Confirmed against the live database (Gate 2, pre-Meta-review reel-filter
+// fix): the messageType values actually seen are ig_reel, share, ig_post,
+// video, image, text. Backend stores the raw type; this only decides what a
+// business owner sees in the conversation-list preview.
+// ============================================
+export const MESSAGE_TYPE_PREVIEW_LABELS = {
+  ig_reel: { label: 'Shared a reel' },
+  share: { label: 'Shared a post' },
+  ig_post: { label: 'Shared a post' },
+  video: { label: 'Sent a video' },
+  image: { label: 'Sent a photo' },
+};
+
+export function messageTypePreviewLabel(value) {
+  return lookup(MESSAGE_TYPE_PREVIEW_LABELS, value).label;
+}

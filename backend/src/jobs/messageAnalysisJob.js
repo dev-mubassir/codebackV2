@@ -212,15 +212,17 @@ async function processMessageAnalysis(job) {
   // -analysis sweeper does not keep retrying it forever, and so an operator
   // can tell "not entitled" from "the model errored".
   //
+  // TEMP (pre-Meta-review): trial entitlement gate disabled. Restore before
+  // re-enabling paid tiers. See igIdentity.js hasActiveEntitlement().
   // This is also a spend control: without it, an expired tenant's inbound DMs
   // keep costing Gemini calls indefinitely.
-  if (!(await hasActiveEntitlement(userId))) {
-    await prisma.message
-      .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
-      .catch(() => {});
-    console.log(`[messageAnalysisJob] Skipped ${messageId}: no active entitlement for user ${userId}.`);
-    return;
-  }
+  // if (!(await hasActiveEntitlement(userId))) {
+  //   await prisma.message
+  //     .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
+  //     .catch(() => {});
+  //   console.log(`[messageAnalysisJob] Skipped ${messageId}: no active entitlement for user ${userId}.`);
+  //   return;
+  // }
 
   await prisma.message.update({ where: { id: message.id }, data: { aiStatus: 'processing' } }).catch(() => {});
 
@@ -365,7 +367,13 @@ async function processMessageAnalysis(job) {
     });
 
     // 7. Periodic conversation summary (only for relevant commercial/business inquiries).
-    await maybeRegenerateSummary({ conversation, userId, analysis });
+    // TEMP (pre-Meta-review): skip summary regen when the triggering message has
+    // no text content (e.g. a reel/story share) — analyzeConversation() already
+    // short-circuits textless messages at zero AI cost, but summarizeConversation()
+    // has no such guard and would otherwise still be called periodically.
+    if (message.content) {
+      await maybeRegenerateSummary({ conversation, userId, analysis });
+    }
 
     // 8. Multi-Stage Intelligent Auto-Reply Safety Gate
     //
