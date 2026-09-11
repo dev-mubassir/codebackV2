@@ -15,8 +15,6 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
-const instagram = require('../lib/instagram');
-const { readAccountToken } = require('../lib/crypto');
 const { requireAuth } = require('../middleware/auth');
 const { requireWorkspace } = require('../middleware/authorize');
 
@@ -85,23 +83,13 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'That account no longer exists.' });
     }
 
-    // REVOKE AT META FIRST, before we lose the ability to.
-    //
-    // Marking the row disconnected without revoking leaves a live, valid
-    // long-lived token attached to the user's Instagram account for up to 60
-    // days. "Disconnect" should mean the permission is actually gone, not that
-    // we stopped looking at it. Best-effort: a revoke failure must not block
-    // the user from disconnecting, but it is logged.
-    try {
-      await instagram.revokePermissions(account.igUserId, readAccountToken(account));
-      console.log('[Accounts] Revoked Instagram permissions for', account.igUsername);
-    } catch (err) {
-      console.error(
-        '[Accounts] Permission revoke failed (continuing with disconnect):',
-        err.response?.data?.error?.message || err.message
-      );
-    }
-
+    // There is no supported Graph API call to revoke this token from here —
+    // DELETE /{ig-user-id}/permissions returns "Unsupported delete request"
+    // for this product (Instagram API with Instagram Login); the documented
+    // model is that the USER revokes access from inside Instagram, not the
+    // app via API. A long-lived token attached to the account can therefore
+    // remain live at Meta for up to 60 days after this disconnect — the
+    // tombstoning below only stops CODEBACK from using it.
     if (purge) {
       // Explicit, irreversible data deletion — cascades to contacts,
       // conversations, messages, AI analyses, brand deals, etc.

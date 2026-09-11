@@ -169,23 +169,6 @@ async function subscribeToWebhooks(igUserId, accessToken) {
 }
 
 /**
- * Revoke this app's permissions on an Instagram account.
- *
- * DELETE https://graph.instagram.com/v22.0/{IG_ID}/permissions
- *
- * Called on user-initiated disconnect. Without it, marking the row
- * DISCONNECTED leaves a live long-lived token attached to the user's account
- * for up to 60 days — "disconnect" would mean "we stopped looking", not "the
- * permission is gone".
- */
-async function revokePermissions(igUserId, accessToken) {
-  const response = await axios.delete(`${INSTAGRAM_GRAPH_URL}/v22.0/${igUserId}/permissions`, {
-    params: { access_token: accessToken },
-  });
-  return response.data;
-}
-
-/**
  * Is this error Meta telling us the token is dead?
  *
  * Code 190 is OAuthException "invalid/expired access token". Subcodes 458/463
@@ -228,7 +211,6 @@ async function sendMessage(recipientIgsid, text, accessToken) {
 
 module.exports = {
   REQUIRED_SCOPES,
-  revokePermissions,
   isTokenInvalidError,
   getAuthorizationUrl,
   exchangeCodeForToken,
