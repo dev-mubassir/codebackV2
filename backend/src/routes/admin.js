@@ -399,7 +399,7 @@ router.get('/users/export/csv', async (req, res) => {
     });
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=codeback_users.csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=siffty_users.csv');
     res.status(200).send(csv);
   } catch (error) {
     res.status(500).json({ error: "Couldn't export that CSV. Try again." });
@@ -633,7 +633,7 @@ router.get('/accounts/export/csv', async (req, res) => {
     });
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename=codeback_instagram_accounts.csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=siffty_instagram_accounts.csv');
     res.status(200).send(csv);
   } catch (error) {
     res.status(500).json({ error: "Couldn't export that CSV. Try again." });

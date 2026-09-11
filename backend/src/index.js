@@ -426,7 +426,7 @@ app.get('/', (req, res) => {
     if (req.query.state) qs.set('state', req.query.state);
     return res.redirect(`/auth/instagram/callback?${qs.toString()}`);
   }
-  res.send('Codeback Backend is running');
+  res.send('Siffty API is running');
 });
 
 // Auth routes (OAuth flow)
