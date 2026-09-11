@@ -32,13 +32,28 @@
 .globalNav {
   height: var(--header-height);
   background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
   flex-shrink: 0;
   z-index: 50;
+  position: relative;
+}
+
+/* Border-bottom lives on a pseudo-element inset by --inbox-sidebar-width
+   instead of on .globalNav itself, so it never runs under .navBrand's dark
+   column at all — no negative-margin "paint over 1px" hack needed, and no
+   hairline of it showing through on real devices where a fractional
+   devicePixelRatio (common on Android) rounds a -1px margin unevenly. */
+.globalNav::after {
+  content: '';
+  position: absolute;
+  left: var(--inbox-sidebar-width);
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--border-default);
 }
 
 .globalNavLeft {
@@ -68,18 +83,6 @@
   border: none;
   padding: 4px 6px 4px 20px;
   margin-left: -20px;
-  /* .globalNav's own `border-bottom: 1px solid
-     var(--border-default)` (below) must stay — it's still the correct
-     divider under the light breadcrumb/nav-actions side, and a single
-     border on the parent can't be half-removed by color alone. Instead
-     this block's own opaque background is extended 1px past its normal
-     stretched height (align-self: stretch computes size minus margins, so
-     a negative bottom margin adds exactly the border's width back) so it
-     paints over that one pixel row — only across this block's own width,
-     matching AppShell's brand area (which sits inside .sidebar, a column
-     with no border at all) forming one unbroken dark surface into
-     .filterSidebar directly beneath it. .globalNav's border is untouched. */
-  margin-bottom: -1px;
   align-self: stretch;
   width: var(--inbox-sidebar-width);
   flex-shrink: 0;
@@ -1510,8 +1513,50 @@
 }
 
 @media (max-width: 768px) {
+  /* Below this width .filterSidebar (the column .navBrand is designed to
+     cap — see the comment above .navBrand) is hidden entirely, so a slab
+     the width of --inbox-sidebar-width no longer caps anything and just
+     floats. .navBrand becomes a square instead, sized from .globalNav's
+     own height (min-height below) via aspect-ratio — see .navBrand.
+     Left padding matches .mobileFilterBar's own 12px (see that rule)
+     so the icon lines up with the filter-pill row directly beneath it,
+     rather than hugging the true screen edge; right padding is for the
+     nav actions. */
   .globalNav {
-    padding: 10px 12px;
+    height: auto;
+    min-height: var(--header-height);
+    padding: 0 12px;
+  }
+
+  /* width: auto + aspect-ratio: 1 sizes the square from the one dimension
+     that's actually fixed here — the stretched height (var(--header-height),
+     via .globalNav's min-height above) — instead of borrowing
+     --inbox-sidebar-width, which describes the now-hidden sidebar.
+     background matches .globalNav's own (var(--bg-surface)) instead of the
+     desktop's dark cap: below 768px .filterSidebar is hidden, so there's no
+     dark column left for this block to visually continue into — keeping it
+     dark here would just be an orphaned patch of color. */
+  .navBrand {
+    width: auto;
+    aspect-ratio: 1;
+    margin: 0;
+    padding: 0;
+    justify-content: center;
+    background: var(--bg-surface);
+  }
+
+  /* Icon-only at every mobile width, not just <=480px: the square has no
+     room for the wordmark once it's sized to the header height. */
+  .navBrandText {
+    display: none;
+  }
+
+  /* Runs the full header width now: the square is the same background as
+     the rest of .globalNav, so there's no dark block left to carve an
+     exclusion zone around (contrast Gate 1's version of this rule, where
+     the square was still dark and the border had to skip past it). */
+  .globalNav::after {
+    left: 0;
   }
 
   .globalNavActions {
