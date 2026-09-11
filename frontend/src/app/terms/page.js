@@ -28,7 +28,7 @@ export default function TermsPage() {
           </p>
           <p>
             You must be at least 18 years old to use Siffty. Siffty is operated by
-            Mubassir Shah, India.
+            Siffty (proprietor: Mubassir Shah), India.
           </p>
         </section>
 

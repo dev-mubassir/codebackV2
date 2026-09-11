@@ -28,7 +28,8 @@ export default function PrivacyPolicyPage() {
             data the service holds, why, who it is shared with, and how it is deleted.
           </p>
           <p>
-            Siffty is operated by Mubassir Shah, based in India. Contact: {SUPPORT_EMAIL}.
+            Siffty is operated by Siffty (proprietor: Mubassir Shah), based in India. Contact:{' '}
+            {SUPPORT_EMAIL}.
           </p>
           <p>
             Two different groups of people appear in this policy. A <strong>customer</strong> is
