@@ -99,7 +99,7 @@ router.delete('/:id', async (req, res) => {
       // consumed trial. Purging is a data-deletion right, not a way to get a
       // second free trial.
       await prisma.instagramAccount.delete({ where: { id: id } });
-      console.log('[Accounts] Purged account and all historical data:', account.igUsername);
+      console.log('[Accounts] Purged account and all historical data:', account.igUserId);
       return res.json({ message: 'Account and its history deleted' });
     }
 
@@ -120,7 +120,7 @@ router.delete('/:id', async (req, res) => {
       },
     });
 
-    console.log('[Accounts] Disconnected account (history preserved):', account.igUsername);
+    console.log('[Accounts] Disconnected account (history preserved):', account.igUserId);
     res.json({ message: 'Account disconnected. Your conversation history is kept and returns if you reconnect.' });
   } catch (error) {
     console.error('[Accounts] Error disconnecting account:', error.message);

@@ -519,7 +519,7 @@ async function maybeAutoReply({
     const trimmedInbound = (lastInbound.content || '').trim().toLowerCase();
     const isAcknowledgment = ACKNOWLEDGMENT_PATTERNS.some((p) => p.test(trimmedInbound));
     if (isAcknowledgment) {
-      console.log(`[AutoReply] Customer sent brief acknowledgment/closing ("${trimmedInbound}"), skipping auto-reply to avoid loop.`);
+      console.log(`[AutoReply] Message ${lastInbound.id} is a brief acknowledgment/closing, skipping auto-reply to avoid loop.`);
       return;
     }
 
@@ -601,7 +601,7 @@ async function maybeAutoReply({
     }
 
     const replyText = replyResult.text.trim();
-    console.log(`[AutoReply] Sending AI auto-reply to @${contact.username || contact.igsid}: "${replyText}"`);
+    console.log(`[AutoReply] Sending AI auto-reply to contact ${contact.igsid} (${replyText.length} chars)`);
 
     // Stage 6: Send via Instagram Graph API
     const accessToken = decrypt(instagramAccount.accessToken);

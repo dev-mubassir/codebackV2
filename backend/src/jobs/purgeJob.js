@@ -18,6 +18,9 @@ const oauthState = require('../lib/oauthState');
 
 const WEBHOOK_DELIVERY_RETENTION_DAYS = 7;
 
+// Keep in sync with the figure stated on the /privacy page.
+const ADMIN_LOG_IP_RETENTION_DAYS = 90;
+
 /** Drop delivery-idempotency rows older than the retention window. */
 async function purgeWebhookDeliveries({ olderThanDays = WEBHOOK_DELIVERY_RETENTION_DAYS } = {}) {
   const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
@@ -43,6 +46,29 @@ async function purgeExpiredIdentities() {
   return count;
 }
 
+/**
+ * Redact IP addresses on AdminLog rows past their retention date.
+ *
+ * AdminLog is not only "admin" activity — routes/auth.js also writes to it
+ * with the CONNECTING CUSTOMER's own IP when Codeback refuses to link a
+ * blocked or already-connected Instagram account (see
+ * ACCOUNT_LINK_BLOCKED / ACCOUNT_RELINK_BLOCKED). Unlike the ledger tables,
+ * this one had no purge job at all until now — see PRIVACY_NOTES.md and
+ * FINDINGS.md. This clears only ipAddress; action/target/details/timestamp
+ * stay, since those are what the audit trail is actually for.
+ */
+async function redactExpiredAdminLogIps() {
+  const cutoff = new Date(Date.now() - ADMIN_LOG_IP_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const { count } = await prisma.adminLog.updateMany({
+    where: { createdAt: { lt: cutoff }, ipAddress: { not: null } },
+    data: { ipAddress: null },
+  });
+  if (count > 0) {
+    console.log(`[Retention] Redacted ${count} admin log IP address(es) older than ${ADMIN_LOG_IP_RETENTION_DAYS} days.`);
+  }
+  return count;
+}
+
 /** Everything that just needs periodic tidying. */
 async function runHousekeeping() {
   const results = {
@@ -50,6 +76,7 @@ async function runHousekeeping() {
     authTokens: 0,
     oauthNonces: 0,
     identities: 0,
+    adminLogIps: 0,
   };
 
   // Each is independent; one failure must not stop the rest.
@@ -73,13 +100,20 @@ async function runHousekeeping() {
   } catch (err) {
     console.error('[Jobs] purgeExpiredIdentities failed:', err.message);
   }
+  try {
+    results.adminLogIps = await redactExpiredAdminLogIps();
+  } catch (err) {
+    console.error('[Jobs] redactExpiredAdminLogIps failed:', err.message);
+  }
 
   return results;
 }
 
 module.exports = {
   WEBHOOK_DELIVERY_RETENTION_DAYS,
+  ADMIN_LOG_IP_RETENTION_DAYS,
   purgeWebhookDeliveries,
   purgeExpiredIdentities,
+  redactExpiredAdminLogIps,
   runHousekeeping,
 };

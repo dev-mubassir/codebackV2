@@ -216,13 +216,19 @@ async function processEntry(entry, fullBody) {
   if (!account) {
     console.warn('[Webhook] No account found for IG User ID:', igUserId);
 
-    // Record unmapped webhook event
+    // Record unmapped webhook event — metadata only. This row has no
+    // instagramAccountId (there is no account to attach it to), so unlike
+    // every other WebhookLog row it can never be reached by a deletion
+    // cascade — the 30-day age-based purge is the only thing that ever
+    // clears it. There's no linked customer who could act on this content
+    // anyway, so it is never stored in the first place rather than stored
+    // and left to age out.
     await prisma.webhookLog.create({
       data: {
         igUserId,
         eventType: 'unmapped',
         status: 'SKIPPED',
-        payload: redactedPayload,
+        payload: null,
         errorMessage: `No connected account found for IG User ID ${igUserId}`,
       }
     }).catch(() => {});
@@ -232,7 +238,7 @@ async function processEntry(entry, fullBody) {
 
   // Check if the account has been disconnected by the user
   if (account.connectionStatus === 'DISCONNECTED') {
-    console.warn(`[Webhook] Account @${account.igUsername || igUserId} is disconnected. Skipping event.`);
+    console.warn(`[Webhook] Account ${igUserId} is disconnected. Skipping event.`);
 
     await prisma.webhookLog.create({
       data: {
@@ -254,7 +260,7 @@ async function processEntry(entry, fullBody) {
     data: { lastWebhookAt: new Date() }
   }).catch(() => {});
 
-  console.log('[Webhook] Processing event for account:', account.igUsername);
+  console.log('[Webhook] Processing event for account:', account.igUserId);
 
   // Process messaging events
   try {

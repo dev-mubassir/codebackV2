@@ -279,7 +279,12 @@ describe('P6 — idempotency', () => {
 describe('P6 — unknown, disconnected, and echo events', () => {
   it('6. a payload for an UNKNOWN account is 200 and ignored', async () => {
     const res = await postWebhook(
-      messageEvent({ igUserId: uniq('ig-never-seen'), senderIgsid: uniq('s'), mid: uniq('mid') })
+      messageEvent({
+        igUserId: uniq('ig-never-seen'),
+        senderIgsid: uniq('s'),
+        mid: uniq('mid'),
+        text: 'this text must never be stored for an account Codeback has never linked',
+      })
     );
 
     expect(res.status).toBe(200);
@@ -290,6 +295,11 @@ describe('P6 — unknown, disconnected, and echo events', () => {
     );
     expect(log.eventType).toBe('unmapped');
     expect(await prisma.message.count()).toBe(0);
+
+    // Gate 1-F / 4b: metadata only, never the message body, for an account
+    // Codeback has no linked customer to act on this content for.
+    expect(log.payload, 'no message content stored for an unmapped account').toBeNull();
+    expect(log.instagramAccountId).toBeNull();
   });
 
   it('a payload for a DISCONNECTED account is 200 and ignored', async () => {

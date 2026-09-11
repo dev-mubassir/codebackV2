@@ -344,7 +344,7 @@ router.patch('/conversations/:id/auto-reply', async (req, res) => {
       },
     });
 
-    console.log(`[API] AI Auto-Reply ${updated.autoReplyEnabled ? 'ENABLED' : 'DISABLED'} for conversation ${id} (@${updated.contact.username || 'user'})`);
+    console.log(`[API] AI Auto-Reply ${updated.autoReplyEnabled ? 'ENABLED' : 'DISABLED'} for conversation ${id} (contact ${updated.contact.igsid})`);
 
     res.json({
       id: updated.id,
@@ -397,7 +397,7 @@ router.delete('/conversations/:id/messages', async (req, res) => {
       deletedCount: deleteResult.count,
     });
 
-    console.log(`[API] Cleared ${deleteResult.count} messages for conversation ${id} (@${conversation.contact?.username || 'user'})`);
+    console.log(`[API] Cleared ${deleteResult.count} messages for conversation ${id} (contact ${conversation.contact?.igsid || 'unknown'})`);
 
     res.json({
       message: 'Messages cleared',
@@ -436,7 +436,7 @@ router.delete('/conversations/:id', async (req, res) => {
       conversationId: id,
     });
 
-    console.log(`[API] Fully deleted conversation ${id} (@${conversation.contact?.username || 'user'})`);
+    console.log(`[API] Fully deleted conversation ${id} (contact ${conversation.contact?.igsid || 'unknown'})`);
 
     res.json({
       message: 'Conversation deleted',
@@ -704,7 +704,7 @@ router.post('/contacts/:id/refresh-profile', async (req, res) => {
       },
     });
 
-    console.log('[API] Force-refreshed profile for:', updated.username);
+    console.log('[API] Force-refreshed profile for contact:', updated.igsid);
     res.json(updated);
   } catch (error) {
     console.error('[API] Error refreshing profile:', error.message);

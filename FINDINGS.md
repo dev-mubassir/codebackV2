@@ -467,12 +467,28 @@ straightforward memory-exhaustion vector.
 Phase 3 moves state out of the session, which removes the cause as a side effect —
 but the route should also be rate limited.
 
-### F10. PII in application logs — not scheduled
+### F10. PII in application logs — RESOLVED
 
-`auth.js:105` and `:169` log user email on registration and login. `auth.js:592` logs
-the email of a user who has just exercised their right to erasure — the log line
-outlives the deletion it records, which is GDPR-adverse. `auth.js:295` logs Instagram
-usernames.
+Was: `auth.js` logged user email on registration, login, and account deletion (the
+account-deletion case was the worst of the three — the log line outlived the erasure
+it recorded, which is GDPR-adverse), and Instagram usernames appeared in `console.*`
+calls across `auth.js`, `accounts.js`, `api.js`, `webhook.js`, and `messageAnalysisJob.js`.
+`messageAnalysisJob.js` additionally logged the full text of AI-generated auto-replies
+and, separately, a customer's actual inbound message text in the acknowledgment-guard
+branch.
+
+Every one of those now logs an internal id (user id, Instagram-scoped id, `igUserId`,
+message id) instead of the email/username/content, or a length/count where the
+original intent was diagnostic (e.g. reply length rather than reply text). The
+Meta data-deletion and deauthorize callbacks (`routes/dataDeletion.js`) were written
+from the start to log only the Instagram user id and a reason tag, never an email,
+token, or the raw `signed_request` — asserted directly in
+`tests/data-deletion-callbacks.test.js`.
+
+Registration and login already logged only the user id by the time this pass ran
+(`[Auth] New user registered: ${user.id}` / `[Auth] User logged in: ${user.id}`) — the
+email-logging described above for those two paths in an earlier version of this note
+no longer matches the code.
 
 ### F11. Session store silently falls back to MemoryStore in production — not scheduled
 

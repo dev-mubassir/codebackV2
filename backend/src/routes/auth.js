@@ -1106,7 +1106,7 @@ router.get('/instagram/callback', async (req, res) => {
 
     // Step 3: Fetch the user's Instagram profile
     const profile = await instagram.fetchMyProfile(longTokenData.access_token);
-    console.log('[Auth] Profile fetched:', profile.username);
+    console.log('[Auth] Profile fetched:', profile.user_id || profile.id);
 
     // Step 4: Calculate token expiration date
     const tokenExpiresAt = new Date(Date.now() + (longTokenData.expires_in * 1000));
@@ -1255,7 +1255,7 @@ router.get('/instagram/callback', async (req, res) => {
         },
       });
       user = await prisma.user.findUnique({ where: { id: targetUserId } });
-      console.log('[Auth] Reconnected existing account for:', profile.username);
+      console.log('[Auth] Reconnected existing account for igUserId:', igUserId);
     } else if (currentUserId) {
       // User is logged in and connecting an additional Instagram account
       user = await prisma.user.findUnique({ where: { id: currentUserId } });
@@ -1270,7 +1270,7 @@ router.get('/instagram/callback', async (req, res) => {
           tokenExpiresAt: tokenExpiresAt,
         },
       });
-      console.log('[Auth] Linked new account to existing user:', profile.username);
+      console.log('[Auth] Linked new account to existing user, igUserId:', igUserId);
     } else {
       // INSTAGRAM IS CONNECT-ONLY. It is not a signup method.
       //
@@ -1487,7 +1487,7 @@ router.delete('/account', requireAuth, async (req, res) => {
     });
 
     disconnectUserSockets(userId);
-    console.log(`[Auth] Permanently deleted user account ${userId} (${user.email})`);
+    console.log(`[Auth] Permanently deleted user account ${userId}`);
 
     req.session.destroy((err) => {
       if (err) console.error('[Auth] Error destroying session on account delete:', err);
