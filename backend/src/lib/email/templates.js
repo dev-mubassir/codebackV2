@@ -91,6 +91,30 @@ const templates = {
     };
   },
 
+  deletionConfirmation({ igUsername, accountDeleted, confirmationCode, statusUrl }) {
+    const who = igUsername ? `@${igUsername}` : 'your Instagram account';
+    const accountLine = accountDeleted
+      ? ' This was the only Instagram account on your Codeback account, so your Codeback account was deleted too.'
+      : '';
+    return {
+      subject: `Codeback has deleted the data for ${who}`,
+      text:
+        `Instagram told Codeback you asked to delete your data, and the request is complete.\n\n` +
+        `Erased: every contact, conversation, message, analysis, and stored record tied to ${who}.${accountLine}\n\n` +
+        `Confirmation code: ${confirmationCode}\n` +
+        `Check the status of this request: ${statusUrl}\n\n` +
+        `Questions? ${SUPPORT_EMAIL}\n\n` +
+        `Codeback · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        `Data deleted for ${who}`,
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Instagram told Codeback you asked to delete your data, and the request is complete.</p>
+         <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">Erased: every contact, conversation, message, analysis, and stored record tied to <strong>${who}</strong>.${accountLine}</p>
+         <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">Confirmation code: <strong>${confirmationCode}</strong></p>
+         ${button(statusUrl, 'Check status')}`
+      ),
+    };
+  },
+
   trialEnding({ daysLeft, dashboardUrl }) {
     const when = daysLeft <= 0 ? 'has ended' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
     return {

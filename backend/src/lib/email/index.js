@@ -267,6 +267,13 @@ module.exports = {
   sendTrialEnding: (to, { daysLeft, dashboardUrl }) =>
     deliver(to, 'trialEnding', templates.trialEnding({ daysLeft, dashboardUrl })),
 
+  sendDeletionConfirmation: (to, { igUsername, accountDeleted, confirmationCode, statusUrl }) =>
+    deliver(
+      to,
+      'deletionConfirmation',
+      templates.deletionConfirmation({ igUsername, accountDeleted, confirmationCode, statusUrl })
+    ),
+
   /** Current quota position, for boot logging and tests. */
   quotaStats: quota.stats,
   _resetQuota: quota._reset,

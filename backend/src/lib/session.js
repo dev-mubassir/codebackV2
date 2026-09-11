@@ -7,6 +7,8 @@
  * session fixation. express-session does not regenerate on its own.
  */
 
+const prisma = require('./prisma');
+
 /** Promise wrapper around req.session.regenerate(). */
 function regenerateSession(req) {
   return new Promise((resolve, reject) => {
@@ -34,4 +36,31 @@ async function startAuthenticatedSession(req, values = {}) {
   await saveSession(req);
 }
 
-module.exports = { regenerateSession, saveSession, startAuthenticatedSession };
+/**
+ * Delete every row in the Postgres-backed session store belonging to one
+ * user, by the `userId` embedded in each session's JSON blob.
+ *
+ * Exists for deletions that have NO req.session to destroy — Meta's data
+ * deletion callback is server-to-server, unlike DELETE /auth/account, which
+ * destroys only the caller's own session via req.session.destroy(). This is
+ * what actually evicts every OTHER live session (another device, another
+ * browser) for a user whose account Meta just told us to erase.
+ *
+ * connect-pg-simple's table (`user_sessions`) is deliberately absent from
+ * schema.prisma (see index.js buildSessionStore) so Prisma has no model for
+ * it; this goes through a raw query against the same database Prisma is
+ * already connected to. Safe to call in an environment where that table has
+ * never been created (e.g. a Postgres session store was never initialized) —
+ * account deletion must never fail because of this.
+ */
+async function destroyUserSessions(userId) {
+  if (!userId) return 0;
+  try {
+    return await prisma.$executeRaw`DELETE FROM "user_sessions" WHERE sess->>'userId' = ${userId}`;
+  } catch (err) {
+    if (/does not exist/i.test(err.message || '')) return 0;
+    throw err;
+  }
+}
+
+module.exports = { regenerateSession, saveSession, startAuthenticatedSession, destroyUserSessions };
