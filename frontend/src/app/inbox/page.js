@@ -11,6 +11,10 @@ import {
 } from '@/lib/api';
 import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
 import Icon from '@/app/components/Icon';
+import NavSidebar, { NAV_DRAWER_ID } from '@/app/components/NavSidebar';
+// Read-only: reused so the mobile header/drawer match AppShell's look.
+// This file must never be edited from here.
+import appShellStyles from '@/app/components/AppShell.module.css';
 import { inbox as t, common, errors, empty, confirm as confirmCopy, nav } from '@/content/copy';
 import {
   customerTypeLabel,
@@ -106,6 +110,7 @@ function InboxPageContent() {
   const [loading, setLoading] = useState(true);
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [aiSummaryHidden, setAiSummaryHidden] = useState(false);
   const [editingAutoReply, setEditingAutoReply] = useState(false);
   const [customPromptText, setCustomPromptText] = useState('');
@@ -609,7 +614,58 @@ function InboxPageContent() {
             <Icon name="logOut" size={14} /> {nav.logOut}
           </button>
         </div>
+
+        {/* Mobile-only header row (<=768px) — hidden on desktop/tablet via
+            inbox.module.css; the row above stays exactly as it was and is
+            hidden on mobile instead, rather than reworking it in place. */}
+        <div className={styles.mobileHeaderLeft}>
+          <button
+            className={appShellStyles.menuBtn}
+            onClick={() => setDrawerOpen(true)}
+            aria-label={nav.openMenu}
+            aria-expanded={drawerOpen}
+            aria-controls={NAV_DRAWER_ID}
+          >
+            <Icon name="menu" size={20} />
+          </button>
+          <span className={styles.navCurrentPage}>{t.title}</span>
+        </div>
+        <div className={styles.mobileHeaderRight}>
+          <button
+            className={appShellStyles.headerAction}
+            onClick={() => router.push('/notifications')}
+            aria-label={nav.notifications}
+            title={nav.notifications}
+          >
+            <Icon name="bell" size={18} />
+            {notifUnreadCount > 0 && (
+              <span className={appShellStyles.headerBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>
+            )}
+          </button>
+          <button
+            className={appShellStyles.headerUser}
+            onClick={() => router.push('/profile')}
+            title={nav.account}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderRadius: 'var(--radius-full)' }}
+          >
+            <div className="avatar avatar-sm">
+              {(user?.name || user?.email || 'U')[0].toUpperCase()}
+            </div>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              {user?.name?.split(' ')[0] || nav.account}
+            </span>
+          </button>
+        </div>
       </header>
+
+      <NavSidebar
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        activeRoute="/inbox"
+        user={user}
+        notifCount={notifUnreadCount}
+        mobileOnly
+      />
 
       <div className={styles.inboxBody}>
         {/* ========================================================= */}

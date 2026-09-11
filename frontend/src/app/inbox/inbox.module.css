@@ -126,6 +126,19 @@
   color: var(--text-secondary);
 }
 
+/* Mobile-only header row (<=768px) — hidden here, shown in that media
+   query, while .globalNavLeft/.globalNavActions (the desktop row) flip the
+   other way. Visual classes (menuBtn/headerAction/headerBadge/headerUser)
+   come from AppShell.module.css, imported read-only by inbox/page.js, so
+   this row matches AppShell's mobile header instead of duplicating its
+   CSS here. */
+.mobileHeaderLeft,
+.mobileHeaderRight {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+
 .globalNavActions {
   display: flex;
   align-items: center;
@@ -1005,10 +1018,6 @@
   .brandDealGrid {
     grid-template-columns: repeat(2, 1fr);
   }
-
-  .globalNavActions button span {
-    display: none;
-  }
 }
 
 /* ============================================
@@ -1513,66 +1522,32 @@
 }
 
 @media (max-width: 768px) {
-  /* Below this width .filterSidebar (the column .navBrand is designed to
-     cap — see the comment above .navBrand) is hidden entirely, so a slab
-     the width of --inbox-sidebar-width no longer caps anything and just
-     floats. .navBrand becomes a square instead, sized from .globalNav's
-     own height (min-height below) via aspect-ratio — see .navBrand.
-     Left padding matches .mobileFilterBar's own 12px (see that rule)
-     so the icon lines up with the filter-pill row directly beneath it,
-     rather than hugging the true screen edge; right padding is for the
-     nav actions. */
+  /* .globalNav itself keeps a plain, symmetric padding on mobile — the old
+     asymmetric 0/12px pairing existed only to keep .navBrand's square flush
+     with one edge, which no longer applies now that the desktop row
+     (.globalNavLeft/.globalNavActions, including .navBrand) is hidden
+     outright below and replaced by .mobileHeaderLeft/.mobileHeaderRight. */
   .globalNav {
     height: auto;
     min-height: var(--header-height);
     padding: 0 12px;
   }
 
-  /* width: auto + aspect-ratio: 1 sizes the square from the one dimension
-     that's actually fixed here — the stretched height (var(--header-height),
-     via .globalNav's min-height above) — instead of borrowing
-     --inbox-sidebar-width, which describes the now-hidden sidebar.
-     background matches .globalNav's own (var(--bg-surface)) instead of the
-     desktop's dark cap: below 768px .filterSidebar is hidden, so there's no
-     dark column left for this block to visually continue into — keeping it
-     dark here would just be an orphaned patch of color. */
-  .navBrand {
-    width: auto;
-    aspect-ratio: 1;
-    margin: 0;
-    padding: 0;
-    justify-content: center;
-    background: var(--bg-surface);
-  }
-
-  /* Icon-only at every mobile width, not just <=480px: the square has no
-     room for the wordmark once it's sized to the header height. */
-  .navBrandText {
-    display: none;
-  }
-
-  /* Runs the full header width now: the square is the same background as
-     the rest of .globalNav, so there's no dark block left to carve an
-     exclusion zone around (contrast Gate 1's version of this rule, where
-     the square was still dark and the border had to skip past it). */
+  /* Runs the full header width: below this breakpoint there's no dark
+     .navBrand column on the left for the border to route around. */
   .globalNav::after {
     left: 0;
   }
 
+  /* Swap the desktop nav row for the mobile hamburger header. */
+  .globalNavLeft,
   .globalNavActions {
-    gap: 4px;
-    overflow-x: auto;
-    white-space: nowrap;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .globalNavActions::-webkit-scrollbar {
     display: none;
   }
 
-  .globalNavActions button {
-    padding: 4px 8px !important;
-    font-size: 11px !important;
+  .mobileHeaderLeft,
+  .mobileHeaderRight {
+    display: flex;
   }
 
   .filterSidebar {
