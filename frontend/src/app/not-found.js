@@ -3,7 +3,7 @@ import { errors } from '@/content/copy';
 import styles from './legal/legal.module.css';
 
 export const metadata = {
-  title: 'Page not found — Codeback',
+  title: 'Page not found — Siffty',
 };
 
 export default function NotFound() {

@@ -22,12 +22,12 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>1. Agreement</h2>
           <p>
-            These terms govern your use of Codeback. By creating an account or connecting an
-            Instagram account you agree to them. If you are using Codeback for an organisation,
+            These terms govern your use of Siffty. By creating an account or connecting an
+            Instagram account you agree to them. If you are using Siffty for an organisation,
             you confirm you are authorised to accept these terms on its behalf.
           </p>
           <p>
-            You must be at least 18 years old to use Codeback. Codeback is operated by
+            You must be at least 18 years old to use Siffty. Siffty is operated by
             Mubassir Shah, India.
           </p>
         </section>
@@ -35,7 +35,7 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>2. What the service does</h2>
           <p>
-            Codeback connects to an Instagram professional account you control, receives direct
+            Siffty connects to an Instagram professional account you control, receives direct
             messages sent to it, organises them, and helps you reply — including by generating
             draft replies with automated assistance.
           </p>
@@ -46,19 +46,19 @@ export default function TermsPage() {
           <ul>
             <li>You must own, or be authorised to manage, any Instagram account you connect.</li>
             <li>
-              Your use of Instagram through Codeback remains subject to Meta&apos;s own terms
+              Your use of Instagram through Siffty remains subject to Meta&apos;s own terms
               and policies. Nothing here overrides them.
             </li>
             <li>
-              You may revoke Codeback&apos;s access at any time. Disconnecting the account in
-              Codeback stops processing but keeps your history. To fully revoke
-              Codeback&apos;s access, remove Codeback in Instagram&apos;s settings (Settings
+              You may revoke Siffty&apos;s access at any time. Disconnecting the account in
+              Siffty stops processing but keeps your history. To fully revoke
+              Siffty&apos;s access, remove Siffty in Instagram&apos;s settings (Settings
               and activity → Website permissions → Apps and websites). This also deletes that
-              Instagram account&apos;s data from Codeback, as described on the{' '}
+              Instagram account&apos;s data from Siffty, as described on the{' '}
               <Link href="/data-deletion">data deletion page</Link>.
             </li>
             <li>
-              An Instagram account that already holds conversation history in another Codeback
+              An Instagram account that already holds conversation history in another Siffty
               workspace cannot be connected to a second workspace. This protects the first
               workspace&apos;s data.
             </li>
@@ -69,7 +69,7 @@ export default function TermsPage() {
           <h2>4. Automated replies</h2>
           <div className={styles.callout}>
             <p>
-              Automatic sending is <strong>off by default</strong>. Codeback will not send a
+              Automatic sending is <strong>off by default</strong>. Siffty will not send a
               message on your behalf unless you explicitly enable automatic replies in your
               settings.
             </p>
@@ -105,7 +105,7 @@ export default function TermsPage() {
 
         <section className={styles.section}>
           <h2>6. Acceptable use</h2>
-          <p>You agree not to use Codeback to:</p>
+          <p>You agree not to use Siffty to:</p>
           <ul>
             <li>Send spam, bulk unsolicited messages, or anything unlawful, deceptive, harassing, or abusive.</li>
             <li>Access, or attempt to access, data belonging to another customer.</li>
@@ -119,7 +119,7 @@ export default function TermsPage() {
           <h2>7. Your data</h2>
           <p>
             You retain ownership of your content and your customers&apos; messages. You grant
-            Codeback the permission needed to process that content in order to provide the
+            Siffty the permission needed to process that content in order to provide the
             service, as described in the <Link href="/privacy">Privacy Policy</Link>.
           </p>
           <p>
@@ -131,7 +131,7 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>8. Availability</h2>
           <p>
-            Codeback is provided on an &quot;as is&quot; and &quot;as available&quot; basis with
+            Siffty is provided on an &quot;as is&quot; and &quot;as available&quot; basis with
             no uptime guarantee. It depends on Meta&apos;s APIs and on third-party providers,
             and may be interrupted, changed, or discontinued.
           </p>
@@ -140,7 +140,7 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>9. Liability</h2>
           <p>
-            To the maximum extent permitted by law, Codeback is not liable for indirect,
+            To the maximum extent permitted by law, Siffty is not liable for indirect,
             incidental, special, or consequential losses, or for lost profits, revenue, data,
             or business opportunities — including messages that are misclassified, delayed, not
             delivered, or automatically sent while automatic replies are enabled.
@@ -150,7 +150,7 @@ export default function TermsPage() {
         <section className={styles.section}>
           <h2>10. Termination</h2>
           <p>
-            You may stop using Codeback and delete your account at any time; see the{' '}
+            You may stop using Siffty and delete your account at any time; see the{' '}
             <Link href="/data-deletion">data deletion page</Link>. Deletion is immediate and
             irreversible, apart from the limited trial-abuse record described in the{' '}
             <Link href="/privacy">Privacy Policy</Link>. We may suspend or terminate accounts
@@ -170,7 +170,7 @@ export default function TermsPage() {
           <h2>12. Changes</h2>
           <p>
             These terms may change. Material changes will be reflected in the date above and
-            notified in the app or by email. Continuing to use Codeback after a change means
+            notified in the app or by email. Continuing to use Siffty after a change means
             you accept it.
           </p>
         </section>

@@ -591,7 +591,7 @@ function InboxPageContent() {
             <div className={styles.navBrandIcon}>
               <img src="/logo.png" alt="" className={styles.navBrandImg} />
             </div>
-            <span className={styles.navBrandText}>Codeback</span>
+            <span className={styles.navBrandText}>Siffty</span>
           </button>
           <span className={styles.navBreadcrumb}>/</span>
           <span className={styles.navCurrentPage}>{t.title}</span>
@@ -1218,7 +1218,7 @@ function InboxPageContent() {
             </div>
             <p className={styles.modalBody}>
               Every message with <strong>@{contactInfo?.username || contactInfo?.name || 'this contact'}</strong> is
-              removed from Codeback. The contact, lead details, and automation settings stay.
+              removed from Siffty. The contact, lead details, and automation settings stay.
             </p>
             <div className={styles.modalActions}>
               <button

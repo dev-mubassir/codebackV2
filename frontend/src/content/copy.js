@@ -1,5 +1,5 @@
 /**
- * Every static string a person reads in Codeback.
+ * Every static string a person reads in Siffty.
  *
  * House style:
  *  - Second person. "You", never "we".
@@ -15,7 +15,7 @@
  */
 
 export const common = {
-  productName: 'Codeback',
+  productName: 'Siffty',
   loading: 'Loading…',
   saving: 'Saving…',
   sending: 'Sending…',
@@ -70,7 +70,7 @@ export const dashboard = {
 
   connectionAlert: {
     title: 'Reconnect an account',
-    body: 'Codeback stops receiving new messages until you reconnect.',
+    body: 'Siffty stops receiving new messages until you reconnect.',
   },
 
   metrics: {
@@ -214,7 +214,7 @@ export const settings = {
 
   businessProfile: {
     title: 'Business profile',
-    description: 'Codeback answers customer questions using only what you put here.',
+    description: 'Siffty answers customer questions using only what you put here.',
     typesLabel: 'Business types',
     typesHint: 'Pick every type that fits. Tap a card to turn it on or off.',
     selectedCount: 'selected',
@@ -237,12 +237,12 @@ export const settings = {
     faqPlaceholder: 'Q: How do I send footage?\nA: Share a Google Drive or WeTransfer link.',
     prohibitedLabel: 'Never say',
     prohibitedPlaceholder: 'Never promise same-day delivery. Never offer a discount.',
-    prohibitedHint: 'Codeback refuses to answer on these topics and hands the conversation to you.',
+    prohibitedHint: 'Siffty refuses to answer on these topics and hands the conversation to you.',
   },
 
   replies: {
     title: 'Replies and tone',
-    description: 'Decide whether Codeback answers for you, or only drafts.',
+    description: 'Decide whether Siffty answers for you, or only drafts.',
     modeLabel: 'Reply mode',
     modeHint: 'Manual is the default. Nothing is ever sent until you switch this.',
     toneLabel: 'Reply tone',
@@ -307,9 +307,9 @@ export const account = {
 
   businessProfile: {
     title: 'Business profile',
-    description: 'What Codeback knows about your business.',
+    description: 'What Siffty knows about your business.',
     editAction: 'Edit business profile',
-    empty: 'No business profile yet. Add one so Codeback can answer questions about your business.',
+    empty: 'No business profile yet. Add one so Siffty can answer questions about your business.',
     servicesLabel: 'PRODUCTS AND SERVICES',
     pricingLabel: 'PRICING',
     replyModeLabel: 'REPLY MODE',
@@ -318,7 +318,7 @@ export const account = {
 
   connectedAccounts: {
     title: 'Connected accounts',
-    description: 'Instagram accounts Codeback reads messages from.',
+    description: 'Instagram accounts Siffty reads messages from.',
     connect: 'Connect Instagram',
     empty: 'No connected accounts yet. Connect an Instagram professional account to start.',
     openInbox: 'Open inbox',
@@ -326,14 +326,14 @@ export const account = {
 
   danger: {
     title: 'Delete account',
-    body: 'Deleting removes your account, your connected accounts, and every conversation Codeback holds. It cannot be undone.',
+    body: 'Deleting removes your account, your connected accounts, and every conversation Siffty holds. It cannot be undone.',
     action: 'Delete account',
   },
 };
 
 export const auth = {
   login: {
-    title: 'Log in to Codeback',
+    title: 'Log in to Siffty',
     subtitle: 'Your Instagram inbox, sorted.',
     emailLabel: 'Email address',
     emailPlaceholder: 'you@company.com',
@@ -386,7 +386,7 @@ export const auth = {
 
 export const onboarding = {
   title: 'Set up your business',
-  subtitle: 'Three short steps. Codeback uses this to answer customer questions.',
+  subtitle: 'Three short steps. Siffty uses this to answer customer questions.',
   steps: { identity: 'You', category: 'Business type', knowledge: 'Business facts' },
 
   step1: {
@@ -401,7 +401,7 @@ export const onboarding = {
   },
   step2: {
     title: 'What do you do?',
-    description: 'Pick every type that fits. Codeback adapts to all of them.',
+    description: 'Pick every type that fits. Siffty adapts to all of them.',
     customLabel: 'Describe your business',
     customPlaceholders: [
       'Antique watch restoration',
@@ -413,7 +413,7 @@ export const onboarding = {
   },
   step3: {
     title: 'Your business facts',
-    description: 'Codeback answers only from what you write here. It never invents a price.',
+    description: 'Siffty answers only from what you write here. It never invents a price.',
     banner: 'Starter content loaded for',
     bannerSuffix: 'Edit anything, or keep it.',
     reset: 'Reset to starter',
@@ -429,7 +429,7 @@ export const marketing = {
     titleLine1: 'Turn Instagram messages into',
     titleAccent: 'paying customers.',
     description:
-      'Codeback reads every message sent to your Instagram business account, tells you which ones are worth your time, and drafts the reply using your real prices and policies.',
+      'Siffty reads every message sent to your Instagram business account, tells you which ones are worth your time, and drafts the reply using your real prices and policies.',
     primaryCta: 'Get started free',
     secondaryCta: 'Log in',
   },
@@ -456,7 +456,7 @@ export const marketing = {
       },
       {
         title: 'Replies when you want them',
-        body: 'Draft on demand, or let Codeback answer qualifying questions for you. Manual is the default.',
+        body: 'Draft on demand, or let Siffty answer qualifying questions for you. Manual is the default.',
       },
       {
         title: 'Handed back to you',
@@ -477,14 +477,14 @@ export const marketing = {
 };
 
 export const admin = {
-  brand: 'Codeback admin',
+  brand: 'Siffty admin',
   panelTitle: 'Admin',
   openApp: 'Open app',
   logOut: 'Log out',
 
   login: {
     eyebrow: 'ADMIN',
-    title: 'Codeback admin',
+    title: 'Siffty admin',
     subtitle: 'Staff sign-in.',
     usernameLabel: 'Username',
     usernamePlaceholder: 'Enter username',
@@ -617,7 +617,7 @@ export const admin = {
 
 export const errors = {
   generic: "Couldn't complete that. Try again in a moment.",
-  network: "Couldn't reach Codeback. Check your connection and try again.",
+  network: "Couldn't reach Siffty. Check your connection and try again.",
   loadFailed: "Couldn't load this page. Refresh to try again.",
   notFound: {
     title: 'Page not found',
@@ -631,7 +631,7 @@ export const errors = {
   },
   offline: {
     title: 'You are offline',
-    body: 'Codeback reconnects on its own once your connection is back.',
+    body: 'Siffty reconnects on its own once your connection is back.',
   },
   rateLimited: "Too many attempts. Wait a few minutes and try again.",
 
@@ -652,7 +652,7 @@ export const errors = {
   toggleAutomation: "Couldn't change automatic replies for that conversation. Try again.",
   instagramConnect: "Couldn't connect that Instagram account. Try connecting again.",
   instagramExpired: 'Your Instagram connection expired. Reconnect to start receiving messages again.',
-  instagramAlreadyLinked: 'That Instagram account is already connected to another Codeback account.',
+  instagramAlreadyLinked: 'That Instagram account is already connected to another Siffty account.',
   notifications: "Couldn't load your notifications. Refresh to try again.",
 
   admin: {
@@ -675,10 +675,10 @@ export const errors = {
   // Shown on the landing page after a failed Instagram OAuth redirect
   // (see the `?error=` codes backend/src/routes/auth.js redirects with).
   oauthCallback: {
-    invalid_oauth_state: "We couldn't complete the Instagram connection. This can happen if your phone opened a different browser partway through — try again while staying in the same browser you're logged into Codeback with.",
+    invalid_oauth_state: "We couldn't complete the Instagram connection. This can happen if your phone opened a different browser partway through — try again while staying in the same browser you're logged into Siffty with.",
     oauth_state_unavailable: "We couldn't start the Instagram connection. Try again in a moment.",
     no_code: 'Instagram sign-in was cancelled before it finished. Try connecting again if that was a mistake.',
-    account_already_connected: 'That Instagram account is already connected to another Codeback account.',
+    account_already_connected: 'That Instagram account is already connected to another Siffty account.',
     oauth_failed: "Couldn't connect that Instagram account. Try connecting again.",
 
     // ---- Previously rendered as NOTHING AT ALL ----
@@ -692,10 +692,10 @@ export const errors = {
     email_required:
       'Add an email address to your account before connecting Instagram.',
     login_required_to_connect:
-      'Log in first — Instagram connects to an existing Codeback account, it is not a way to sign up.',
+      'Log in first — Instagram connects to an existing Siffty account, it is not a way to sign up.',
     session_expired: 'Your session ended. Log in again to continue.',
     missing_scopes:
-      "Instagram didn't grant the permissions Codeback needs. Reconnect and accept both — without message access no DMs can arrive.",
+      "Instagram didn't grant the permissions Siffty needs. Reconnect and accept both — without message access no DMs can arrive.",
     account_blocked:
       'That Instagram account cannot be connected. Contact support if you think this is wrong.',
     account_suspended: 'This account is suspended. Contact support.',
@@ -709,7 +709,7 @@ export const errors = {
     google_not_configured: 'Google sign-in is not set up on this server.',
     google_cancelled: 'Google sign-in was cancelled.',
     google_no_code: "Google sign-in didn't complete. Try again.",
-    google_no_email: 'Google did not share an email address, which Codeback needs.',
+    google_no_email: 'Google did not share an email address, which Siffty needs.',
     google_invalid_state:
       "We couldn't complete Google sign-in. Try again from the login page.",
     google_email_unverified:
@@ -790,7 +790,7 @@ export const toast = {
 export const confirm = {
   disconnectAccount: {
     title: 'Disconnect this account?',
-    body: 'Codeback stops receiving new messages for this account. Your conversation history is kept and returns if you reconnect.',
+    body: 'Siffty stops receiving new messages for this account. Your conversation history is kept and returns if you reconnect.',
     action: 'Disconnect',
   },
   deleteAccount: {
@@ -810,7 +810,7 @@ export const confirm = {
   },
   clearChat: {
     title: 'Clear these messages?',
-    body: 'Every message with this contact is removed from Codeback. The contact, lead details, and automation settings stay.',
+    body: 'Every message with this contact is removed from Siffty. The contact, lead details, and automation settings stay.',
     action: 'Clear messages',
   },
   deleteConversation: {
@@ -867,27 +867,27 @@ export const validation = {
 
 export const meta = {
   root: {
-    title: 'Codeback — Instagram DMs, sorted and answered',
+    title: 'Siffty — Instagram DMs, sorted and answered',
     description:
-      'Codeback sorts every message sent to your Instagram business account, flags the ones worth your time, and drafts replies from your real prices and policies.',
+      'Siffty sorts every message sent to your Instagram business account, flags the ones worth your time, and drafts replies from your real prices and policies.',
   },
-  dashboard: { title: 'Dashboard — Codeback', description: 'Your connected accounts and conversation activity.' },
-  inbox: { title: 'Inbox — Codeback', description: 'Read and reply to Instagram conversations.' },
-  settings: { title: 'Settings — Codeback', description: 'Business profile, reply tone, and automation.' },
-  account: { title: 'Account — Codeback', description: 'Your details, sign-in, and connected accounts.' },
-  notifications: { title: 'Notifications — Codeback', description: 'Brand deals and conversations that need you.' },
-  onboarding: { title: 'Set up your business — Codeback', description: 'Add your business facts so Codeback can answer questions.' },
-  login: { title: 'Log in — Codeback', description: 'Log in to your Codeback account.' },
-  register: { title: 'Create an account — Codeback', description: 'Create a Codeback account and connect Instagram.' },
-  admin: { title: 'Admin — Codeback', description: 'Codeback staff administration.' },
-  privacy: { title: 'Privacy policy — Codeback', description: 'How Codeback collects, uses, shares, and deletes data.' },
-  terms: { title: 'Terms of service — Codeback', description: 'The terms governing use of Codeback.' },
-  dataDeletion: { title: 'Delete your data — Codeback', description: 'How to permanently delete your Codeback and Instagram data.' },
-  support: { title: 'Support — Codeback', description: 'Get help with your Codeback account and connected Instagram accounts.' },
+  dashboard: { title: 'Dashboard — Siffty', description: 'Your connected accounts and conversation activity.' },
+  inbox: { title: 'Inbox — Siffty', description: 'Read and reply to Instagram conversations.' },
+  settings: { title: 'Settings — Siffty', description: 'Business profile, reply tone, and automation.' },
+  account: { title: 'Account — Siffty', description: 'Your details, sign-in, and connected accounts.' },
+  notifications: { title: 'Notifications — Siffty', description: 'Brand deals and conversations that need you.' },
+  onboarding: { title: 'Set up your business — Siffty', description: 'Add your business facts so Siffty can answer questions.' },
+  login: { title: 'Log in — Siffty', description: 'Log in to your Siffty account.' },
+  register: { title: 'Create an account — Siffty', description: 'Create a Siffty account and connect Instagram.' },
+  admin: { title: 'Admin — Siffty', description: 'Siffty staff administration.' },
+  privacy: { title: 'Privacy policy — Siffty', description: 'How Siffty collects, uses, shares, and deletes data.' },
+  terms: { title: 'Terms of service — Siffty', description: 'The terms governing use of Siffty.' },
+  dataDeletion: { title: 'Delete your data — Siffty', description: 'How to permanently delete your Siffty and Instagram data.' },
+  support: { title: 'Support — Siffty', description: 'Get help with your Siffty account and connected Instagram accounts.' },
 };
 
 export const legal = {
-  backToHome: 'Back to Codeback',
+  backToHome: 'Back to Siffty',
   lastUpdated: 'Last updated',
   privacyTitle: 'Privacy policy',
   termsTitle: 'Terms of service',
@@ -902,13 +902,13 @@ export const legal = {
 };
 
 export const support = {
-  intro: 'Get help with your Codeback account, your connected Instagram accounts, or your data.',
+  intro: 'Get help with your Siffty account, your connected Instagram accounts, or your data.',
   contactTitle: 'Contact us',
   replyTime: 'We usually reply within 24–48 hours. Some requests can take up to 7 days.',
   whatToInclude: {
     title: 'What to include',
     items: [
-      'The email address on your Codeback account.',
+      'The email address on your Siffty account.',
       'The Instagram username concerned.',
       'A short description or screenshot of the issue.',
     ],
@@ -917,11 +917,11 @@ export const support = {
   entries: [
     {
       title: 'Connecting an Instagram professional account',
-      body: 'From Dashboard, choose Connect Instagram and authorise Codeback with your Instagram professional (business or creator) account.',
+      body: 'From Dashboard, choose Connect Instagram and authorise Siffty with your Instagram professional (business or creator) account.',
     },
     {
       title: 'Disconnecting an Instagram account',
-      body: 'From Dashboard, choose Disconnect next to the connected account. This stops Codeback processing new messages but keeps your conversation history so it reappears if you reconnect.',
+      body: 'From Dashboard, choose Disconnect next to the connected account. This stops Siffty processing new messages but keeps your conversation history so it reappears if you reconnect.',
     },
     {
       title: 'How automatic replies work',
@@ -929,15 +929,15 @@ export const support = {
     },
     {
       title: 'Deleting your data',
-      body: 'Every way to permanently delete your Codeback data is listed on the',
+      body: 'Every way to permanently delete your Siffty data is listed on the',
       href: '/data-deletion',
       linkText: 'data deletion page',
     },
     {
-      title: 'I messaged a business that uses Codeback',
+      title: 'I messaged a business that uses Siffty',
       body: 'See',
       href: '/data-deletion#if-you-messaged-a-business',
-      linkText: '"If you messaged a business that uses Codeback" on the data deletion page',
+      linkText: '"If you messaged a business that uses Siffty" on the data deletion page',
     },
   ],
 };

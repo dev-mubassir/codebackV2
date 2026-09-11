@@ -152,17 +152,17 @@ export function recommendedActionLabel(value) {
 export const REPLY_MODE_LABELS = {
   smart: {
     label: 'Automatic',
-    description: 'Codeback answers safe pricing, product, and service questions on your behalf.',
+    description: 'Siffty answers safe pricing, product, and service questions on your behalf.',
     tone: 'warning',
   },
   suggest_only: {
     label: 'Suggested replies',
-    description: 'Codeback writes a draft. Nothing is sent until you send it.',
+    description: 'Siffty writes a draft. Nothing is sent until you send it.',
     tone: 'neutral',
   },
   human_only: {
     label: 'Manual',
-    description: 'Codeback never sends anything. You write every reply yourself.',
+    description: 'Siffty never sends anything. You write every reply yourself.',
     tone: 'positive',
   },
 };

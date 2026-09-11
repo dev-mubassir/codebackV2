@@ -12,7 +12,7 @@ export const metadata = {
   openGraph: {
     title: meta.root.title,
     description: meta.root.description,
-    siteName: "Codeback",
+    siteName: "Siffty",
     type: "website",
   },
   twitter: {

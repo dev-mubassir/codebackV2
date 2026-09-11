@@ -82,7 +82,7 @@ export default function AppShell({ children, activeRoute }) {
             <div className={styles.brandIcon}>
               <img src="/logo.png" alt="" className={styles.brandIconImg} />
             </div>
-            <span className={styles.brandName}>Codeback</span>
+            <span className={styles.brandName}>Siffty</span>
           </button>
         </div>
 

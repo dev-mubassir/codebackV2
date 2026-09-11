@@ -21,7 +21,7 @@ function wrap(heading, bodyHtml) {
       ${bodyHtml}
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:28px 0 16px;" />
       <p style="margin:0;font-size:12px;color:#6b7280;">
-        Codeback · Questions? Reply to this email or write to
+        Siffty · Questions? Reply to this email or write to
         <a href="mailto:${SUPPORT_EMAIL}" style="color:#6b7280;">${SUPPORT_EMAIL}</a>
       </p>
     </div>
@@ -40,15 +40,15 @@ function button(url, label) {
 const templates = {
   passwordReset({ url, expiresInMinutes }) {
     return {
-      subject: 'Reset your Codeback password',
+      subject: 'Reset your Siffty password',
       text:
-        `Someone asked to reset the password for this Codeback account.\n\n` +
+        `Someone asked to reset the password for this Siffty account.\n\n` +
         `Reset it here (link expires in ${expiresInMinutes} minutes, and works once):\n${url}\n\n` +
         `If this wasn't you, ignore this email — your password has not changed.\n\n` +
-        `Codeback · ${SUPPORT_EMAIL}\n`,
+        `Siffty · ${SUPPORT_EMAIL}\n`,
       html: wrap(
         'Reset your password',
-        `<p style="margin:0;font-size:15px;line-height:1.5;">Someone asked to reset the password for this Codeback account.</p>
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Someone asked to reset the password for this Siffty account.</p>
          ${button(url, 'Reset password')}
          <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">This link expires in ${expiresInMinutes} minutes and can only be used once. If this wasn't you, ignore this email — your password has not changed.</p>`
       ),
@@ -57,15 +57,15 @@ const templates = {
 
   verification({ url, expiresInMinutes }) {
     return {
-      subject: 'Confirm your email for Codeback',
+      subject: 'Confirm your email for Siffty',
       text:
-        `Confirm this email address to finish setting up your Codeback account.\n\n` +
+        `Confirm this email address to finish setting up your Siffty account.\n\n` +
         `Confirm here (link expires in ${expiresInMinutes} minutes):\n${url}\n\n` +
         `You need a confirmed email before you can start your trial.\n\n` +
-        `Codeback · ${SUPPORT_EMAIL}\n`,
+        `Siffty · ${SUPPORT_EMAIL}\n`,
       html: wrap(
         'Confirm your email',
-        `<p style="margin:0;font-size:15px;line-height:1.5;">Confirm this email address to finish setting up your Codeback account.</p>
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Confirm this email address to finish setting up your Siffty account.</p>
          ${button(url, 'Confirm email')}
          <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">This link expires in ${expiresInMinutes} minutes. You need a confirmed email before you can start your trial.</p>`
       ),
@@ -75,15 +75,15 @@ const templates = {
   tokenExpiry({ igUsername, reconnectUrl }) {
     const who = igUsername ? `@${igUsername}` : 'your Instagram account';
     return {
-      subject: `Reconnect ${who} — Codeback has stopped receiving your DMs`,
+      subject: `Reconnect ${who} — Siffty has stopped receiving your DMs`,
       text:
-        `Instagram's access token for ${who} is no longer valid, so Codeback has stopped receiving new DMs for it.\n\n` +
+        `Instagram's access token for ${who} is no longer valid, so Siffty has stopped receiving new DMs for it.\n\n` +
         `Nothing has been deleted — your inbox history is intact. Reconnecting takes about ten seconds:\n${reconnectUrl}\n\n` +
         `Until you reconnect, new messages will not appear and auto-replies will not send.\n\n` +
-        `Codeback · ${SUPPORT_EMAIL}\n`,
+        `Siffty · ${SUPPORT_EMAIL}\n`,
       html: wrap(
         `Reconnect ${who}`,
-        `<p style="margin:0;font-size:15px;line-height:1.5;">Instagram's access token for <strong>${who}</strong> is no longer valid, so Codeback has stopped receiving new DMs for it.</p>
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Instagram's access token for <strong>${who}</strong> is no longer valid, so Siffty has stopped receiving new DMs for it.</p>
          <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">Nothing has been deleted — your inbox history is intact.</p>
          ${button(reconnectUrl, 'Reconnect Instagram')}
          <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">Until you reconnect, new messages will not appear and auto-replies will not send.</p>`
@@ -94,20 +94,20 @@ const templates = {
   deletionConfirmation({ igUsername, accountDeleted, confirmationCode, statusUrl }) {
     const who = igUsername ? `@${igUsername}` : 'your Instagram account';
     const accountLine = accountDeleted
-      ? ' This was the only Instagram account on your Codeback account, so your Codeback account was deleted too.'
+      ? ' This was the only Instagram account on your Siffty account, so your Siffty account was deleted too.'
       : '';
     return {
-      subject: `Codeback has deleted the data for ${who}`,
+      subject: `Siffty has deleted the data for ${who}`,
       text:
-        `Instagram told Codeback you asked to delete your data, and the request is complete.\n\n` +
+        `Instagram told Siffty you asked to delete your data, and the request is complete.\n\n` +
         `Erased: every contact, conversation, message, analysis, and stored record tied to ${who}.${accountLine}\n\n` +
         `Confirmation code: ${confirmationCode}\n` +
         `Check the status of this request: ${statusUrl}\n\n` +
         `Questions? ${SUPPORT_EMAIL}\n\n` +
-        `Codeback · ${SUPPORT_EMAIL}\n`,
+        `Siffty · ${SUPPORT_EMAIL}\n`,
       html: wrap(
         `Data deleted for ${who}`,
-        `<p style="margin:0;font-size:15px;line-height:1.5;">Instagram told Codeback you asked to delete your data, and the request is complete.</p>
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Instagram told Siffty you asked to delete your data, and the request is complete.</p>
          <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">Erased: every contact, conversation, message, analysis, and stored record tied to <strong>${who}</strong>.${accountLine}</p>
          <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">Confirmation code: <strong>${confirmationCode}</strong></p>
          ${button(statusUrl, 'Check status')}`
@@ -118,17 +118,17 @@ const templates = {
   trialEnding({ daysLeft, dashboardUrl }) {
     const when = daysLeft <= 0 ? 'has ended' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
     return {
-      subject: `Your Codeback trial ${when}`,
+      subject: `Your Siffty trial ${when}`,
       text:
-        `Your Codeback trial ${when}.\n\n` +
+        `Your Siffty trial ${when}.\n\n` +
         `When it ends, automatic replies and AI classification stop. Your inbox stays readable and nothing is deleted — you keep full access to your message history.\n\n` +
         `${dashboardUrl}\n\n` +
-        `Codeback · ${SUPPORT_EMAIL}\n`,
+        `Siffty · ${SUPPORT_EMAIL}\n`,
       html: wrap(
         `Your trial ${when}`,
-        `<p style="margin:0;font-size:15px;line-height:1.5;">Your Codeback trial ${when}.</p>
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Your Siffty trial ${when}.</p>
          <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">When it ends, automatic replies and AI classification stop. <strong>Your inbox stays readable and nothing is deleted</strong> — you keep full access to your message history.</p>
-         ${button(dashboardUrl, 'Open Codeback')}`
+         ${button(dashboardUrl, 'Open Siffty')}`
       ),
     };
   },

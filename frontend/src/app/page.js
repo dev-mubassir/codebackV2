@@ -66,7 +66,7 @@ function LandingPageContent() {
           <div className={styles.topNavLogo}>
             <img src="/logo.png" alt="" className={styles.brandLogoImg} />
           </div>
-          <span className={styles.topNavName}>Codeback</span>
+          <span className={styles.topNavName}>Siffty</span>
         </div>
         <div className={styles.topNavLinks}>
           <a href="#features" className={styles.topNavLink}>Features</a>
@@ -186,7 +186,7 @@ function LandingPageContent() {
             <div className={styles.footerLogo}>
               <img src="/logo.png" alt="" className={styles.footerLogoImg} />
             </div>
-            <span className={styles.footerName}>Codeback</span>
+            <span className={styles.footerName}>Siffty</span>
           </div>
           {/* Meta App Review requires the privacy policy and data deletion
               URLs to be publicly reachable without logging in. */}

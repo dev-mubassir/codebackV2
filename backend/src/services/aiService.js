@@ -699,7 +699,7 @@ Return ONLY valid JSON in this exact shape:
       // Shown in the inbox when analysis fails or times out. Says what
       // happened and what to do, rather than leaving the panel blank.
       summary: 'This conversation has not been read yet.',
-      reason: 'Codeback could not review it just now. It will try again shortly — read it yourself in the meantime.',
+      reason: 'Siffty could not review it just now. It will try again shortly — read it yourself in the meantime.',
       recommendedAction: 'REVIEW_CONVERSATION',
       brandDeal: null,
       model: null,

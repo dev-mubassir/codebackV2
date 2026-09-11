@@ -62,7 +62,7 @@ function notifyConnectionProblem(userId, { instagramAccountId, igUsername, reaso
   return createNotification(userId, {
     type: 'instagram_connection_problem',
     title: 'Reconnect your Instagram account',
-    body: `@${igUsername || 'your account'} — ${reason || 'Codeback stops receiving new messages until you reconnect.'}`,
+    body: `@${igUsername || 'your account'} — ${reason || 'Siffty stops receiving new messages until you reconnect.'}`,
     conversationId: null,
   }).then((n) => {
     emitToUser(userId, 'instagram_connection_problem', { instagramAccountId, igUsername, reason });

@@ -20,21 +20,21 @@ export default function PrivacyPolicyPage() {
         <p className={styles.updated}>{legal.lastUpdated}: {LAST_UPDATED}</p>
 
         <section className={styles.section}>
-          <h2>1. What Codeback is</h2>
+          <h2>1. What Siffty is</h2>
           <p>
-            Codeback is a tool for businesses and creators who receive direct messages on
+            Siffty is a tool for businesses and creators who receive direct messages on
             Instagram. With the account owner&apos;s authorisation, it reads incoming Instagram
             direct messages, sorts them, and helps the owner reply. This policy describes what
             data the service holds, why, who it is shared with, and how it is deleted.
           </p>
           <p>
-            Codeback is operated by Mubassir Shah, based in India. Contact: {SUPPORT_EMAIL}.
+            Siffty is operated by Mubassir Shah, based in India. Contact: {SUPPORT_EMAIL}.
           </p>
           <p>
             Two different groups of people appear in this policy. A <strong>customer</strong> is
-            a business or creator who signs up for Codeback and connects an Instagram account.
+            a business or creator who signs up for Siffty and connects an Instagram account.
             A <strong>message sender</strong> is anyone who sends a direct message to that
-            Instagram account. Message senders do not have Codeback accounts.
+            Instagram account. Message senders do not have Siffty accounts.
           </p>
         </section>
 
@@ -48,7 +48,7 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               If you sign in with Google: your name, email address, and an internal Google
-              account identifier. Codeback never receives your Google password.
+              account identifier. Siffty never receives your Google password.
             </li>
             <li>
               Business profile details the customer chooses to enter — business type,
@@ -63,7 +63,7 @@ export default function PrivacyPolicyPage() {
             <li>Usage records — counts of messages received, messages analysed, and replies generated.</li>
             <li>
               Technical data such as your IP address, collected when you request a password
-              reset or email verification link, or when Codeback blocks a suspicious attempt to
+              reset or email verification link, or when Siffty blocks a suspicious attempt to
               connect an Instagram account that is already in use elsewhere.
             </li>
           </ul>
@@ -73,7 +73,7 @@ export default function PrivacyPolicyPage() {
           <h2>3. Data collected about message senders</h2>
           <p>
             When someone sends a direct message to a connected Instagram account, Meta delivers
-            that message to Codeback and the following is stored on the account owner&apos;s
+            that message to Siffty and the following is stored on the account owner&apos;s
             behalf:
           </p>
           <ul>
@@ -88,7 +88,7 @@ export default function PrivacyPolicyPage() {
           </ul>
           <div className={styles.callout}>
             <p>
-              <strong>Message senders did not sign up for Codeback.</strong> Their data is
+              <strong>Message senders did not sign up for Siffty.</strong> Their data is
               processed on behalf of the business they messaged, which controls it. Requests
               about that data are described in section 9.
             </p>
@@ -109,7 +109,7 @@ export default function PrivacyPolicyPage() {
             <li>To operate, secure, and debug the service.</li>
           </ul>
           <p>
-            Codeback does not sell personal data and does not use message content for
+            Siffty does not sell personal data and does not use message content for
             advertising.
           </p>
         </section>
@@ -132,11 +132,11 @@ export default function PrivacyPolicyPage() {
             Gemini.
           </p>
           <p>
-            Codeback sends content to Gemini only to receive a classification or draft reply.
-            Codeback does not use message content to train or fine-tune any AI model.
+            Siffty sends content to Gemini only to receive a classification or draft reply.
+            Siffty does not use message content to train or fine-tune any AI model.
           </p>
           <p>
-            Codeback uses Google&apos;s paid Gemini API service, under which Google does not use
+            Siffty uses Google&apos;s paid Gemini API service, under which Google does not use
             the content sent to it to improve its products.
           </p>
         </section>
@@ -150,7 +150,7 @@ export default function PrivacyPolicyPage() {
               the Instagram Graph API, under the permissions the account owner granted.
             </li>
             <li><strong>Google (Gemini)</strong> — as described in section 5.</li>
-            <li><strong>Hosting and infrastructure providers</strong> — who store the data on Codeback&apos;s behalf.</li>
+            <li><strong>Hosting and infrastructure providers</strong> — who store the data on Siffty&apos;s behalf.</li>
             <li><strong>Authorities</strong> — where required by law.</li>
           </ul>
         </section>
@@ -158,9 +158,9 @@ export default function PrivacyPolicyPage() {
         <section className={styles.section}>
           <h2>7. Where data is stored</h2>
           <p>
-            Codeback&apos;s service and database are hosted in the United States. Gemini,
+            Siffty&apos;s service and database are hosted in the United States. Gemini,
             described in section 5, may process content in other countries. If you use
-            Codeback from outside the United States, your data is transferred to, and stored in,
+            Siffty from outside the United States, your data is transferred to, and stored in,
             the United States.
           </p>
         </section>
@@ -177,7 +177,7 @@ export default function PrivacyPolicyPage() {
             <li>
               <strong>Messages, conversations, contacts, and analysis results</strong> are kept
               for as long as the account owner keeps them, and are erased when the owner
-              deletes the conversation, purges the connected account, or closes their Codeback
+              deletes the conversation, purges the connected account, or closes their Siffty
               account.
             </li>
             <li>
@@ -186,11 +186,11 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               <strong>Trial-abuse record.</strong> To stop the same Instagram account from
-              claiming repeated free trials, Codeback stores a one-way cryptographic hash of the
+              claiming repeated free trials, Siffty stores a one-way cryptographic hash of the
               Instagram account ID and the dates of trial use for up to 24 months after your
-              last connection, including after you delete your Codeback account. This record
+              last connection, including after you delete your Siffty account. This record
               contains no username, name, email address, or message content, and is not linked
-              to your Codeback account.
+              to your Siffty account.
             </li>
             <li>
               <strong>IP addresses.</strong> Those collected when you request a password reset
@@ -200,13 +200,13 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
           <p>
-            Disconnecting an Instagram account does not delete history — it stops Codeback
+            Disconnecting an Instagram account does not delete history — it stops Siffty
             processing new messages while keeping past conversations so they reappear if the
             account is reconnected. Deleting is a separate, explicit action.
           </p>
           <p>
-            Removing Codeback from Instagram&apos;s settings is different from disconnecting:
-            Instagram also sends Codeback a data deletion request, and that Instagram
+            Removing Siffty from Instagram&apos;s settings is different from disconnecting:
+            Instagram also sends Siffty a data deletion request, and that Instagram
             account&apos;s data is erased automatically, as described on the{' '}
             <Link href="/data-deletion">data deletion page</Link>.
           </p>
@@ -215,7 +215,7 @@ export default function PrivacyPolicyPage() {
         <section className={styles.section}>
           <h2>9. Deletion and your rights</h2>
           <p>
-            Customers can permanently delete their Codeback account and all associated data
+            Customers can permanently delete their Siffty account and all associated data
             from the profile page in the app, or by following the instructions on the{' '}
             <Link href="/data-deletion">data deletion page</Link>. Deletion removes the account,
             every connected Instagram account, and all contacts, conversations, messages,
@@ -224,7 +224,7 @@ export default function PrivacyPolicyPage() {
             trial-abuse record described in section 8.
           </p>
           <p>
-            If Meta sends Codeback a data deletion request for an Instagram account, that
+            If Meta sends Siffty a data deletion request for an Instagram account, that
             account&apos;s data is erased automatically. See the{' '}
             <Link href="/data-deletion">data deletion page</Link>.
           </p>
@@ -233,9 +233,9 @@ export default function PrivacyPolicyPage() {
             backups within 7 days of deletion.
           </p>
           <p>
-            Message senders who want their data removed from a business&apos;s Codeback inbox
+            Message senders who want their data removed from a business&apos;s Siffty inbox
             should contact that business, which controls the data. They may also contact
-            Codeback at the address below and the request will be passed on.
+            Siffty at the address below and the request will be passed on.
           </p>
           <p>
             Depending on where you live you may have rights to access, correct, export, or
@@ -258,7 +258,7 @@ export default function PrivacyPolicyPage() {
         <section className={styles.section}>
           <h2>11. Children</h2>
           <p>
-            Codeback is intended for businesses and creators aged 18 or over. It is not directed
+            Siffty is intended for businesses and creators aged 18 or over. It is not directed
             at children, and we do not knowingly collect their data.
           </p>
         </section>

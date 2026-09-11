@@ -119,7 +119,7 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
             <div className={appShellStyles.brandIcon}>
               <img src="/logo.png" alt="" className={appShellStyles.brandIconImg} />
             </div>
-            <span className={appShellStyles.brandName}>Codeback</span>
+            <span className={appShellStyles.brandName}>Siffty</span>
           </button>
         </div>
 
