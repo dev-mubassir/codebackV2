@@ -180,6 +180,51 @@ describe('A6 — every branch logs one tagged line naming what failed', () => {
     );
   });
 
+  it('/deauthorize: missing_field logs the request SHAPE — key names, never values', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await request(app)
+      .post('/data-deletion/deauthorize?token=super-secret-query-value-xyz')
+      .set('Content-Type', 'application/json')
+      .send({ foo: 'body-secret-should-not-appear', bar: 'another-body-secret' });
+
+    expect(res.status).toBe(400);
+
+    const shapeLine = warn.mock.calls.map((c) => c[0]).find((line) => line.includes('Request shape:'));
+    expect(shapeLine, 'a dedicated shape-diagnostic line must be logged').toBeTruthy();
+
+    // Key NAMES present.
+    expect(shapeLine).toContain('bodyKeys=[foo,bar]');
+    expect(shapeLine).toContain('queryKeys=[token]');
+    expect(shapeLine).toContain('method=POST');
+    expect(shapeLine).toContain('content-type=application/json');
+    expect(shapeLine).toMatch(/content-length=\d+/);
+
+    // No VALUES — body values, query values, or the raw signed_request.
+    expect(shapeLine).not.toContain('body-secret-should-not-appear');
+    expect(shapeLine).not.toContain('another-body-secret');
+    expect(shapeLine).not.toContain('super-secret-query-value-xyz');
+    expect(shapeLine).not.toContain(APP_SECRET);
+
+    // And no OTHER header value leaked in either — only content-type/length.
+    const allLines = warn.mock.calls.map((c) => c[0]).join(' ');
+    expect(allLines).not.toContain('signed_request=');
+  });
+
+  it('/deauthorize: a WELL-FORMED request (past missing_field) never logs the shape line', async () => {
+    const { user } = await createUser({});
+    const igUserId = uniq('ig-shape-not-logged');
+    await createAccount({ userId: user.id, igUserId });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await request(app)
+      .post('/data-deletion/deauthorize')
+      .send({ signed_request: signedRequest({ user_id: igUserId }) });
+
+    expect(res.status).toBe(200);
+    expect(warn.mock.calls.some((c) => c[0].includes('Request shape:'))).toBe(false);
+  });
+
   it('/deauthorize: bad_signature is logged and returns 400', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const res = await request(app)

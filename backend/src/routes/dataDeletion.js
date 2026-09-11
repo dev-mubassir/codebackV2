@@ -284,6 +284,20 @@ router.post('/deauthorize', async (req, res) => {
   const { payload, reason } = verifySignedRequest(req.body?.signed_request, appSecret);
   if (!payload) {
     console.warn(`[Deauthorize] Rejected request: ${reason}.`);
+    // Diagnostic for the "missing_field" case specifically — this is the one
+    // that means req.body.signed_request itself was absent or not a string,
+    // which the reason tag alone doesn't explain. Shape only, never values:
+    // key NAMES (never their contents), and only the two headers that can't
+    // carry anything sensitive. No signed_request, no tokens, no IDs.
+    if (reason === 'missing_field') {
+      console.warn(
+        `[Deauthorize] Request shape: method=${req.method} ` +
+          `content-type=${req.get('content-type') || 'none'} ` +
+          `content-length=${req.get('content-length') || 'none'} ` +
+          `bodyKeys=[${Object.keys(req.body || {}).join(',')}] ` +
+          `queryKeys=[${Object.keys(req.query || {}).join(',')}]`
+      );
+    }
     return res.status(400).json({ error: 'Invalid signed_request' });
   }
 
