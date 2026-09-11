@@ -32,11 +32,11 @@ export const NAV_DRAWER_ID = 'app-nav-drawer';
  * exactly; `mobileOnly`'s hiding rule lives in this component's own
  * NavSidebar.module.css instead, so AppShell.module.css never changes.
  */
-export default function NavSidebar({ open, onClose, activeRoute, user, notifCount, mobileOnly }) {
+export default function NavSidebar({ open, onClose, activeRoute, user, notifCount, mobileOnly, topSection }) {
   const router = useRouter();
   const pathname = usePathname();
   const currentPath = activeRoute || pathname;
-  const firstNavItemRef = useRef(null);
+  const navRef = useRef(null);
   const previouslyFocusedRef = useRef(null);
 
   // Escape closes the drawer; only wired up while it's actually open.
@@ -75,14 +75,17 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
     return () => mq.removeEventListener('change', handleChange);
   }, [open, onClose]);
 
-  // Focus moves into the drawer (its first link) on open, and back to
-  // whatever triggered the open (the hamburger button, in practice) on
-  // close — captured via document.activeElement rather than a prop, since
-  // that's already whatever the user just activated to open the drawer.
+  // Focus moves into the drawer (its first focusable element — found by
+  // query rather than a ref pinned to a specific NAV_ITEMS button, since
+  // `topSection` can render its own focusable content before it) on open,
+  // and back to whatever triggered the open (the hamburger button, in
+  // practice) on close — captured via document.activeElement rather than a
+  // prop, since that's already whatever the user just activated to open
+  // the drawer.
   useEffect(() => {
     if (open) {
       previouslyFocusedRef.current = document.activeElement;
-      firstNavItemRef.current?.focus();
+      navRef.current?.querySelector('button, a, [tabindex]')?.focus();
     } else {
       previouslyFocusedRef.current?.focus?.();
     }
@@ -106,8 +109,6 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
   const rootClass = mobileOnly ? `${appShellStyles.sidebar} ${styles.mobileOnly}` : appShellStyles.sidebar;
   const overlayClass = mobileOnly ? `${appShellStyles.overlay} ${styles.mobileOnly}` : appShellStyles.overlay;
 
-  let firstItemAssigned = false;
-
   return (
     <>
       {open && <div className={overlayClass} onClick={onClose} />}
@@ -122,18 +123,16 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
           </button>
         </div>
 
-        <nav className={appShellStyles.nav}>
+        <nav className={appShellStyles.nav} ref={navRef}>
+          {topSection}
           {NAV_ITEMS.map((section) => (
             <div key={section.section} className={appShellStyles.navSection}>
               <div className={appShellStyles.navSectionLabel}>{section.section}</div>
               {section.items.map((item) => {
                 const isActive = currentPath === item.path;
-                const isFirst = !firstItemAssigned;
-                if (isFirst) firstItemAssigned = true;
                 return (
                   <button
                     key={item.path}
-                    ref={isFirst ? firstNavItemRef : undefined}
                     className={`${appShellStyles.navItem} ${isActive ? appShellStyles.navItemActive : ''}`}
                     onClick={() => navigate(item.path)}
                   >

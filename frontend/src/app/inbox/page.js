@@ -11,6 +11,7 @@ import {
 } from '@/lib/api';
 import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
 import Icon from '@/app/components/Icon';
+import InboxFilterList from './InboxFilterList';
 import NavSidebar, { NAV_DRAWER_ID } from '@/app/components/NavSidebar';
 // Read-only: reused so the mobile header/drawer match AppShell's look.
 // This file must never be edited from here.
@@ -665,6 +666,18 @@ function InboxPageContent() {
         user={user}
         notifCount={notifUnreadCount}
         mobileOnly
+        topSection={
+          <InboxFilterList
+            accounts={accounts}
+            selectedAccountId={selectedAccountId}
+            onAccountChange={(id) => { handleAccountChange(id); setDrawerOpen(false); }}
+            allAccountsCount={conversations.length}
+            folderCounts={folderCounts}
+            selectedFilter={selectedFilter}
+            onFilterChange={(id) => { handleFilterChange(id); setDrawerOpen(false); }}
+            idPrefix="drawer-"
+          />
+        }
       />
 
       <div className={styles.inboxBody}>
@@ -672,61 +685,15 @@ function InboxPageContent() {
         {/* Column 1: Dedicated Vertical Filter Sidebar               */}
         {/* ========================================================= */}
         <aside className={styles.filterSidebar}>
-          {/* Account Filter Section */}
-          <div className={styles.filterSection}>
-            <span className={styles.filterSectionTitle}>{t.accounts}</span>
-            <div className={styles.filterItemList}>
-              <button
-                className={`${styles.filterItemBtn} ${selectedAccountId === '' ? styles.filterItemBtnActive : ''}`}
-                onClick={() => handleAccountChange('')}
-                id="filter-account-all"
-              >
-                <div className={styles.filterItemLeft}>
-                  <span className={styles.filterItemIcon}><Icon name="globe" size={14} /></span>
-                  <span className={styles.filterItemLabel}>{t.allAccounts}</span>
-                </div>
-                <span className={styles.filterItemCount}>{conversations.length}</span>
-              </button>
-              {accounts.map(acc => (
-                <button
-                  key={acc.id}
-                  className={`${styles.filterItemBtn} ${selectedAccountId === acc.id ? styles.filterItemBtnActive : ''}`}
-                  onClick={() => handleAccountChange(acc.id)}
-                  id={`filter-account-${acc.id}`}
-                >
-                  <div className={styles.filterItemLeft}>
-                    <span className={styles.filterItemIcon}><Icon name="instagram" size={14} /></span>
-                    <span className={styles.filterItemLabel}>@{acc.igUsername || 'account'}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Smart Filter Folders / Categories */}
-          <div className={styles.filterSection}>
-            <span className={styles.filterSectionTitle}>{t.folders}</span>
-            <div className={styles.filterItemList}>
-              {INBOX_FILTERS.map(f => {
-                const isActive = selectedFilter === f.id;
-                const count = folderCounts[f.id] ?? 0;
-                return (
-                  <button
-                    key={f.id}
-                    className={`${styles.filterItemBtn} ${isActive ? styles.filterItemBtnActive : ''}`}
-                    onClick={() => handleFilterChange(f.id)}
-                    id={`filter-tab-${f.id}`}
-                  >
-                    <div className={styles.filterItemLeft}>
-                      <span className={styles.filterItemIcon}><Icon name={f.icon} size={14} /></span>
-                      <span className={styles.filterItemLabel}>{f.label}</span>
-                    </div>
-                    {count > 0 && <span className={styles.filterItemCount}>{count}</span>}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <InboxFilterList
+            accounts={accounts}
+            selectedAccountId={selectedAccountId}
+            onAccountChange={handleAccountChange}
+            allAccountsCount={conversations.length}
+            folderCounts={folderCounts}
+            selectedFilter={selectedFilter}
+            onFilterChange={handleFilterChange}
+          />
 
           {/* Bottom Left Corner: Profile Card Link */}
           <div className={styles.filterSidebarFooter}>
