@@ -472,6 +472,7 @@ export const marketing = {
     privacy: 'Privacy policy',
     terms: 'Terms of service',
     dataDeletion: 'Delete your data',
+    support: 'Support',
   },
 };
 
@@ -882,6 +883,7 @@ export const meta = {
   privacy: { title: 'Privacy policy — Codeback', description: 'How Codeback collects, uses, shares, and deletes data.' },
   terms: { title: 'Terms of service — Codeback', description: 'The terms governing use of Codeback.' },
   dataDeletion: { title: 'Delete your data — Codeback', description: 'How to permanently delete your Codeback and Instagram data.' },
+  support: { title: 'Support — Codeback', description: 'Get help with your Codeback account and connected Instagram accounts.' },
 };
 
 export const legal = {
@@ -890,6 +892,54 @@ export const legal = {
   privacyTitle: 'Privacy policy',
   termsTitle: 'Terms of service',
   dataDeletionTitle: 'Delete your data',
+  supportTitle: 'Support',
+  footerLinks: {
+    privacy: 'Privacy',
+    terms: 'Terms',
+    dataDeletion: 'Data deletion',
+    support: 'Support',
+  },
+};
+
+export const support = {
+  intro: 'Get help with your Codeback account, your connected Instagram accounts, or your data.',
+  contactTitle: 'Contact us',
+  replyTime: 'We usually reply within 24–48 hours. Some requests can take up to 7 days.',
+  whatToInclude: {
+    title: 'What to include',
+    items: [
+      'The email address on your Codeback account.',
+      'The Instagram username concerned.',
+      'A short description or screenshot of the issue.',
+    ],
+  },
+  helpTitle: 'Common questions',
+  entries: [
+    {
+      title: 'Connecting an Instagram professional account',
+      body: 'From Dashboard, choose Connect Instagram and authorise Codeback with your Instagram professional (business or creator) account.',
+    },
+    {
+      title: 'Disconnecting an Instagram account',
+      body: 'From Dashboard, choose Disconnect next to the connected account. This stops Codeback processing new messages but keeps your conversation history so it reappears if you reconnect.',
+    },
+    {
+      title: 'How automatic replies work',
+      body: 'Automatic replies are off by default. Turn them on from Settings → Replies and tone → Reply mode. You can also switch individual conversations to Automatic or Manual from Settings → Per-conversation automation, regardless of the overall reply mode.',
+    },
+    {
+      title: 'Deleting your data',
+      body: 'Every way to permanently delete your Codeback data is listed on the',
+      href: '/data-deletion',
+      linkText: 'data deletion page',
+    },
+    {
+      title: 'I messaged a business that uses Codeback',
+      body: 'See',
+      href: '/data-deletion#if-you-messaged-a-business',
+      linkText: '"If you messaged a business that uses Codeback" on the data deletion page',
+    },
+  ],
 };
 
 const copy = {
@@ -910,6 +960,7 @@ const copy = {
   validation,
   meta,
   legal,
+  support,
 };
 
 export default copy;

@@ -8,7 +8,7 @@ export const metadata = {
   description: meta.terms.description,
 };
 
-const LAST_UPDATED = '30 August 2026';
+const LAST_UPDATED = '11 September 2026';
 
 export default function TermsPage() {
   return (
@@ -25,6 +25,10 @@ export default function TermsPage() {
             These terms govern your use of Codeback. By creating an account or connecting an
             Instagram account you agree to them. If you are using Codeback for an organisation,
             you confirm you are authorised to accept these terms on its behalf.
+          </p>
+          <p>
+            You must be at least 18 years old to use Codeback. Codeback is operated by
+            Mubassir Shah, India.
           </p>
         </section>
 
@@ -46,8 +50,12 @@ export default function TermsPage() {
               and policies. Nothing here overrides them.
             </li>
             <li>
-              You may revoke Codeback&apos;s access at any time, from within Instagram or by
-              disconnecting the account in Codeback.
+              You may revoke Codeback&apos;s access at any time. Disconnecting the account in
+              Codeback stops processing but keeps your history. To fully revoke
+              Codeback&apos;s access, remove Codeback in Instagram&apos;s settings (Settings
+              and activity → Website permissions → Apps and websites). This also deletes that
+              Instagram account&apos;s data from Codeback, as described on the{' '}
+              <Link href="/data-deletion">data deletion page</Link>.
             </li>
             <li>
               An Instagram account that already holds conversation history in another Codeback
@@ -144,12 +152,22 @@ export default function TermsPage() {
           <p>
             You may stop using Codeback and delete your account at any time; see the{' '}
             <Link href="/data-deletion">data deletion page</Link>. Deletion is immediate and
-            irreversible. We may suspend or terminate accounts that breach these terms.
+            irreversible, apart from the limited trial-abuse record described in the{' '}
+            <Link href="/privacy">Privacy Policy</Link>. We may suspend or terminate accounts
+            that breach these terms.
           </p>
         </section>
 
         <section className={styles.section}>
-          <h2>11. Changes</h2>
+          <h2>11. Governing law</h2>
+          <p>
+            These terms are governed by the laws of India. Disputes are subject to the exclusive
+            jurisdiction of the courts at Seoni, Madhya Pradesh 480886, India.
+          </p>
+        </section>
+
+        <section className={styles.section}>
+          <h2>12. Changes</h2>
           <p>
             These terms may change. Material changes will be reflected in the date above and
             notified in the app or by email. Continuing to use Codeback after a change means
@@ -160,6 +178,13 @@ export default function TermsPage() {
         <p className={styles.contact}>
           Questions about these terms: <strong>{SUPPORT_EMAIL}</strong>
         </p>
+
+        <nav className={styles.footerNav} aria-label="Legal">
+          <Link href="/privacy" className={styles.footerNavLink}>{legal.footerLinks.privacy}</Link>
+          <Link href="/terms" className={styles.footerNavLink}>{legal.footerLinks.terms}</Link>
+          <Link href="/data-deletion" className={styles.footerNavLink}>{legal.footerLinks.dataDeletion}</Link>
+          <Link href="/support" className={styles.footerNavLink}>{legal.footerLinks.support}</Link>
+        </nav>
       </div>
     </main>
   );

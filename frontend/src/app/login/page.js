@@ -9,7 +9,7 @@ import GoogleIcon from '@/app/components/GoogleIcon';
 import BrandLogo from '@/app/components/BrandLogo';
 import PasswordInput from '@/app/components/PasswordInput';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
-import { auth, validation } from '@/content/copy';
+import { auth, validation, legal } from '@/content/copy';
 import styles from './login.module.css';
 
 export default function LoginPage() {
@@ -130,6 +130,16 @@ export default function LoginPage() {
             {auth.login.footerAction}
           </Link>
         </div>
+
+        <nav
+          aria-label="Legal"
+          style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '4px 12px', marginTop: 16 }}
+        >
+          <Link href="/privacy" className={styles.authLink}>{legal.footerLinks.privacy}</Link>
+          <Link href="/terms" className={styles.authLink}>{legal.footerLinks.terms}</Link>
+          <Link href="/data-deletion" className={styles.authLink}>{legal.footerLinks.dataDeletion}</Link>
+          <Link href="/support" className={styles.authLink}>{legal.footerLinks.support}</Link>
+        </nav>
       </div>
     </div>
   );

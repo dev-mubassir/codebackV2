@@ -9,7 +9,7 @@ import { getCategoryMetadata, parseBusinessTypes } from '@/lib/businessTemplates
 import Icon from '@/app/components/Icon';
 import PasswordInput from '@/app/components/PasswordInput';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
-import { account as t, common, errors, empty, confirm as confirmCopy, toast, validation } from '@/content/copy';
+import { account as t, common, errors, empty, confirm as confirmCopy, toast, validation, legal } from '@/content/copy';
 import { replyModeLabel, roleLabel, connectionStatusLabel, tokenStatusLabel, toneLabel } from '@/content/labels';
 import { formatDate } from '@/content/format';
 import styles from './profile.module.css';
@@ -487,6 +487,14 @@ export default function ProfilePage() {
               <Icon name="trash" size={14} /> {t.danger.action}
             </button>
           </div>
+          <nav
+            aria-label="Legal"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 12, fontSize: 13 }}
+          >
+            <Link href="/privacy">{legal.footerLinks.privacy}</Link>
+            <Link href="/data-deletion">{legal.footerLinks.dataDeletion}</Link>
+            <Link href="/support">{legal.footerLinks.support}</Link>
+          </nav>
         </div>
       </div>
 

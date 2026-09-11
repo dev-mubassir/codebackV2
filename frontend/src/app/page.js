@@ -194,6 +194,7 @@ function LandingPageContent() {
             <a href="/privacy" className={styles.footerLink}>{marketing.footer.privacy}</a>
             <a href="/terms" className={styles.footerLink}>{marketing.footer.terms}</a>
             <a href="/data-deletion" className={styles.footerLink}>{marketing.footer.dataDeletion}</a>
+            <a href="/support" className={styles.footerLink}>{marketing.footer.support}</a>
           </nav>
           <p className={styles.footerCopy}>
             &copy; {new Date().getFullYear()} {common.productName}. All rights reserved.

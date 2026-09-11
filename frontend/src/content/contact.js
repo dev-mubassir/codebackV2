@@ -7,10 +7,14 @@
  * "set NEXT_PUBLIC_SUPPORT_EMAIL" in place of an address — a developer note
  * published on a compliance page, and a failed review.
  *
- * So the missing value is now a build failure rather than a silent one:
- *
- *   - production build: throws, and `next build` stops
- *   - development:      renders a loud placeholder so it is obvious on screen
+ * So the missing value is now a build failure in production rather than a
+ * silent one — `next build` throws and stops. In development, where that
+ * throw does not apply, the fallback is the real public address
+ * (support@siffty.com) rather than a placeholder string, so a dev machine
+ * with no .env.local still renders a legitimate, reachable address instead
+ * of publishing a developer note. HAS_SUPPORT_EMAIL still reports whether an
+ * address was actually configured, for anything that needs to tell the two
+ * apart.
  *
  * Set NEXT_PUBLIC_SUPPORT_EMAIL in frontend/.env.local and in the deployment
  * environment. It must be an address a real person reads — deletion requests
@@ -27,7 +31,7 @@ if (!configured && process.env.NODE_ENV === 'production') {
   );
 }
 
-export const SUPPORT_EMAIL = configured || 'NOT CONFIGURED — set NEXT_PUBLIC_SUPPORT_EMAIL';
+export const SUPPORT_EMAIL = configured || 'support@siffty.com';
 
 /** True only when a real address is configured. */
 export const HAS_SUPPORT_EMAIL = Boolean(configured);

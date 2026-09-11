@@ -8,7 +8,7 @@ export const metadata = {
   description: meta.dataDeletion.description,
 };
 
-const LAST_UPDATED = '30 August 2026';
+const LAST_UPDATED = '11 September 2026';
 
 export default function DataDeletionPage() {
   return (
@@ -21,9 +21,10 @@ export default function DataDeletionPage() {
 
         <section className={styles.section}>
           <p>
-            You can permanently delete everything Codeback holds about you. Deletion is
-            immediate and cannot be undone — there is no recovery window and no backup copy is
-            retained for restoration.
+            You can permanently delete the data Codeback holds about you. Deletion is
+            immediate and cannot be undone — there is no recovery window. Database backups are
+            kept for no more than 7 days, so deleted data is removed from backups within 7 days
+            of deletion.
           </p>
         </section>
 
@@ -40,10 +41,12 @@ export default function DataDeletionPage() {
         <section className={styles.section}>
           <h2>Option 2 — Remove Codeback from Instagram</h2>
           <p>
-            You can revoke Codeback&apos;s access from Instagram at any time, under
-            Settings → Website permissions → Apps and websites. When Meta notifies us that
-            access has been revoked and deletion requested, the connected Instagram
-            account&apos;s data is erased automatically.
+            In the Instagram app, go to <strong>Settings and activity → Website permissions →
+            Apps and websites</strong>, and remove Codeback. This revokes Codeback&apos;s access,
+            and Instagram also sends Codeback a request to delete your data. Codeback then
+            automatically erases all data for that Instagram account. If it was the only
+            Instagram account on your Codeback account, your Codeback account is deleted too. We
+            email a confirmation to the address on your Codeback account.
           </p>
         </section>
 
@@ -65,6 +68,7 @@ export default function DataDeletionPage() {
             <li>All contacts, conversations, and messages held for those accounts.</li>
             <li>All analysis results, conversation summaries, and extracted brand deal records.</li>
             <li>All draft replies, notifications, usage records, and stored webhook delivery logs.</li>
+            <li>Sign-in tokens issued for password resets and email verification, your notification and automation preferences, and your trial/subscription record.</li>
           </ul>
           <div className={styles.callout}>
             <p>
@@ -76,6 +80,17 @@ export default function DataDeletionPage() {
         </section>
 
         <section className={styles.section}>
+          <h2>What we keep</h2>
+          <p>
+            To stop the same Instagram account from claiming repeated free trials, Codeback
+            stores a one-way cryptographic hash of the Instagram account ID and the dates of
+            trial use for up to 24 months after your last connection, including after you
+            delete your Codeback account. This record contains no username, name, email
+            address, or message content, and is not linked to your Codeback account.
+          </p>
+        </section>
+
+        <section className={styles.section} id="if-you-messaged-a-business">
           <h2>If you messaged a business that uses Codeback</h2>
           <p>
             If you sent a direct message to a business using Codeback and want that message
@@ -98,6 +113,13 @@ export default function DataDeletionPage() {
           Deletion requests and questions: <strong>{SUPPORT_EMAIL}</strong> ·{' '}
           <Link href="/privacy">Privacy Policy</Link> · <Link href="/terms">Terms of Service</Link>
         </p>
+
+        <nav className={styles.footerNav} aria-label="Legal">
+          <Link href="/privacy" className={styles.footerNavLink}>{legal.footerLinks.privacy}</Link>
+          <Link href="/terms" className={styles.footerNavLink}>{legal.footerLinks.terms}</Link>
+          <Link href="/data-deletion" className={styles.footerNavLink}>{legal.footerLinks.dataDeletion}</Link>
+          <Link href="/support" className={styles.footerNavLink}>{legal.footerLinks.support}</Link>
+        </nav>
       </div>
     </main>
   );
