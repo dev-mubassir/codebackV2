@@ -58,6 +58,36 @@ function hashIgUserId(igUserId) {
   return crypto.createHmac('sha256', getPepper()).update(String(igUserId)).digest('hex');
 }
 
+/**
+ * The ONLY entitlement columns the Instagram connect path reads or returns.
+ *
+ * Pinned to an explicit list rather than a full-row read for a reason worth
+ * not relearning: Prisma Client SELECTs every column a model declares, so a
+ * bare `findUnique`/`upsert` here silently takes a dependency on every
+ * column that will EVER be added to Entitlement. When the Gate 3.1 migration
+ * added `region_source` and a database had the new client but not yet the
+ * new column, this transaction threw and **Instagram connect broke for
+ * every user** — with billing switched off, because the trial grant is not
+ * behind BILLING_ENABLED and must not be. /health stayed green throughout.
+ *
+ * Naming the fields means connect only breaks if one of THESE changes, which
+ * is a change someone is already thinking about. hasActiveEntitlement() has
+ * always done this, which is exactly why it kept working while this did not.
+ *
+ * lib/migrationGuard.js stops a behind-schema deploy from booting at all;
+ * this is the second layer, so the most important flow in the product does
+ * not rest on that guard alone.
+ */
+const ENTITLEMENT_CONNECT_FIELDS = {
+  id: true,
+  userId: true,
+  planCode: true,
+  status: true,
+  validUntil: true,
+  cycleStartedAt: true,
+  replyCreditsCurrent: true,
+};
+
 function trialEndDate(from = new Date()) {
   return new Date(from.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
 }
@@ -133,13 +163,17 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
     // is not a Plan a tenant "purchases". See schema.prisma's Entitlement
     // comment for the full Subscription -> Entitlement field mapping.
     const alreadyConsumed = Boolean(identity.trialConsumedAt);
-    let entitlement = await tx.entitlement.findUnique({ where: { userId } });
+    let entitlement = await tx.entitlement.findUnique({
+      where: { userId },
+      select: ENTITLEMENT_CONNECT_FIELDS,
+    });
     let trialGranted = false;
 
     if (!alreadyConsumed && emailVerified) {
       const now = new Date();
       entitlement = await tx.entitlement.upsert({
         where: { userId },
+        select: ENTITLEMENT_CONNECT_FIELDS,
         create: {
           userId,
           planCode: 'TRIAL',
