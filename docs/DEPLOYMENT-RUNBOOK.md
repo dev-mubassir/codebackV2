@@ -178,6 +178,59 @@ Manually, in the service shell. Never on container start, never via `npx`:
 ./node_modules/.bin/prisma migrate deploy
 ```
 
+### Required order for ANY migration-bearing deploy
+
+Code deploys automatically on push to `master`; migrations do not. For any
+deploy that carries a migration, the order is:
+
+1. **Merge to `master`.** Northflank builds and deploys the code.
+2. **Apply the migrations** in the service shell:
+   `./node_modules/.bin/prisma migrate deploy`
+3. **Verify** with `./node_modules/.bin/prisma migrate status` —
+   *"Database schema is up to date!"* and nothing pending.
+4. **Confirm the service boots** and `/health` answers 200.
+
+### A failed start after such a deploy means "run the migrations", NOT "roll back"
+
+Between steps 1 and 2 the new code is live against the old schema, and
+`backend/src/lib/migrationGuard.js` **deliberately refuses to start** in that
+window. This is the guard working, not a broken build.
+
+It exists because the alternative is worse and silent: Prisma Client SELECTs
+every column its schema declares, so a client ahead of its database makes
+full-row entitlement queries throw — which breaks **Instagram connect for
+every user**, with billing switched off, while `/health` still returns 200.
+This was observed on the development database during the billing work and
+presented exactly that way: connect broken, everything else apparently fine.
+
+**The log line to look for**, printed verbatim before the process exits:
+
+```
+[Server] FATAL: the database is BEHIND the code. Refusing to serve traffic.
+```
+
+It is followed by the names of the missing migrations and the
+`migrate deploy` command to run. If you see it: do step 2, then redeploy or
+restart. Do not roll back — rolling back the code "fixes" the symptom by
+returning to a build that matches the old schema, and then the migration
+still has not run.
+
+**What Northflank does with the exit(1).** The guard exits non-zero, which
+Northflank treats as a failed container and restarts per the service's
+restart policy — i.e. it will **crash-loop** until the migration is applied,
+with the FATAL line above repeating in the logs each cycle. That repeating
+line is the symptom to recognise; a crash-loop after a migration-bearing
+deploy is nearly always this and nothing else.
+
+> The exact restart/backoff policy is configured in the Northflank dashboard,
+> not in this repository (there is no `northflank.json`, Dockerfile, or
+> release command here), so confirm the policy there if the loop behaviour
+> matters operationally. The log line is fixed by the code regardless.
+
+A database that is merely *unreachable* at boot does **not** trigger this —
+that logs a warning and starts anyway, because a transient blip must not
+become an outage requiring a human.
+
 This migration is self-defending — preconditions abort the whole transaction rather than applying partially, and they name the offending rows. If it aborts, read the message; it tells you exactly what's wrong.
 
 The one that can genuinely fail: two `CONNECTED` rows for the same `ig_user_id`. Prod survey should have caught it, but the guard is there regardless.

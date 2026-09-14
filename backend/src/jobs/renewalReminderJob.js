@@ -21,7 +21,7 @@
  *   DAY_27       3 days out .. 1 day out      DEFERRABLE
  *   DAY_29       1 day out  .. expiry         DEFERRABLE
  *   EXPIRY       expiry     .. grace day 2    CRITICAL
- *   GRACE_DAY_2  grace day 2 .. grace ends    CRITICAL
+ *   GRACE_FINAL  grace day 2 .. grace ends    CRITICAL
  *
  * Ranges, not "is it exactly day 27 today", for two reasons. A job that fires
  * four times a day can only ever see four instants, so an exact-date test
@@ -49,7 +49,7 @@
  * "EFFECTIVE STATUS IS LAZY" note). Filtering on status here would make this
  * job's behaviour depend on whether some other sweep had run yet: a tenant
  * whose row was already flipped to EXPIRED at validUntil would be excluded
- * from the EXPIRY and GRACE_DAY_2 notices — the two that matter most, to the
+ * from the EXPIRY and GRACE_FINAL notices — the two that matter most, to the
  * customers most likely to be about to leave. The time windows are the gate;
  * status is only used to skip rows that were never granted anything (NONE).
  *
@@ -89,7 +89,7 @@ const STAGES = [
   // Ends at the real end of grace, not at a hardcoded -3 days: past
   // graceUntil the tenant is a cold start (grantPlan forfeits the credit
   // bank), so the "your replies carry over" promise would no longer be true.
-  { reminderType: 'GRACE_DAY_2', min: -GRACE_PERIOD_MS, max: -2 * DAY_MS },
+  { reminderType: 'GRACE_FINAL', min: -GRACE_PERIOD_MS, max: -2 * DAY_MS },
 ];
 
 /** Which stage, if any, a tenant is in right now. */
@@ -148,6 +148,11 @@ async function sendRenewalReminders() {
       userId: true,
       planCode: true,
       validUntil: true,
+      // GRACE_FINAL names the exact instant the credit bank is cleared, and
+      // that instant IS graceUntil. Omitting it from this select does not
+      // fail loudly — the template just quietly falls back to wording with
+      // no deadline in it, which is the one thing that message must not do.
+      graceUntil: true,
       cycleStartedAt: true,
       replyCreditsCurrent: true,
       replyCreditsBanked: true,
@@ -200,6 +205,10 @@ async function sendRenewalReminders() {
         reminderType: stage.reminderType,
         unusedCredits: entitlement.replyCreditsCurrent + entitlement.replyCreditsBanked,
         checkoutUrl: checkoutUrlFor(entitlement.planCode, stage.reminderType),
+        // The exact instant the credit bank is cleared. GRACE_FINAL names it
+        // outright — see the template's note on why "today" is not enough
+        // when something is about to be lost for good.
+        forfeitAt: entitlement.graceUntil,
       });
       sent += 1;
     } catch (err) {

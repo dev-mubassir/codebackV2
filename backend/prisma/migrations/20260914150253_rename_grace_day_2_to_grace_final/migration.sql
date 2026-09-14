@@ -1,0 +1,14 @@
+-- Ruling 3c: GRACE_DAY_2 -> GRACE_FINAL, including rows already stored.
+--
+-- "Grace day 2" is ambiguous — the 2nd DAY of a 3-day grace window, or the
+-- point at which 2 days have elapsed? Those are a day apart, and the
+-- difference is when a customer gets their final warning. That ambiguity
+-- already cost one clarification round-trip; renaming removes it for good
+-- rather than documenting around it.
+--
+-- reminder_type is the idempotency key (unique on tenant_id +
+-- cycle_started_at + reminder_type), so leaving old rows under the old
+-- spelling would let a tenant who already received the notice receive it a
+-- second time under the new name. The rename has to cover stored data, not
+-- just code.
+UPDATE "renewal_reminders" SET "reminder_type" = 'GRACE_FINAL' WHERE "reminder_type" = 'GRACE_DAY_2';

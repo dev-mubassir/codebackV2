@@ -43,7 +43,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const IN_DAY_27 = 2 * DAY_MS;
 const IN_DAY_29 = 12 * HOUR_MS;
 const IN_EXPIRY = -1 * HOUR_MS;
-const IN_GRACE_DAY_2 = -2.5 * DAY_MS;
+const IN_GRACE_FINAL = -2.5 * DAY_MS;
 
 let mail;
 
@@ -130,7 +130,7 @@ describe('the four windows', () => {
     { name: 'day 27 (3 days out)', offset: IN_DAY_27, type: 'DAY_27', subject: /expires in 3 days/ },
     { name: 'day 29 (1 day out)', offset: IN_DAY_29, type: 'DAY_29', subject: /expires tomorrow/ },
     { name: 'expiry day', offset: IN_EXPIRY, type: 'EXPIRY', subject: /expires today/ },
-    { name: 'grace day 2', offset: IN_GRACE_DAY_2, type: 'GRACE_DAY_2', subject: /has expired/ },
+    { name: 'grace final day', offset: IN_GRACE_FINAL, type: 'GRACE_FINAL', subject: /has expired/ },
   ];
 
   for (const c of cases) {
@@ -157,7 +157,7 @@ describe('the four windows', () => {
     await createPaidTenant({ msUntilExpiry: IN_DAY_27, current: 10 });
     await createPaidTenant({ msUntilExpiry: IN_DAY_29, current: 10 });
     await createPaidTenant({ msUntilExpiry: IN_EXPIRY, current: 10 });
-    await createPaidTenant({ msUntilExpiry: IN_GRACE_DAY_2, current: 10 });
+    await createPaidTenant({ msUntilExpiry: IN_GRACE_FINAL, current: 10 });
 
     expect(await job.sendRenewalReminders()).toBe(4);
     expect(
@@ -322,15 +322,47 @@ describe('the subject carries the real credit count', () => {
   });
 });
 
+describe('the GRACE_FINAL forfeiture deadline (ruling 3c)', () => {
+  it('names the exact instant the credit bank is cleared, not "today"', async () => {
+    await createPaidTenant({ msUntilExpiry: IN_GRACE_FINAL, current: 40, banked: 10 });
+
+    await job.sendRenewalReminders();
+
+    const body = mail.messages[0].body;
+    // A real clock time with a named zone. This is the only message where
+    // something is lost irreversibly, so a reader in any timezone has to be
+    // able to act on it without guessing.
+    expect(body).toMatch(/Renew before .+ IST/);
+    expect(body).toMatch(/\d{1,2}:\d{2}\s?(am|pm)/i);
+    expect(body).toMatch(/cleared/);
+
+    // The vague wording this ruling replaced must be gone.
+    expect(body).not.toMatch(/Renew today and everything picks up/);
+  });
+
+  it('degrades to deadline-free wording rather than printing a broken date', async () => {
+    // A row with no graceUntil should never render "Renew before undefined".
+    const templates = require('../src/lib/email/templates.js');
+    const rendered = templates.renewalReminder({
+      reminderType: 'GRACE_FINAL',
+      unusedCredits: 5,
+      checkoutUrl: 'https://example.test/billing?renew=STARTER',
+      forfeitAt: null,
+    });
+    expect(rendered.text).not.toMatch(/undefined|null|Invalid Date/);
+    expect(rendered.text).toMatch(/last day of your grace period/);
+  });
+});
+
 describe('the checkout link', () => {
   it('is one prefilled checkout URL, not a login-then-navigate flow', async () => {
-    const user = await createPaidTenant({ msUntilExpiry: IN_GRACE_DAY_2, planCode: 'PRO', current: 5 });
+    const user = await createPaidTenant({ msUntilExpiry: IN_GRACE_FINAL, planCode: 'PRO', current: 5 });
 
     await job.sendRenewalReminders();
 
     // The exact cross-gate contract Gate 5's billing page reads.
     expect(mail.messages[0].link).toBe(
-      `${process.env.FRONTEND_URL}/billing?renew=PRO&src=email_GRACE_DAY_2`
+      `${process.env.FRONTEND_URL}/billing?renew=PRO&src=email_GRACE_FINAL`
     );
     expect(mail.messages[0].to).toBe(user.email);
   });
@@ -363,9 +395,9 @@ describe('the last two notices cannot be starved by the deferrable reserve', () 
     mailer._resetHealth();
   });
 
-  it('maps EXPIRY and GRACE_DAY_2 onto critical quota types, and the nudges onto deferrable ones', () => {
+  it('maps EXPIRY and GRACE_FINAL onto critical quota types, and the nudges onto deferrable ones', () => {
     expect(quota.CRITICAL_TYPES.has(mailer.RENEWAL_QUOTA_TYPES.EXPIRY)).toBe(true);
-    expect(quota.CRITICAL_TYPES.has(mailer.RENEWAL_QUOTA_TYPES.GRACE_DAY_2)).toBe(true);
+    expect(quota.CRITICAL_TYPES.has(mailer.RENEWAL_QUOTA_TYPES.GRACE_FINAL)).toBe(true);
     expect(quota.CRITICAL_TYPES.has(mailer.RENEWAL_QUOTA_TYPES.DAY_27)).toBe(false);
     expect(quota.CRITICAL_TYPES.has(mailer.RENEWAL_QUOTA_TYPES.DAY_29)).toBe(false);
   });

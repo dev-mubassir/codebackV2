@@ -925,7 +925,7 @@ model RenewalReminder {
   id             String   @id @default(uuid())
   tenantId       String   @map("tenant_id")
   cycleStartedAt DateTime @map("cycle_started_at")
-  reminderType   String   @map("reminder_type") // DAY_27 | DAY_29 | EXPIRY | GRACE_DAY_2
+  reminderType   String   @map("reminder_type") // DAY_27 | DAY_29 | EXPIRY | GRACE_FINAL
   sentAt         DateTime @default(now()) @map("sent_at")
 
   @@unique([tenantId, cycleStartedAt, reminderType])
@@ -998,6 +998,13 @@ model Plan {
   classificationThrottlePerHour Int?    @map("classification_throttle_per_hour")
   cycleLengthDays               Int     @default(30) @map("cycle_length_days") // 30-day purchases only — no multi-month packs by design
   isActive                      Boolean @default(true) @map("is_active")
+  // Quoted, not checked out. ENTERPRISE carries real "from" prices in
+  // PlanPrice so the marketing card can render an amount from the catalogue
+  // rather than hardcoding one in a component — but it must show a contact
+  // CTA instead of a buy button. Without this flag the only way to tell the
+  // two apart would be "does it have a price row", which stops being true
+  // the moment a from-price exists.
+  isQuoteOnly                   Boolean @default(false) @map("is_quote_only")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

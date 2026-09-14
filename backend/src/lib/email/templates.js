@@ -66,10 +66,11 @@ const RENEWAL_WHAT_STOPS_TEXT =
  * full cycle. Without that sentence the day-27 nudge is asking someone to
  * donate three days.
  *
- * GRACE_DAY_2 is the last message in the sequence — there is no day-3 notice,
+ * GRACE_FINAL is the last message in the sequence — there is no day-3 notice,
  * because a message arriving as the grace window closes cannot be acted on.
- * It says "last day" rather than naming an hour: the window it is sent in
- * spans a full day, so any more precise claim would be wrong for most of it.
+ * Alone among the four it names the EXACT instant the credit bank is
+ * cleared, because it is the only one where something is about to be lost
+ * irreversibly and "today" is not good enough to act on.
  */
 const RENEWAL_STAGES = {
   DAY_27: {
@@ -90,13 +91,43 @@ const RENEWAL_STAGES = {
     detail:
       'You have three days of grace after that to renew without losing anything. Renewing during it extends from today, so the cycle you paid for is not cut short.',
   },
-  GRACE_DAY_2: {
+  GRACE_FINAL: {
     subjectLead: 'Your Siffty plan has expired',
     lead: 'Your Siffty plan has expired and automatic replies have stopped.',
-    detail:
-      'This is the last day of your grace period. Renew today and everything picks up where it left off; after today the next cycle starts from zero.',
+    // A FUNCTION, unlike the other three, because this is the only message
+    // where the customer is about to lose something irreversibly and the
+    // deadline is the entire point. "Today" and "soon" are useless to
+    // someone reading at 11pm in a timezone we did not pick — so this names
+    // the actual instant the bank is cleared, from their own graceUntil.
+    detail: ({ forfeitAt }) =>
+      forfeitAt
+        ? `This is the last day of your grace period. Renew before ${forfeitAt} and everything picks up where it left off. After that your unused replies are cleared and the next cycle starts from zero.`
+        : 'This is the last day of your grace period. Renew now and everything picks up where it left off; after it ends your unused replies are cleared and the next cycle starts from zero.',
   },
 };
+
+/**
+ * The forfeiture deadline, written out in full.
+ *
+ * IST, named explicitly. Most customers are in India, and an unlabelled
+ * time on a message about losing credits is worse than no time at all —
+ * a reader who assumes their own zone can be hours wrong in the direction
+ * that costs them the balance.
+ */
+function formatDeadline(date) {
+  if (!date) return null;
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })} IST`;
+}
 
 const templates = {
   passwordReset({ url, expiresInMinutes }) {
@@ -235,11 +266,18 @@ const templates = {
    * thousands separator is locale-dependent, and a subject line that renders
    * differently depending on the server's locale is not worth the polish.
    */
-  renewalReminder({ reminderType, unusedCredits = 0, checkoutUrl }) {
+  renewalReminder({ reminderType, unusedCredits = 0, checkoutUrl, forfeitAt = null }) {
     const stage = RENEWAL_STAGES[reminderType];
     if (!stage) {
       throw new Error(`templates.renewalReminder: unknown reminderType "${reminderType}"`);
     }
+
+    // GRACE_FINAL's detail is a function of the real deadline; the other
+    // three are plain strings.
+    const detail =
+      typeof stage.detail === 'function'
+        ? stage.detail({ forfeitAt: formatDeadline(forfeitAt) })
+        : stage.detail;
 
     const credits = Number.isFinite(unusedCredits) ? Math.max(0, unusedCredits) : 0;
     const noun = credits === 1 ? 'reply' : 'replies';
@@ -263,7 +301,7 @@ const templates = {
       subject,
       text:
         `${stage.lead}\n\n` +
-        `${stage.detail}\n\n` +
+        `${detail}\n\n` +
         creditsText +
         `Renew here:\n${checkoutUrl}\n\n` +
         `${RENEWAL_WHAT_STOPS_TEXT}\n\n` +
@@ -271,7 +309,7 @@ const templates = {
       html: wrap(
         stage.subjectLead,
         `<p style="margin:0;font-size:15px;line-height:1.5;">${stage.lead}</p>
-         <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">${stage.detail}</p>
+         <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">${detail}</p>
          ${creditsHtml}
          ${button(checkoutUrl, 'Renew my plan')}
          <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${RENEWAL_WHAT_STOPS_TEXT}</p>`

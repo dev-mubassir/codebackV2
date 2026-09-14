@@ -3,90 +3,77 @@
 /**
  * The upgrade conversion point.
  *
- * WHEN IT FIRES: the moment a Starter tenant's FIRST add-on payment lands.
- * Buying a top-up is the strongest signal available that the plan underneath
- * it is too small, and it is the one moment where the comparison is about
- * something the customer just did rather than something they might do.
+ * WHEN IT FIRES: for any Starter tenant, whenever the arithmetic supports
+ * something worth saying.
  *
- * WHERE THE NUMBER COMES FROM: proUpgradeSaving() in lib/pricing.js, which
- * is shared contract with the marketing page precisely so the two cannot
- * quote different savings for the same plans. Every amount in it is a
- * plan_prices row. Nothing here knows a price, and nothing here does
- * currency arithmetic.
+ * It used to fire on the tenant's FIRST add-on payment, on the theory that
+ * buying a top-up is the strongest available signal that the plan underneath
+ * is too small. The signal reading was right; the claim attached to it was
+ * not. At the prices then seeded, Starter plus one pack cost LESS than Pro,
+ * so "you would save X" was arithmetically false exactly when it fired.
  *
- * ---------------------------------------------------------------------
- * FLAGGED — READ BEFORE CHANGING THE TRIGGER
- * ---------------------------------------------------------------------
- * proUpgradeSaving() returns null when Pro is not actually cheaper, and at
- * the catalogue's current seeded prices that is the case for a tenant buying
- * ONE pack a cycle: Starter plus one pack costs less than Pro. The saving
- * only becomes real once a Starter tenant is buying several packs a cycle.
+ * The trigger is now the truth test itself — proUpgradeVerdict() in
+ * lib/pricing.js prices both sides from plan_prices at render time and
+ * returns which of two things may be said:
  *
- * So the trigger the brief specifies ("the moment they buy their first
- * add-on") and the arithmetic the prices produce do not agree, and this
- * component does NOT paper over that: it renders nothing rather than
- * printing a saving that is not true. `addonPacksPerCycle` below is the
- * tenant's REAL pack count for the current cycle, so when the number does
- * become real it is their number and not a hypothetical.
+ *   'saving'     Pro is strictly cheaper AND no worse on replies or
+ *                accounts. Savings language permitted, with their number.
+ *   'comparison' It is not cheaper for this tenant. Show the factual Pro
+ *                line — what it includes, what it costs — and NO savings
+ *                language of any kind.
  *
- * Resolving the disagreement is a pricing decision, not a frontend one —
- * either the Pro price moves, or the pitch at the first add-on changes from
- * "you would save" to a value comparison that is true at one pack. Flagged
- * and queued for the owner rather than decided here.
- * ---------------------------------------------------------------------
+ * That distinction is the whole point of this component. A comparison is an
+ * honest pitch; a saving that is not real is a false claim about money, on
+ * the page where the customer is deciding whether to trust us with a card.
+ *
+ * Nothing here knows a price or does currency arithmetic. Every amount comes
+ * from the shared module, which the marketing page also uses, so the two
+ * surfaces cannot quote different figures for the same plans.
  */
 
 import Icon from '@/app/components/Icon';
-import { proUpgradeSaving } from '@/lib/pricing';
+import { proUpgradeVerdict } from '@/lib/pricing';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
 
-/**
- * How many reply-credit packs this tenant has actually paid for in the
- * CURRENT cycle. Lifetime count would flatter the number for a long-standing
- * customer who bought one pack a year ago; the pitch is about what this
- * month costs them.
- */
-function packsThisCycle(orders, cycleStartedAt) {
-  if (!Array.isArray(orders) || !cycleStartedAt) return 1;
-  const since = new Date(cycleStartedAt).getTime();
-  const count = orders.filter(
-    (order) =>
-      order.status === 'PAID' &&
-      order.addonCode &&
-      order.addonCode !== 'extra_ig_account' &&
-      new Date(order.paidAt || order.createdAt).getTime() >= since
-  ).length;
-  // At least one: this only renders after a paid add-on exists, and a zero
-  // denominator would compare Pro against bare Starter, which is a different
-  // (and weaker) argument.
-  return Math.max(1, count);
-}
-
 export default function ProUpgradeCallout({ summary, plans, region, onUpgrade, onDismiss }) {
-  // Starter only, and only after a top-up has actually been paid for. An
-  // abandoned checkout is not a signal, which is why the server counts PAID
-  // add-on orders rather than orders.
+  // Starter only. Pro tenants have nothing to be upsold to, and a trial has
+  // not chosen a plan yet.
   if (summary.plan?.code !== 'STARTER') return null;
-  if (!summary.paidAddonOrders) return null;
 
-  const saving = proUpgradeSaving({
+  const verdict = proUpgradeVerdict({
     plans,
     region,
-    addonPacksPerCycle: packsThisCycle(summary.orders, summary.cycleStartedAt),
+    // Server-computed and cycle-scoped: a lifetime count would flatter the
+    // comparison for someone who bought packs months ago and none since.
+    replyCreditPacksThisCycle: summary.replyCreditPacksThisCycle ?? 0,
+    extraIgAccounts: summary.extraIgAccounts ?? 0,
   });
 
-  // See the flagged note above: no honest number, no claim.
-  if (!saving) return null;
+  // Catalogue is missing a price — say nothing rather than guess.
+  if (!verdict) return null;
+
+  const isSaving = verdict.kind === 'saving';
+
+  // The comparison variant is only worth the space once a tenant is actually
+  // buying add-ons. Showing "here is what Pro costs" to a bare-Starter tenant
+  // who has bought nothing is just an ad.
+  if (!isSaving && !summary.replyCreditPacksThisCycle && !summary.extraIgAccounts) return null;
+
+  const title = isSaving
+    ? billing.upsell.title(verdict.formatted)
+    : billing.upsell.comparisonTitle(verdict.pro.replies, verdict.pro.accounts, verdict.pro.formattedPrice);
 
   return (
-    <section className={styles.upsell} aria-label={billing.upsell.title(saving.formatted)}>
+    <section className={styles.upsell} aria-label={title}>
       <span className={styles.upsellIcon}>
         <Icon name="zap" size={22} />
       </span>
       <div className={styles.upsellBody}>
-        <div className={styles.upsellTitle}>{billing.upsell.title(saving.formatted)}</div>
-        <p className={styles.upsellText}>{billing.upsell.body}</p>
+        <div className={styles.upsellTitle}>{title}</div>
+        <p className={styles.upsellText}>
+          {isSaving ? billing.upsell.body : billing.upsell.comparisonBody}
+        </p>
         <div className={styles.upsellActions}>
           <button type="button" className="btn btn-primary" onClick={() => onUpgrade('PRO')}>
             {billing.upsell.button}

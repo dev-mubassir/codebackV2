@@ -27,7 +27,7 @@ const RENEWAL_QUOTA_TYPES = {
   DAY_27: 'renewalDay27',
   DAY_29: 'renewalDay29',
   EXPIRY: 'renewalExpiry',
-  GRACE_DAY_2: 'renewalGraceDay2',
+  GRACE_FINAL: 'renewalGraceFinal',
 };
 
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@mail.siffty.com';
@@ -299,7 +299,7 @@ module.exports = {
    * Splitting by type also means the per-recipient hourly throttle is counted
    * per stage, so a retry of one stage can never suppress a different one.
    */
-  sendRenewalReminder: (to, { reminderType, unusedCredits, checkoutUrl }) => {
+  sendRenewalReminder: (to, { reminderType, unusedCredits, checkoutUrl, forfeitAt = null }) => {
     const type = RENEWAL_QUOTA_TYPES[reminderType];
     // Fail loudly rather than defaulting to a deferrable type: a typo'd
     // reminderType that silently became deferrable would quietly downgrade the
@@ -307,7 +307,10 @@ module.exports = {
     if (!type) {
       throw new Error(`email.sendRenewalReminder: unknown reminderType "${reminderType}"`);
     }
-    return deliver(to, type, templates.renewalReminder({ reminderType, unusedCredits, checkoutUrl }));
+    // forfeitAt is the tenant's own graceUntil. Only GRACE_FINAL renders it,
+    // but it is passed for every stage so the sender has no per-stage special
+    // case to get wrong.
+    return deliver(to, type, templates.renewalReminder({ reminderType, unusedCredits, checkoutUrl, forfeitAt }));
   },
 
   sendDeletionConfirmation: (to, { igUsername, accountDeleted, confirmationCode, statusUrl }) =>
@@ -319,7 +322,7 @@ module.exports = {
 
   /**
    * Exposed so the renewal tests can assert the tiering contract directly —
-   * that EXPIRY and GRACE_DAY_2 land on quota types inside CRITICAL_TYPES —
+   * that EXPIRY and GRACE_FINAL land on quota types inside CRITICAL_TYPES —
    * instead of inferring it by exhausting the daily cap.
    */
   RENEWAL_QUOTA_TYPES,

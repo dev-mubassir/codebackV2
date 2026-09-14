@@ -122,31 +122,109 @@ export function usePricing({ initialRegion } = {}) {
 }
 
 /**
- * What a Starter tenant would save per cycle by moving to Pro, given they
- * are buying `addonPacksPerCycle` reply-credit packs on top of Starter.
+ * Is moving to Pro genuinely cheaper for this tenant RIGHT NOW?
  *
- * This is the number behind the upgrade pitch, and it lives here rather
- * than in the billing page so the marketing page can state the same figure
- * without recomputing it differently.
+ * Replaces an earlier "show the pitch on their first add-on purchase"
+ * trigger, which was a hardcoded threshold asserting something that was not
+ * arithmetically true: at the prices then seeded, three Starter packs bought
+ * the same 2,000 replies as Pro for LESS than Pro cost. The banner would
+ * have claimed a saving that did not exist.
  *
- * Returns null when the comparison cannot be made honestly — a missing
- * price row, or a case where Pro is not actually cheaper.
+ * So this computes the claim instead of assuming it. The banner may only say
+ * "you would save X" when, from PlanPrice at render time:
+ *
+ *   1. the cheapest Pro configuration matching or beating what this tenant
+ *      currently has costs STRICTLY LESS than what they are paying now, and
+ *   2. that Pro configuration delivers equal-or-better entitlements — never
+ *      a saving bought by quietly giving them fewer replies or fewer
+ *      accounts.
+ *
+ * Both sides are priced from the catalogue, so this stays true through any
+ * future price change. A threshold would silently start lying the next time
+ * a number moves.
+ *
+ * @returns {{kind:'saving', amount, formatted, currency, pro:{replies,accounts,formattedPrice}}
+ *          |{kind:'comparison', pro:{replies,accounts,formattedPrice}}
+ *          |null}
+ *   'saving'     — condition met; savings language is permitted.
+ *   'comparison' — condition NOT met; show the factual Pro line with NO
+ *                  savings language.
+ *   null         — the catalogue is missing a price, so say nothing at all
+ *                  rather than guess.
  */
-export function proUpgradeSaving({ plans, region, addonPacksPerCycle = 1 }) {
+export function proUpgradeVerdict({ plans, region, replyCreditPacksThisCycle = 0, extraIgAccounts = 0 }) {
   const starter = plans.find((p) => p.code === 'STARTER');
   const pro = plans.find((p) => p.code === 'PRO');
   if (!starter || !pro) return null;
 
   const starterPlan = priceFor(starter.prices, region);
   const proPlan = priceFor(pro.prices, region);
+  const starterPack = priceFor(starter.addons?.replyCredits?.[0]?.prices, region);
+  const proPack = priceFor(pro.addons?.replyCredits?.[0]?.prices, region);
+  const starterIg = priceFor(starter.addons?.extraIgAccount?.prices, region);
+  const proIg = priceFor(pro.addons?.extraIgAccount?.prices, region);
   if (!starterPlan || !proPlan) return null;
 
-  const starterPack = priceFor(starter.addons?.replyCredits?.[0]?.prices, region);
-  if (!starterPack) return null;
+  const packCredits = starter.addons?.replyCredits?.[0]?.creditAmount ?? 0;
+  const currency = proPlan.currency;
 
-  const starterTotal = starterPlan.amount + starterPack.amount * addonPacksPerCycle;
-  const saving = starterTotal - proPlan.amount;
-  if (saving <= 0) return null;
+  // The factual line about Pro ITSELF, used by the comparison branch: what
+  // the plan includes and what the plan costs, with no add-ons folded in.
+  const proLine = {
+    replies: pro.autoReplyCreditsPerCycle,
+    accounts: pro.igAccountLimit,
+    formattedPrice: formatPrice(proPlan.amount, currency),
+  };
 
-  return { amount: saving, currency: proPlan.currency, formatted: formatPrice(saving, proPlan.currency) };
+  // What the tenant is provisioned for, and paying, this cycle.
+  const currentReplies = (starter.autoReplyCreditsPerCycle ?? 0) + packCredits * replyCreditPacksThisCycle;
+  const currentAccounts = (starter.igAccountLimit ?? 0) + extraIgAccounts;
+
+  if (replyCreditPacksThisCycle > 0 && !starterPack) return { kind: 'comparison', pro: proLine };
+  if (extraIgAccounts > 0 && !starterIg) return { kind: 'comparison', pro: proLine };
+
+  const currentCost =
+    starterPlan.amount +
+    (starterPack?.amount ?? 0) * replyCreditPacksThisCycle +
+    (starterIg?.amount ?? 0) * extraIgAccounts;
+
+  // Cheapest Pro configuration that is NOT a downgrade: top up only where
+  // Pro's own allowance falls short of what they already have.
+  const replyShortfall = Math.max(0, currentReplies - (pro.autoReplyCreditsPerCycle ?? 0));
+  const packsNeeded = packCredits > 0 ? Math.ceil(replyShortfall / packCredits) : 0;
+  const accountShortfall = Math.max(0, currentAccounts - (pro.igAccountLimit ?? 0));
+
+  // If a shortfall exists but the add-on that would close it has no price,
+  // no honest Pro total can be computed.
+  if (packsNeeded > 0 && !proPack) return { kind: 'comparison', pro: proLine };
+  if (accountShortfall > 0 && !proIg) return { kind: 'comparison', pro: proLine };
+
+  const proCost =
+    proPlan.amount + (proPack?.amount ?? 0) * packsNeeded + (proIg?.amount ?? 0) * accountShortfall;
+
+  const proReplies = (pro.autoReplyCreditsPerCycle ?? 0) + packCredits * packsNeeded;
+  const proAccounts = (pro.igAccountLimit ?? 0) + accountShortfall;
+  const equalOrBetter = proReplies >= currentReplies && proAccounts >= currentAccounts;
+
+  if (proCost < currentCost && equalOrBetter) {
+    const amount = currentCost - proCost;
+    return {
+      kind: 'saving',
+      amount,
+      currency,
+      formatted: formatPrice(amount, currency),
+      // Describes the configuration that was actually PRICED, not bare Pro.
+      // When Pro needs a top-up to match what the tenant already has, the
+      // saving is computed from the topped-up total, so quoting bare Pro
+      // beside it would advertise fewer replies than the figure was based on
+      // — the same species of false claim this function exists to stop.
+      pro: {
+        replies: proReplies,
+        accounts: proAccounts,
+        formattedPrice: formatPrice(proCost, currency),
+      },
+    };
+  }
+
+  return { kind: 'comparison', pro: proLine };
 }

@@ -147,8 +147,20 @@ export const billing = {
    * concrete number rather than a hypothetical.
    */
   upsell: {
+    // Only ever rendered when proUpgradeVerdict() returns kind 'saving' —
+    // i.e. Pro is genuinely cheaper for this tenant AND no worse on replies
+    // or accounts. Never write savings language into the comparison strings
+    // below; the whole point of the split is that one claim is true and the
+    // other would not be.
     title: (saving) => `You would save ${saving} a month on Pro`,
-    body: 'You just topped up on Starter. Pro includes more replies to begin with, and its add-ons cost less, so the same month works out cheaper.',
+    body: 'Pro includes more replies to begin with, and its add-ons cost less, so the same month works out cheaper.',
+
+    // Shown when Pro is NOT cheaper for them. States what Pro is, and stops.
+    comparisonTitle: (replies, accounts, price) =>
+      `Pro: ${replies.toLocaleString('en-IN')} replies and ${accounts} accounts for ${price}`,
+    comparisonBody:
+      'Top-ups cost less on Pro, so it gets cheaper the more you use. At what you are buying now, Starter is still the better value.',
+
     button: 'Upgrade to Pro',
     dismiss: 'Not now',
   },

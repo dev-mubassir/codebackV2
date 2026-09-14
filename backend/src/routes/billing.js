@@ -81,6 +81,10 @@ router.get('/plans', async (req, res) => {
         autoReplyBankCap: plan.autoReplyBankCap,
         cycleLengthDays: plan.cycleLengthDays,
         purchasable: PURCHASABLE_PLAN_CODES.includes(plan.code),
+        // Quoted, not checked out. Carries real "from" prices so the card
+        // renders an amount from the catalogue, but must show a contact CTA
+        // rather than a buy button.
+        isQuoteOnly: plan.isQuoteOnly,
         prices: plan.prices.map(publicPrice),
         addons: {
           // Priced per PURCHASING plan tier — deliberately cheaper on Pro,
@@ -253,6 +257,26 @@ router.get('/summary', async (req, res) => {
       where: { tenantId, status: 'PAID', addonCode: { not: null } },
     });
 
+    // Reply-credit packs bought in THIS cycle specifically.
+    //
+    // The upgrade test compares the tenant's CURRENT cycle configuration
+    // against the cheapest Pro configuration that matches it, so a lifetime
+    // count is the wrong number — someone who bought four packs last quarter
+    // and none this month is not currently overpaying for anything. Excludes
+    // the recurring extra-IG-account add-on, which is counted separately via
+    // entitlement.extraIgAccounts because it persists across cycles rather
+    // than being consumed by one.
+    const replyCreditPacksThisCycle = entitlement?.cycleStartedAt
+      ? await prisma.order.count({
+          where: {
+            tenantId,
+            status: 'PAID',
+            addonCode: { not: null, notIn: [RECURRING_ADDON_CODE] },
+            paidAt: { gte: entitlement.cycleStartedAt },
+          },
+        })
+      : 0;
+
     return res.json({
       plan: plan
         ? {
@@ -263,6 +287,10 @@ router.get('/summary', async (req, res) => {
             autoReplyBankCap: plan.autoReplyBankCap,
             cycleLengthDays: plan.cycleLengthDays,
             purchasable: PURCHASABLE_PLAN_CODES.includes(plan.code),
+        // Quoted, not checked out. Carries real "from" prices so the card
+        // renders an amount from the catalogue, but must show a contact CTA
+        // rather than a buy button.
+        isQuoteOnly: plan.isQuoteOnly,
           }
         : null,
       status, // effective, derived from validUntil/graceUntil — never the stored column
@@ -296,6 +324,7 @@ router.get('/summary', async (req, res) => {
         validUntilByPlan,
       },
       paidAddonOrders,
+      replyCreditPacksThisCycle,
       orders,
     });
   } catch (error) {

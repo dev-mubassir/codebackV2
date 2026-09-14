@@ -19,7 +19,7 @@
  *                                       Instagram or be granted a trial
  *
  *                 renewalExpiry       — the plan expires TODAY; this and the
- *                 renewalGraceDay2      grace notice are the customer's last
+ *                 renewalGraceFinal      grace notice are the customer's last
  *                                       two chances to keep service running,
  *                                       and a day's delay means the grace
  *                                       window closes unannounced
@@ -58,7 +58,7 @@ const PER_RECIPIENT_MAX = 3;
  * digest per nightly run (never one per mismatch), so this can never be
  * the thing that exhausts the reserve a password reset needs.
  *
- * renewalExpiry / renewalGraceDay2: these are customer-facing, which makes
+ * renewalExpiry / renewalGraceFinal: these are customer-facing, which makes
  * them the first entries here that could in principle arrive in a burst —
  * so it is worth being explicit about why that cannot happen. Each one is
  * written to RenewalReminder BEFORE it is sent, under a unique constraint
@@ -76,7 +76,7 @@ const CRITICAL_TYPES = new Set([
   'verification',
   'billingReconciliationMismatch',
   'renewalExpiry',
-  'renewalGraceDay2',
+  'renewalGraceFinal',
 ]);
 
 function dailyCap() {
