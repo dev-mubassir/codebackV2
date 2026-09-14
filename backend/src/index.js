@@ -36,6 +36,7 @@ const billingRoutes = require('./routes/billing');
 const cashfreeWebhookRoutes = require('./routes/cashfreeWebhooks');
 
 const { setIO } = require('./lib/socket');
+const { assertMigrationsCurrent } = require('./lib/migrationGuard');
 const { startWorkers } = require('./jobs');
 const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
 
@@ -500,6 +501,20 @@ app.use('/api', settingsRoutes);
 // Start Server
 // ============================================
 const protocol = server instanceof https.Server ? 'https' : 'http';
+
+/**
+ * Schema check BEFORE the socket opens.
+ *
+ * Deploys are automatic on push to master; migrations are run by hand in the
+ * service shell (DEPLOYMENT-RUNBOOK PHASE 4). So new code routinely goes live
+ * before the schema catches up, and a Prisma Client that is ahead of its
+ * database breaks Instagram connect for every user while /health still
+ * answers 200. See lib/migrationGuard.js for the full mechanism.
+ *
+ * Nothing is listening until this passes, so a behind-schema deploy fails
+ * loudly at boot instead of quietly at signup.
+ */
+assertMigrationsCurrent().then(() => {
 server.listen(PORT, () => {
   console.log('');
   console.log('='.repeat(50));
@@ -511,6 +526,7 @@ server.listen(PORT, () => {
   console.log(`  OAuth start:   ${protocol}://local.codeback.test:${PORT}/auth/instagram`);
   console.log('='.repeat(50));
   console.log('');
+});
 });
 
 // ============================================
