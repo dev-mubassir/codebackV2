@@ -14,7 +14,7 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
-const { isBillingEnabled, isUsdPricingEnabled } = require('../lib/billingFlags');
+const { isBillingEnabled, isUsdPricingEnabled, isMetaApproved } = require('../lib/billingFlags');
 const { effectiveStatus, LIVE_STATUSES } = require('../services/entitlementService');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
@@ -106,6 +106,13 @@ router.get('/plans', async (req, res) => {
       currencies: regions.map((r) => (r === 'IN' ? 'INR' : 'USD')),
       regions,
       plans: payload,
+      // Client bootstrap for the PUBLIC marketing page, which has no session
+      // and therefore cannot read features off /auth/me. Carried here because
+      // the pricing section already fetches this endpoint — one round trip,
+      // and the flag still has exactly one home (the backend env).
+      features: {
+        metaApproved: isMetaApproved(),
+      },
     });
   } catch (error) {
     console.error('[Billing] Failed to load the plan catalogue:', error.message);

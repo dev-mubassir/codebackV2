@@ -471,6 +471,48 @@ export const marketing = {
       },
     ],
   },
+  /**
+   * Pricing section. Every AMOUNT comes from /api/billing/plans — nothing
+   * here is a number, on purpose, so a price change is a database UPDATE
+   * rather than a redeploy.
+   */
+  pricing: {
+    title: 'Pricing',
+    subtitle: 'One payment, thirty days. Stop whenever you like.',
+
+    // The anti-autopay promise. In the Indian market this is a genuine
+    // selling point rather than fine print, so it is given real weight on
+    // the page — and it is TRUE of the implementation: there is no mandate,
+    // no Subscriptions API, and no stored instrument. Only one-time orders.
+    noMandateTitle: 'No auto-debit. No mandate.',
+    noMandateBody: 'Pay only when you want to continue. Nothing renews on its own, and nothing is ever charged without you choosing it.',
+
+    recommended: 'Recommended',
+    perCycle: (days) => `/ ${days} days`,
+    contactCta: 'Talk to us',
+    fromPrefix: 'From',
+    startCta: 'Start free trial',
+    addonsLabel: 'Add-ons',
+
+    /**
+     * TRUST BADGE — read before editing.
+     *
+     * Text only. There is deliberately NO Meta or Instagram logo here:
+     * their brand guidelines prohibit uses that imply endorsement or
+     * partnership, and a logo on a pricing page reads exactly that way.
+     *
+     * The phrase "Meta Verified" must NEVER appear — that is the name of
+     * Meta's paid blue-check subscription product, which this company does
+     * not have. Using it would be a false claim about a real product.
+     *
+     * The second half is gated on META_APPROVED and only appears once App
+     * Review approval has actually landed, because until then it is not
+     * ours to say.
+     */
+    badgeVerified: 'Meta Business Verified',
+    badgeGraphApi: 'Built on the official Instagram Graph API',
+  },
+
   footer: {
     privacy: 'Privacy policy',
     terms: 'Terms of service',

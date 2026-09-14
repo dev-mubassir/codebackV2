@@ -117,6 +117,13 @@ export function usePricing({ initialRegion } = {}) {
     availableRegions,
     /** True only when there is a real choice to offer — one currency needs no toggle. */
     showCurrencyToggle: availableRegions.length > 1,
+    /**
+     * Server-reported flags for the PUBLIC marketing page, which has no
+     * session and so cannot read them from /auth/me. Sourced from the same
+     * backend environment as everything else — never a NEXT_PUBLIC_ mirror
+     * that could be set differently and make a claim we have not earned.
+     */
+    metaApproved: Boolean(catalogue?.features?.metaApproved),
     currency: region === REGION_IN ? 'INR' : 'USD',
   };
 }

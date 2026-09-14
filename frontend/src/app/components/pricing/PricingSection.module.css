@@ -1,0 +1,119 @@
+/* Marketing pricing section. Card visuals live in PlanCard.module.css —
+   this file is only the section around them. */
+
+.section {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 80px 24px;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 32px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  margin: 0 0 32px;
+  font-size: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.toggle {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin: 0 auto 32px;
+  padding: 4px;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  width: fit-content;
+}
+
+.toggleButton {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.toggleActive {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+
+/* The anti-autopay promise. Deliberately NOT styled as fine print: with no
+   autopay doing the work, this is the strongest thing the page says, and in
+   the Indian market it is a selling point rather than a disclaimer. */
+.noMandate {
+  margin: 40px auto 0;
+  max-width: 640px;
+  text-align: center;
+  padding: 24px;
+  background: var(--color-success-subtle);
+  border: 1px solid var(--color-success);
+  border-radius: 12px;
+}
+
+.noMandateTitle {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-success-text);
+}
+
+.noMandateBody {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-success-text);
+}
+
+/* Text only — no Meta or Instagram imagery, ever. See PricingSection.js. */
+.badge {
+  margin: 24px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.badgeDot {
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .section {
+    padding: 56px 16px;
+  }
+  .title {
+    font-size: 26px;
+  }
+}

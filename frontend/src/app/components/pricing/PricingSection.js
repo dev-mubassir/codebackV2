@@ -1,58 +1,129 @@
 'use client';
 
 /**
- * Marketing pricing section. STUB — Gate 6 implements the body.
+ * The marketing pricing section.
  *
- * Created by Wave 0 so Gate 6 has its own file to write in and never needs
- * to touch shared contract code. Gate 6 owns this file and may add siblings
- * beside it; it renders into the homepage (src/app/page.js), which Gate 6
- * also owns.
+ * Renders from GET /api/billing/plans through the shared usePricing() hook,
+ * using the shared <PlanCard> — the same component the in-app billing page
+ * uses. That sharing is the point: the two surfaces a customer compares
+ * before paying cannot show different numbers for the same plan, because
+ * there is only one card and one source of prices.
  *
- * ---------------------------------------------------------------------
- * WHAT GATE 6 BUILDS HERE
- * ---------------------------------------------------------------------
- * Three cards — Starter / Pro / Enterprise — rendered with the SHARED
- * <PlanCard>, not a second card implementation. Pro is marked recommended.
- * Currency toggle defaults to the IP/timezone-hinted region and only
- * appears when the API actually offers more than one currency
- * (usePricing().showCurrencyToggle).
+ * NOTHING HERE IS A NUMBER. Every amount is a plan_prices row, so changing a
+ * price is an UPDATE and a refresh, never a redeploy.
  *
- * Add-on prices show under each card. The Starter-vs-Pro add-on gap is the
- * pull toward upgrading, so it has to be visible on both cards at once —
- * <PlanCard> already renders them.
- *
- * Prominent copy, with real visual weight (a selling point in the Indian
- * market, not a footnote):
- *   "No auto-debit. No mandate. Pay only when you want to continue."
- *
- * TRUST BADGE — build it exactly as specified, and read this before
- * touching it:
- *   - Text only. NO Meta or Instagram logo files. Their brand guidelines
- *     prohibit uses that imply endorsement or partnership, and a logo on a
- *     pricing page reads exactly that way.
- *   - NEVER the phrase "Meta Verified". That is the name of Meta's paid
- *     blue-check subscription product, which this company does not have.
- *     Using it would be a false claim about a real product.
- *   - The text is: "Meta Business Verified · Built on the official
- *     Instagram Graph API"
- *   - Gate the "Built on the official Instagram Graph API" half behind
- *     META_APPROVED (isMetaApproved(), default false) so it only appears
- *     once App Review approval has actually landed. Until then, render the
- *     first half alone.
- *
- * ENTERPRISE PRICE — FLAGGED, DO NOT GUESS. The instruction says the card
- * reads "From ₹4,999/mo · Contact us", but there is no ENTERPRISE row in
- * plan_prices, and hardcoding an amount here contradicts the zero-
- * hardcoded-prices rule. This is queued as an open decision for the owner:
- * either seed an Enterprise "from" price into the catalogue, or render
- * "Contact us" with no number. Do not pick one silently.
- *
- * Prices come from usePricing() — never hardcode an amount.
- * ---------------------------------------------------------------------
+ * Renders nothing at all while BILLING_ENABLED is off: /api/billing/plans
+ * 404s, the hook surfaces an error, and the homepage is unchanged. That is
+ * the intended pre-launch state — the section appears when the flag flips,
+ * with no code change.
  */
 
+import { usePricing, priceFor, formatPrice, REGION_IN, REGION_INTL } from '@/lib/pricing';
+import PlanCard from './PlanCard';
+import { marketing } from '@/content/copy';
+import styles from './PricingSection.module.css';
+
+/**
+ * The trust badge.
+ *
+ * Text only, by deliberate decision — see the note on marketing.pricing in
+ * content/copy.js. No Meta or Instagram imagery, and never the phrase "Meta
+ * Verified", which names a paid Meta product this company does not have.
+ *
+ * The Graph API half is gated on META_APPROVED and appears only once App
+ * Review approval has landed. The flag reaches the browser the same way the
+ * billing flag does — reported by the server, never mirrored into a
+ * NEXT_PUBLIC_ variable that could disagree with it.
+ */
+function TrustBadge({ metaApproved }) {
+  return (
+    <p className={styles.badge}>
+      <span>{marketing.pricing.badgeVerified}</span>
+      {metaApproved && (
+        <>
+          <span aria-hidden="true" className={styles.badgeDot}>·</span>
+          <span>{marketing.pricing.badgeGraphApi}</span>
+        </>
+      )}
+    </p>
+  );
+}
+
 export default function PricingSection() {
-  // Gate 6 implements. Rendering nothing keeps the homepage unchanged until
-  // then, so this stub can be merged safely.
-  return null;
+  const { loading, error, plans, region, setRegion, availableRegions, showCurrencyToggle, metaApproved } =
+    usePricing();
+
+  // Billing is dark, or pricing could not load. Say nothing rather than
+  // render an empty shell on the landing page.
+  if (loading || error || plans.length === 0) return null;
+
+  return (
+    <section className={styles.section} id="pricing">
+      <h2 className={styles.title}>{marketing.pricing.title}</h2>
+      <p className={styles.subtitle}>{marketing.pricing.subtitle}</p>
+
+      {/* Only shown when the API actually offers more than one currency —
+          a toggle with one option is furniture. */}
+      {showCurrencyToggle && (
+        <div className={styles.toggle} role="group" aria-label="Currency">
+          {availableRegions.map((r) => (
+            <button
+              key={r}
+              type="button"
+              className={`${styles.toggleButton} ${region === r ? styles.toggleActive : ''}`}
+              aria-pressed={region === r}
+              onClick={() => setRegion(r)}
+            >
+              {r === REGION_IN ? 'INR ₹' : 'USD $'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className={styles.grid}>
+        {plans.map((plan) => {
+          const price = priceFor(plan.prices, region);
+          const isQuoteOnly = plan.isQuoteOnly;
+
+          return (
+            <PlanCard
+              key={plan.code}
+              plan={plan}
+              region={region}
+              recommended={plan.code === 'PRO'}
+              // A quote-only tier still shows a real "from" figure, because
+              // the catalogue has one — but it is prefixed, so it reads as a
+              // starting point rather than a checkout price.
+              priceOverride={
+                isQuoteOnly && price
+                  ? `${marketing.pricing.fromPrefix} ${formatPrice(price.amount, price.currency)}`
+                  : null
+              }
+              action={
+                isQuoteOnly ? (
+                  <a className="btn btn-secondary" href="/support">
+                    {marketing.pricing.contactCta}
+                  </a>
+                ) : (
+                  <a className="btn btn-primary" href="/register">
+                    {marketing.pricing.startCta}
+                  </a>
+                )
+              }
+            />
+          );
+        })}
+      </div>
+
+      {/* Given real visual weight, not treated as fine print: with no autopay
+          doing the work, "we will never charge you without you asking" is the
+          strongest thing this page says. */}
+      <div className={styles.noMandate}>
+        <p className={styles.noMandateTitle}>{marketing.pricing.noMandateTitle}</p>
+        <p className={styles.noMandateBody}>{marketing.pricing.noMandateBody}</p>
+      </div>
+
+      <TrustBadge metaApproved={metaApproved} />
+    </section>
+  );
 }
