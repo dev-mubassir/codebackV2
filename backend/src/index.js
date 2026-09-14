@@ -463,6 +463,16 @@ app.use('/data-deletion', dataDeletionRoutes);
 // Admin panel routes (must be mounted before /api)
 app.use('/api/admin', adminRoutes);
 
+// Billing checkout (must be mounted before /api, same reason as admin above
+// — apiRoutes' own blanket requireAuth would otherwise intercept every
+// /api/billing/* request with a 401 before it ever reached billingRoutes'
+// BILLING_ENABLED gate, turning "disabled feature, 404" into "exists, log
+// in". Confirmed by hand while building this route — every OTHER /api/*
+// sub-router below this point has the exact same latent shadowing, it's
+// just invisible there because both routers happen to demand the same
+// auth and return the same 401.
+app.use('/api/billing', billingRoutes);
+
 // API routes (conversations, messages, AI analysis, reply generation, reply)
 app.use('/api', apiRoutes);
 
@@ -485,9 +495,6 @@ app.use('/api/notifications', notificationRoutes);
 // Creator AI preferences and business profile / onboarding
 app.use('/api/settings', settingsRoutes);
 app.use('/api', settingsRoutes);
-
-// Billing checkout — 404s while BILLING_ENABLED is false (routes/billing.js)
-app.use('/api/billing', billingRoutes);
 
 // ============================================
 // Start Server

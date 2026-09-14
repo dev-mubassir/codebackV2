@@ -16,12 +16,15 @@ const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { BILLING_ENABLED } = require('../lib/billingFlags');
 
-router.use(requireAuth);
-
+// BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
+// would still leak "this route exists and requires login", which is more
+// signal than a disabled feature should give. 404 regardless of auth state.
 router.use((req, res, next) => {
   if (!BILLING_ENABLED) return res.status(404).json({ error: 'Not found' });
   next();
 });
+
+router.use(requireAuth);
 
 const PURCHASABLE_PLAN_CODES = ['STARTER', 'PRO']; // TRIAL is granted by Instagram connect, never purchased; ENTERPRISE has no self-serve checkout
 const RECURRING_ADDON_CODE = 'extra_ig_account';
