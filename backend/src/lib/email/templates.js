@@ -37,6 +37,67 @@ function button(url, label) {
     <p style="margin:0;font-size:13px;word-break:break-all;color:#374151;">${url}</p>`;
 }
 
+/**
+ * What actually happens at expiry, in one place so all four renewal stages
+ * tell the identical story.
+ *
+ * These sentences are not marketing — they are a description of what the code
+ * does, and they have to stay true to it. canAutoReply() refuses anything past
+ * validUntil (GRACE is deliberately excluded), while classificationGateReason()
+ * keeps going through GRACE — so auto-replies stop ON the expiry date and
+ * classification survives the grace window. Nothing is ever deleted, and the
+ * account is never locked; see jobs/trialJob.js's note on why locking someone
+ * out of their own customer conversations to sell them a plan is hostile.
+ *
+ * If entitlementService's rules change, this paragraph is a lie until it is
+ * changed with them.
+ */
+const RENEWAL_WHAT_STOPS_TEXT =
+  'When a plan expires, automatic replies stop. AI classification keeps running through the three-day grace period, ' +
+  'and your inbox stays readable the whole time — nothing is deleted and you are never locked out of your account.';
+
+/**
+ * The four stages of the renewal sequence.
+ *
+ * "Renewing early loses you nothing" is stated on the two pre-expiry stages
+ * because it is TRUE and it removes the only rational reason to wait:
+ * grantPlan() anchors a warm renewal to the existing validUntil, not to today
+ * (see its RENEWAL DATE MATH note), so renewing three days early still buys a
+ * full cycle. Without that sentence the day-27 nudge is asking someone to
+ * donate three days.
+ *
+ * GRACE_DAY_2 is the last message in the sequence — there is no day-3 notice,
+ * because a message arriving as the grace window closes cannot be acted on.
+ * It says "last day" rather than naming an hour: the window it is sent in
+ * spans a full day, so any more precise claim would be wrong for most of it.
+ */
+const RENEWAL_STAGES = {
+  DAY_27: {
+    subjectLead: 'Your Siffty plan expires in 3 days',
+    lead: 'Your Siffty plan expires in three days.',
+    detail:
+      'Renewing now extends from your current expiry date, not from today, so renewing early costs you nothing.',
+  },
+  DAY_29: {
+    subjectLead: 'Your Siffty plan expires tomorrow',
+    lead: 'Your Siffty plan expires tomorrow.',
+    detail:
+      'Renewing now extends from your current expiry date, not from today, so you keep the day you have left.',
+  },
+  EXPIRY: {
+    subjectLead: 'Your Siffty plan expires today',
+    lead: 'Your Siffty plan expires today, and automatic replies stop when it does.',
+    detail:
+      'You have three days of grace after that to renew without losing anything. Renewing during it extends from today, so the cycle you paid for is not cut short.',
+  },
+  GRACE_DAY_2: {
+    subjectLead: 'Your Siffty plan has expired',
+    lead: 'Your Siffty plan has expired and automatic replies have stopped.',
+    detail:
+      'This is the last day of your grace period. Renew today and everything picks up where it left off; after today the next cycle starts from zero.',
+  },
+};
+
 const templates = {
   passwordReset({ url, expiresInMinutes }) {
     return {
@@ -147,6 +208,73 @@ const templates = {
         `<p style="margin:0;font-size:15px;line-height:1.5;">Nightly billing reconciliation checked ${checked} pending order(s) and found ${mismatches.length} paid at Cashfree but not reflected in our database — a webhook was dropped for each.</p>
          <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${rowsHtml}</ul>
          <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">"healed: yes" means the plan/add-on was granted automatically during this run. "NO" means it was not — check the server logs for that order immediately.</p>`
+      ),
+    };
+  },
+
+  /**
+   * The paid renewal sequence (jobs/renewalReminderJob.js) — day 27, day 29,
+   * expiry day, grace day 2. One template, four stages, because every stage
+   * says the same thing with a different amount of urgency; splitting it into
+   * four templates would mean four places to fix the same wording.
+   *
+   * WHY THE SUBJECT CARRIES A NUMBER. There is no autopay on this product, so
+   * every renewal is a decision someone has to actively make. Unused reply
+   * credits are the only lever in the box that is both concrete and already
+   * theirs — "you have 340 unused replies waiting" is a loss they can picture,
+   * where "your plan expires soon" is an errand. The count therefore goes in
+   * the SUBJECT, not buried in the body, because most of these are never
+   * opened.
+   *
+   * ZERO CREDITS IS A SEPARATE CASE, not a formatting edge. "You have 0 unused
+   * replies waiting" advertises that renewing recovers nothing, which is worse
+   * than saying nothing at all — so the clause is dropped entirely and the
+   * subject falls back to the plain expiry statement.
+   *
+   * The count is printed as bare digits rather than toLocaleString(): a
+   * thousands separator is locale-dependent, and a subject line that renders
+   * differently depending on the server's locale is not worth the polish.
+   */
+  renewalReminder({ reminderType, unusedCredits = 0, checkoutUrl }) {
+    const stage = RENEWAL_STAGES[reminderType];
+    if (!stage) {
+      throw new Error(`templates.renewalReminder: unknown reminderType "${reminderType}"`);
+    }
+
+    const credits = Number.isFinite(unusedCredits) ? Math.max(0, unusedCredits) : 0;
+    const noun = credits === 1 ? 'reply' : 'replies';
+    // No trailing period — every other subject in this file is a fragment.
+    const subject = credits > 0
+      ? `${stage.subjectLead} — you have ${credits} unused ${noun} waiting`
+      : stage.subjectLead;
+
+    // Stated only when there is something to carry over. The cap is described
+    // rather than quoted: the real number is Plan.autoReplyBankCap, and
+    // promising a specific figure here would be a second copy of it to get
+    // wrong (see entitlementService.computeBankRollover — excess IS discarded).
+    const creditsText = credits > 0
+      ? `You have ${credits} unused ${noun}. Renew before the grace period ends and they carry over into your next cycle, up to your plan's limit. After that the balance is cleared and the new cycle starts from zero.\n\n`
+      : '';
+    const creditsHtml = credits > 0
+      ? `<p style="margin:12px 0 0;font-size:15px;line-height:1.5;">You have <strong>${credits} unused ${noun}</strong>. Renew before the grace period ends and they carry over into your next cycle, up to your plan's limit. After that the balance is cleared and the new cycle starts from zero.</p>`
+      : '';
+
+    return {
+      subject,
+      text:
+        `${stage.lead}\n\n` +
+        `${stage.detail}\n\n` +
+        creditsText +
+        `Renew here:\n${checkoutUrl}\n\n` +
+        `${RENEWAL_WHAT_STOPS_TEXT}\n\n` +
+        `Siffty · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        stage.subjectLead,
+        `<p style="margin:0;font-size:15px;line-height:1.5;">${stage.lead}</p>
+         <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">${stage.detail}</p>
+         ${creditsHtml}
+         ${button(checkoutUrl, 'Renew my plan')}
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${RENEWAL_WHAT_STOPS_TEXT}</p>`
       ),
     };
   },
