@@ -512,7 +512,13 @@ async function callAIWithFailover({ prompt, isJson = true, timeout = 14000 }) {
   const chain = getProviderChain();
 
   if (chain.length === 0) {
-    throw new Error('No AI provider keys configured in backend/.env');
+    // Tagged so callers can tell "we never made a network call" from "we
+    // called providers and they all failed". The billing layer charges a
+    // classification for the second and not the first — see
+    // analyzeConversation's `billable` flag.
+    const err = new Error('No AI provider keys configured in backend/.env');
+    err.code = 'NO_PROVIDERS_CONFIGURED';
+    throw err;
   }
 
   let lastError = null;
@@ -567,6 +573,10 @@ async function analyzeConversation({
       priorityScore: 0,
       priority: 'low',
       failed: false,
+      // No provider was called — nothing was spent, so the billing layer
+      // must not charge the tenant a classification for this. See the
+      // `billable` note on the AI-call path below.
+      billable: false,
     };
   }
 
@@ -582,6 +592,7 @@ async function analyzeConversation({
       priorityScore: scored.score,
       priority: scored.priority,
       failed: false,
+      billable: false, // keyword pre-filter answered it for free
     };
   }
 
@@ -677,6 +688,10 @@ Return ONLY valid JSON in this exact shape:
       priorityScore: scored.score,
       priority: scored.priority,
       failed: false,
+      // A provider was actually called and charged us. `billable` — not
+      // `!failed` — is what the billing layer counts, because a call that
+      // returns unparseable output still costs money (see the catch below).
+      billable: true,
       rawResponse: json,
     };
   } catch (error) {
@@ -705,6 +720,11 @@ Return ONLY valid JSON in this exact shape:
       model: null,
       provider: null,
       failed: true,
+      // Every provider in the chain was tried and failed — we were very
+      // likely still billed for those attempts, so this counts. The one
+      // exception is a chain that was empty to begin with (no keys
+      // configured): no network call happened, so nothing is charged.
+      billable: error.code !== 'NO_PROVIDERS_CONFIGURED',
       errorMessage: error.message,
     };
     const scored = computePriorityScore(fallback, preferences);

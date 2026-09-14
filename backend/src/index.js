@@ -168,7 +168,7 @@ if (isProduction && !(process.env.RESEND_API_KEY || '').trim()) {
 // backend (blocking Instagram DMs) over a missing billing credential would
 // be disproportionate; a boot-time warning is enough to catch a
 // misconfigured deploy before a customer hits it.
-if (require('./lib/billingFlags').BILLING_ENABLED) {
+if (require('./lib/billingFlags').isBillingEnabled()) {
   if (!(process.env.CASHFREE_APP_ID || '').trim() || !(process.env.CASHFREE_SECRET_KEY || '').trim()) {
     console.warn('[Server] WARNING: BILLING_ENABLED is true but CASHFREE_APP_ID/CASHFREE_SECRET_KEY are not fully set —');
     console.warn('[Server]          checkout and webhook signature verification will fail at request time.');

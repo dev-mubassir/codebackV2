@@ -21,7 +21,7 @@ const express = require('express');
 const router = express.Router();
 const { verifyWebhookSignature } = require('../lib/cashfree');
 const { fulfillPaidOrder } = require('../services/billingFulfillment');
-const { BILLING_ENABLED } = require('../lib/billingFlags');
+const { isBillingEnabled } = require('../lib/billingFlags');
 
 router.post('/', async (req, res) => {
   // Same posture as billing checkout: while billing is dark, this endpoint
@@ -29,7 +29,7 @@ router.post('/', async (req, res) => {
   // is no checkout flow to have generated one, but Cashfree's dashboard
   // could still be misconfigured to point here). 404, not 401/403 — no
   // signal that the endpoint means anything.
-  if (!BILLING_ENABLED) {
+  if (!isBillingEnabled()) {
     return res.status(404).send('Not found');
   }
 

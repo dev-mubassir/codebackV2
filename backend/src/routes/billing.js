@@ -14,13 +14,13 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
-const { BILLING_ENABLED } = require('../lib/billingFlags');
+const { isBillingEnabled } = require('../lib/billingFlags');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
 // would still leak "this route exists and requires login", which is more
 // signal than a disabled feature should give. 404 regardless of auth state.
 router.use((req, res, next) => {
-  if (!BILLING_ENABLED) return res.status(404).json({ error: 'Not found' });
+  if (!isBillingEnabled()) return res.status(404).json({ error: 'Not found' });
   next();
 });
 

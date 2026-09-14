@@ -48,6 +48,12 @@ class InMemoryJobQueue {
     const jobId = opts.jobId || `${jobName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Idempotency: if a caller reuses the same jobId, don't enqueue twice.
+    //
+    // NOTE for delayed re-enqueues: this set is never cleared, so a caller
+    // that wants the SAME logical work to run again later must vary the
+    // jobId (see jobs/index.js's throttle requeue, which suffixes the
+    // attempt number). Re-adding a used jobId is silently dropped, which
+    // would otherwise lose the message entirely.
     if (opts.jobId && this._seenJobIds.has(opts.jobId)) {
       return Promise.resolve({ id: jobId, deduped: true });
     }
@@ -61,6 +67,19 @@ class InMemoryJobQueue {
       maxAttempts: opts.attempts || 3,
       backoffMs: opts.backoffMs || 3000,
     };
+
+    // delayMs defers the FIRST run (distinct from backoffMs, which spaces
+    // out retries after a failure). Held in a timer, so it does not survive
+    // a restart — same best-effort property the rest of this queue already
+    // has when REDIS_URL is unset.
+    if (opts.delayMs > 0) {
+      const timer = setTimeout(() => {
+        this._pending.push(job);
+        this._drain();
+      }, opts.delayMs);
+      if (typeof timer.unref === 'function') timer.unref();
+      return Promise.resolve({ id: jobId, delayed: true });
+    }
 
     this._pending.push(job);
     setImmediate(() => this._drain());
@@ -126,6 +145,9 @@ function buildRedisJobSystem(name) {
         removeOnComplete: 500,
         removeOnFail: 500,
         jobId: opts.jobId,
+        // Defers the first run. BullMQ persists delayed jobs in Redis, so
+        // unlike the in-process fallback these DO survive a restart.
+        ...(opts.delayMs > 0 ? { delay: opts.delayMs } : {}),
       });
     },
     registerProcessor(processorFn, workerOpts = {}) {

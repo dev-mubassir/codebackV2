@@ -1,23 +1,39 @@
 /**
- * Kill switch for the entire billing feature.
+ * Kill switches for the billing feature.
  *
- * Defaults to false — per the feat/billing brief, nothing about billing may
- * become visible or reachable until this is explicitly set in the
- * environment, because Meta App Review is in progress and a reviewer's test
- * account must see a product with no billing surface at all.
+ * Exported as FUNCTIONS, not constants, and each one reads process.env at
+ * call time. Two reasons:
  *
- * Read once at module load, same convention as webhook.js's `isProduction`
- * — flipping it is an env var change on Northflank, which redeploys/
- * restarts the process anyway, so there is no hot-reload requirement here.
+ *   1. A kill switch that is captured once at module load cannot actually
+ *      be flipped — it needs a process restart, which is the opposite of
+ *      what a kill switch is for.
+ *   2. Enforcement points (the message hot path, the checkout routes, the
+ *      webhook) are untestable otherwise: the flag would be frozen false
+ *      at import time, before any test could set it, so every enforcement
+ *      test would silently assert the disabled path.
  *
- * Checked at the TOP of every billing-adjacent route handler (not just at
- * mount time), and the disabled response is a plain 404 — never 403 —
- * so a disabled route gives no signal that billing exists at all.
+ * The env lookup is a property read on an object that is already in memory.
+ * It is not worth caching.
  */
-const BILLING_ENABLED = process.env.BILLING_ENABLED === 'true';
 
-/** META_APPROVED gates the "official Instagram Graph API" half of the Gate 6 trust badge. Also defaults false. */
-const META_APPROVED = process.env.META_APPROVED === 'true';
+/**
+ * Master switch for the entire billing feature. Defaults to false — per the
+ * feat/billing brief, nothing about billing may become visible or reachable
+ * until this is explicitly set, because Meta App Review is in progress and a
+ * reviewer's test account must see a product with no billing surface at all.
+ *
+ * Checked at the TOP of every billing-adjacent route handler and at every
+ * enforcement point, and the disabled HTTP response is a plain 404 — never
+ * 403 — so a disabled route gives no signal that billing exists.
+ */
+function isBillingEnabled() {
+  return process.env.BILLING_ENABLED === 'true';
+}
+
+/** Gates the "official Instagram Graph API" half of the Gate 6 trust badge. Defaults false. */
+function isMetaApproved() {
+  return process.env.META_APPROVED === 'true';
+}
 
 /**
  * Gates USD plan VISIBILITY only — a currency toggle, not a pricing
@@ -25,6 +41,8 @@ const META_APPROVED = process.env.META_APPROVED === 'true';
  * this flag's value, so flipping it on is a plain env var change, never a
  * migration or a backfill.
  */
-const USD_PRICING_ENABLED = process.env.USD_PRICING_ENABLED === 'true';
+function isUsdPricingEnabled() {
+  return process.env.USD_PRICING_ENABLED === 'true';
+}
 
-module.exports = { BILLING_ENABLED, META_APPROVED, USD_PRICING_ENABLED };
+module.exports = { isBillingEnabled, isMetaApproved, isUsdPricingEnabled };

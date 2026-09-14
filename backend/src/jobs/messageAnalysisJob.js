@@ -19,7 +19,8 @@
  */
 
 const prisma = require('../lib/prisma');
-const { hasActiveEntitlement } = require('../lib/igIdentity');
+const entitlementService = require('../services/entitlementService');
+const { isBillingEnabled } = require('../lib/billingFlags');
 const { handleMetaError } = require('../lib/tokenHealth');
 const aiService = require('../services/aiService');
 const { getOrCreatePreferences } = require('../services/preferencesService');
@@ -40,6 +41,15 @@ const AUTO_REPLY_CLAIM_TTL_MS = 2 * 60 * 1000;
 // A message left 'processing' for longer than this had its worker die
 // mid-flight (or the in-process queue lost the job on restart).
 const STALLED_ANALYSIS_MS = 15 * 60 * 1000;
+
+// How a message blocked ONLY by the hourly classification throttle is
+// retried. The throttle window is one hour, so 7 attempts at 10 minutes
+// covers a full window with room to spare — after that the tenant is not
+// merely bursty and re-queueing forever would just move the backlog into
+// the queue. Delayed classification is acceptable; a silently dropped DM
+// is not.
+const THROTTLE_REQUEUE_DELAY_MS = 10 * 60 * 1000;
+const MAX_THROTTLE_REQUEUES = 7;
 
 /**
  * The reply mode actually in force for a tenant.
@@ -212,17 +222,55 @@ async function processMessageAnalysis(job) {
   // -analysis sweeper does not keep retrying it forever, and so an operator
   // can tell "not entitled" from "the model errored".
   //
-  // TEMP (pre-Meta-review): trial entitlement gate disabled. Restore before
-  // re-enabling paid tiers. See igIdentity.js hasActiveEntitlement().
   // This is also a spend control: without it, an expired tenant's inbound DMs
   // keep costing Gemini calls indefinitely.
-  // if (!(await hasActiveEntitlement(userId))) {
-  //   await prisma.message
-  //     .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
-  //     .catch(() => {});
-  //   console.log(`[messageAnalysisJob] Skipped ${messageId}: no active entitlement for user ${userId}.`);
-  //   return;
-  // }
+  //
+  // Gated on BILLING_ENABLED: while billing is dark (Meta App Review), every
+  // tenant classifies freely, exactly as they did before this gate returned.
+  if (isBillingEnabled()) {
+    const gate = await entitlementService.classificationGateReason(userId);
+
+    if (gate === 'hourly_throttle') {
+      // The ONE reason that is not a drop: the hourly window clears by
+      // itself, so this is re-queued with a delay instead of skipped.
+      // Every other reason is durable until a plan or cycle changes, where
+      // retrying in ten minutes could not possibly help.
+      //
+      // The message stays 'pending' and fully visible in the inbox the
+      // whole time — only the AI enrichment waits.
+      const attempt = (job.data.throttleAttempt || 0) + 1;
+
+      if (attempt <= MAX_THROTTLE_REQUEUES) {
+        // Lazily required: jobs/index.js requires THIS module at load, so a
+        // top-level require here would be circular and resolve to {}.
+        const { enqueueMessageAnalysis } = require('./index');
+        await enqueueMessageAnalysis(messageId, {
+          delayMs: THROTTLE_REQUEUE_DELAY_MS,
+          throttleAttempt: attempt,
+        });
+        console.log(
+          `[messageAnalysisJob] ${messageId} hourly-throttled for user ${userId} — re-queued (attempt ${attempt}/${MAX_THROTTLE_REQUEUES}).`
+        );
+        return;
+      }
+
+      await prisma.message
+        .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
+        .catch(() => {});
+      console.warn(
+        `[messageAnalysisJob] Skipped ${messageId}: still hourly-throttled after ${MAX_THROTTLE_REQUEUES} re-queues.`
+      );
+      return;
+    }
+
+    if (gate !== 'ok') {
+      await prisma.message
+        .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
+        .catch(() => {});
+      console.log(`[messageAnalysisJob] Skipped ${messageId}: ${gate} for user ${userId}.`);
+      return;
+    }
+  }
 
   await prisma.message.update({ where: { id: message.id }, data: { aiStatus: 'processing' } }).catch(() => {});
 
@@ -243,6 +291,25 @@ async function processMessageAnalysis(job) {
       businessProfile,
       preferences,
     });
+
+    // Count the classification the moment the call returns, BEFORE the
+    // writes below — the spend already happened whether or not we manage
+    // to persist the result.
+    //
+    // The test is `billable`, not `!failed`: a provider call that returned
+    // unparseable output still cost money and counts, while the textless
+    // and keyword-prefilter short-circuits never touched a provider and
+    // must not be charged to the tenant. Idempotent on
+    // (tenantId, messageId, CLASSIFY), so the queue's own retries and the
+    // Gemini->xAI->OpenAI failover all resolve to exactly one count.
+    //
+    // A bookkeeping failure is logged, never thrown: re-running the job
+    // would re-run the AI call and spend MORE than the count we lost.
+    if (isBillingEnabled() && analysis.billable) {
+      await entitlementService.recordClassification(userId, message.id).catch((err) => {
+        console.error(`[messageAnalysisJob] Could not record classification for ${messageId}:`, err.message);
+      });
+    }
 
     const previousPriority = conversation.priority;
     const previousCategory = conversation.category;
@@ -391,7 +458,18 @@ async function processMessageAnalysis(job) {
     const modeAllowsAutoSend = autoReplyMode === 'smart';
     const isAutoReplyActive = modeAllowsAutoSend && conversation.autoReplyEnabled !== false;
 
-    if (isAutoReplyActive && message.direction === 'inbound') {
+    // Reply credits are checked HERE rather than inside maybeAutoReply, so
+    // an exhausted tenant never pays for the generateReply() call that
+    // would otherwise run before anyone noticed there was nothing to spend.
+    // Classification above already ran and is unaffected — on expiry,
+    // auto-reply stops while classification keeps going.
+    const hasReplyBudget = !isBillingEnabled() || (await entitlementService.canAutoReply(userId));
+
+    if (isAutoReplyActive && message.direction === 'inbound' && !hasReplyBudget) {
+      console.log(`[messageAnalysisJob] Auto-reply withheld for ${messageId}: no reply credits or not entitled.`);
+    }
+
+    if (isAutoReplyActive && message.direction === 'inbound' && hasReplyBudget) {
       await maybeAutoReply({
         conversation,
         contact: conversation.contact,
@@ -616,6 +694,28 @@ async function maybeAutoReply({
       // the account as healthy.
       await handleMetaError(apiErr, instagramAccount.id).catch(() => {});
       return;
+    }
+
+    // Stage 6.5: Debit the reply credit — ONLY here.
+    //
+    // This is the first line reached after the DM has actually left for
+    // Instagram, and that is the only moment the customer received what
+    // they are paying for. Every earlier exit (mode gate, risk checks,
+    // acknowledgment guard, 24-hour window, generation failure, send
+    // failure) returns above this point and costs nothing.
+    //
+    // Spending AFTER the send means a send that succeeds can never fail to
+    // be charged for a reason the customer would notice; the opposite order
+    // would let a debited credit vanish with an undelivered reply. If the
+    // balance raced to zero between canAutoReply() and here, the DM is
+    // already gone — log it and let it go rather than un-sending.
+    if (isBillingEnabled()) {
+      const spend = await entitlementService.spendReplyCredit(userId);
+      if (!spend.ok) {
+        console.warn(
+          `[AutoReply] Sent a reply on conversation ${conversation.id} but could not debit a credit — balance raced to empty.`
+        );
+      }
     }
 
     // Stage 7: Save outbound message to DB
