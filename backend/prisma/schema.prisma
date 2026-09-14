@@ -71,7 +71,6 @@ model User {
   notifications     Notification[]
   authTokens        AuthToken[]
   authIdentities    AuthIdentity[]
-  subscription      Subscription?
   entitlement       Entitlement?
 
   @@map("users")
@@ -550,12 +549,6 @@ enum OAuthPurpose {
   INSTAGRAM_CONNECT
 }
 
-enum SubscriptionStatus {
-  NONE // default — no entitlement. Nothing can grant a trial by accident.
-  TRIALING
-  TRIAL_EXPIRED
-}
-
 enum DeletionRequestStatus {
   RECEIVED
   PROCESSING
@@ -732,33 +725,6 @@ model WebhookDelivery {
 }
 
 // ============================================
-// Trial-only subscription. No billing until after Meta approval.
-//
-// status defaults to NONE, and that is the safety property: creating a row
-// cannot accidentally grant a trial. TRIALING is only ever reached by the
-// explicit grant in the Instagram connect transaction, which in the same
-// transaction stamps InstagramIdentity.trialConsumedAt. A trial without that
-// stamp is the bug that makes the ledger pointless.
-//
-// Deliberately NO plan reference, no provider ids, no price fields — those
-// return with billing, not before.
-// ============================================
-model Subscription {
-  id             String             @id @default(uuid())
-  userId         String             @unique @map("user_id")
-  status         SubscriptionStatus @default(NONE)
-  trialStartedAt DateTime?          @map("trial_started_at")
-  trialEndsAt    DateTime?          @map("trial_ends_at")
-  createdAt      DateTime           @default(now()) @map("created_at")
-  updatedAt      DateTime           @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([status, trialEndsAt])
-  @@map("subscriptions")
-}
-
-// ============================================
 // BILLING — plan catalogue, per-region pricing, one-time orders, and the
 // credit/quota ledger for the feat/billing work. Inert on its own: nothing
 // reads or writes these tables until the entitlement service (Gate 2) and
@@ -777,6 +743,7 @@ model Subscription {
 // ============================================
 
 enum EntitlementStatus {
+  NONE // default — no entitlement. Carried over from Subscription's own safety property: creating a row cannot accidentally grant one.
   TRIALING
   ACTIVE
   GRACE
@@ -799,18 +766,38 @@ enum OrderStatus {
 
 // ============================================
 // One row per tenant — the live quota/expiry state the entitlement service
-// (Gate 2) reads and writes on every classification/auto-reply attempt.
+// (Gate 2, src/services/entitlementService.js) reads and writes on every
+// classification/auto-reply attempt. Cascade-deletes with the user, same as
+// the trial-only Subscription model it replaces — this is OPERATIONAL
+// state, not a financial record (contrast Order/CreditLedger below), and
+// there is no ongoing entitlement to enforce for a deleted account.
 //
-// This is OPERATIONAL state, not a financial record, so unlike Order and
-// CreditLedger below it DOES cascade-delete with the user, matching
-// Subscription's existing behavior today (see PRIVACY_NOTES.md "Retention
-// 2": there is no ongoing entitlement to enforce for a deleted account).
-// Gate 2 decides how this relates to the existing trial-only Subscription
-// model — flagged in the Gate 0 report, not resolved by this migration.
+// EXTENDS SUBSCRIPTION — Subscription (status/trialStartedAt/trialEndsAt)
+// has been folded in here rather than kept as a second per-tenant row:
+//   Subscription.status         -> status (NONE/TRIALING as-is; TRIAL_EXPIRED -> EXPIRED)
+//   Subscription.trialStartedAt -> cycleStartedAt (a trial IS a cycle — a free
+//                                  3-day one; Plan.cycleLengthDays=3 for TRIAL)
+//   Subscription.trialEndsAt    -> validUntil
+// See migration 20260914_merge_subscription_into_entitlement for the
+// data backfill. status still defaults to NONE — that is the safety
+// property Subscription had: creating a row cannot accidentally grant
+// anything. planCode/billingRegion/currency are nullable for exactly that
+// NONE state and for TRIALING, which locks neither region nor currency
+// (only a real payment does, per the region-lock requirement).
+//
+// EFFECTIVE STATUS IS LAZY, same philosophy hasActiveEntitlement() already
+// used for trial expiry: validUntil/graceUntil are the source of truth, and
+// the entitlement service derives TRIALING/ACTIVE -> GRACE -> EXPIRED from
+// them at read time rather than trusting the stored `status` column, which
+// only a periodic sweep (Gate 4) eventually catches up to. graceUntil is
+// set at grant time (validUntil + 3 days) for paid plans and left NULL for
+// TRIAL — a trial has no grace stage, so the same lazy computation that
+// derives GRACE for a paid plan falls straight through to EXPIRED for one.
 //
 // replyCreditsBanked = unspent credits rolled over from PRIOR cycles,
 // capped at the plan's bank cap when the cycle rolls.
-// replyCreditsCurrent = unspent credits granted THIS cycle.
+// replyCreditsCurrent = unspent credits granted THIS cycle (plan grant +
+// any consumable add-on top-ups bought during it).
 // FIFO spend drains banked (older) before current (newer). CreditLedger
 // below is the append-only trail of every change to either number.
 // ============================================
@@ -818,13 +805,13 @@ model Entitlement {
   id     String @id @default(uuid())
   userId String @unique @map("user_id")
 
-  planCode      String            @map("plan_code") // Plan.code — TRIAL, STARTER, PRO, ENTERPRISE
-  billingRegion String            @map("billing_region") // locked at first successful payment — IN | INTL
-  currency      String // locked together with billingRegion — INR | USD
-  status        EntitlementStatus @default(TRIALING)
+  planCode      String?           @map("plan_code") // Plan.code — TRIAL, STARTER, PRO, ENTERPRISE; null until a trial/plan is granted
+  billingRegion String?           @map("billing_region") // locked at first successful payment — IN | INTL; null pre-payment
+  currency      String? // locked together with billingRegion — INR | USD; null pre-payment
+  status        EntitlementStatus @default(NONE) // NONE default is deliberate — see the model note above
 
   validUntil DateTime? @map("valid_until")
-  graceUntil DateTime? @map("grace_until") // validUntil + 3 days; renewing inside this window preserves the bank
+  graceUntil DateTime? @map("grace_until") // validUntil + 3 days for paid plans; NULL for TRIAL (no grace stage)
 
   replyCreditsCurrent Int @default(0) @map("reply_credits_current")
   replyCreditsBanked  Int @default(0) @map("reply_credits_banked")

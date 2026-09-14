@@ -88,19 +88,20 @@ describe('P2 — the trial grant invariant', () => {
     expect(result.ok).toBe(true);
     expect(result.trialGranted).toBe(true);
 
-    const subscription = await prisma.subscription.findUnique({ where: { userId: user.id } });
+    const entitlement = await prisma.entitlement.findUnique({ where: { userId: user.id } });
     const identity = await prisma.instagramIdentity.findUnique({
       where: { igUserIdHash: igIdentity.hashIgUserId(igUserId) },
     });
 
-    expect(subscription.status).toBe('TRIALING');
+    expect(entitlement.status).toBe('TRIALING');
+    expect(entitlement.planCode).toBe('TRIAL');
     expect(
       identity.trialConsumedAt,
       'a trial without a ledger stamp is the bug that makes the ledger pointless'
     ).not.toBeNull();
 
     // 3 days, no card.
-    const days = (subscription.trialEndsAt - subscription.trialStartedAt) / (24 * 60 * 60 * 1000);
+    const days = (entitlement.validUntil - entitlement.cycleStartedAt) / (24 * 60 * 60 * 1000);
     expect(Math.round(days)).toBe(3);
   });
 
@@ -119,7 +120,7 @@ describe('P2 — the trial grant invariant', () => {
     // They delete their entire account — cascading away everything that
     // relates to them.
     await prisma.user.delete({ where: { id: first.user.id } });
-    expect(await prisma.subscription.findMany({})).toHaveLength(0);
+    expect(await prisma.entitlement.findMany({})).toHaveLength(0);
 
     // The ledger row must have SURVIVED. This is the whole design.
     const ledger = await prisma.instagramIdentity.findMany({});
@@ -140,8 +141,8 @@ describe('P2 — the trial grant invariant', () => {
     expect(secondClaim.ok, 'they may still connect').toBe(true);
     expect(secondClaim.trialGranted, 'but they must NOT get another trial').toBe(false);
 
-    const sub = await prisma.subscription.findUnique({ where: { userId: second.user.id } });
-    expect(sub, 'no trialing subscription should exist for the second user').toBeNull();
+    const entitlement = await prisma.entitlement.findUnique({ where: { userId: second.user.id } });
+    expect(entitlement, 'no trialing entitlement should exist for the second user').toBeNull();
   });
 
   it('an UNVERIFIED email gets no trial, but may still connect', async () => {
@@ -209,19 +210,19 @@ describe('P2 — legitimate reconnection is idempotent', () => {
       igUserId: uniq('ig-one'),
       emailVerified: true,
     });
-    const before = await prisma.subscription.findUnique({ where: { userId: user.id } });
+    const before = await prisma.entitlement.findUnique({ where: { userId: user.id } });
 
     await igIdentity.claimInstagramIdentity({
       userId: user.id,
       igUserId: uniq('ig-two'),
       emailVerified: true,
     });
-    const after = await prisma.subscription.findUnique({ where: { userId: user.id } });
+    const after = await prisma.entitlement.findUnique({ where: { userId: user.id } });
 
     expect(
-      after.trialEndsAt.getTime(),
+      after.validUntil.getTime(),
       'a second account must not extend the trial clock'
-    ).toBe(before.trialEndsAt.getTime());
+    ).toBe(before.validUntil.getTime());
   });
 });
 
@@ -261,8 +262,8 @@ describe('P2 — an actively linked account is refused', () => {
 
     expect(result.ok).toBe(false);
     expect(result.reason).toBe('blocked');
-    const sub = await prisma.subscription.findUnique({ where: { userId: user.id } });
-    expect(sub, 'a blocked identity must not receive a trial').toBeNull();
+    const entitlement = await prisma.entitlement.findUnique({ where: { userId: user.id } });
+    expect(entitlement, 'a blocked identity must not receive a trial').toBeNull();
   });
 });
 
@@ -274,9 +275,9 @@ describe('P2 — entitlement drives AI processing, not access', () => {
 
   it('a trial past its end date is NOT entitled, even before the sweeper runs', async () => {
     const { user } = await createUser({ withTrial: true });
-    await prisma.subscription.update({
+    await prisma.entitlement.update({
       where: { userId: user.id },
-      data: { trialEndsAt: new Date(Date.now() - 1000) },
+      data: { validUntil: new Date(Date.now() - 1000) },
     });
 
     expect(
@@ -285,22 +286,22 @@ describe('P2 — entitlement drives AI processing, not access', () => {
     ).toBe(false);
   });
 
-  it('a user with no subscription at all is not entitled', async () => {
+  it('a user with no entitlement at all is not entitled', async () => {
     const { user } = await createUser({ withTrial: false });
     expect(await igIdentity.hasActiveEntitlement(user.id)).toBe(false);
   });
 
-  it('the trial job flips TRIALING to TRIAL_EXPIRED exactly once', async () => {
+  it('the trial job flips TRIALING to EXPIRED exactly once', async () => {
     const { expireFinishedTrials } = require('../src/jobs/trialJob.js');
     const { user } = await createUser({ withTrial: true });
-    await prisma.subscription.update({
+    await prisma.entitlement.update({
       where: { userId: user.id },
-      data: { trialEndsAt: new Date(Date.now() - 1000) },
+      data: { validUntil: new Date(Date.now() - 1000) },
     });
 
     expect(await expireFinishedTrials()).toBe(1);
-    const after = await prisma.subscription.findUnique({ where: { userId: user.id } });
-    expect(after.status).toBe('TRIAL_EXPIRED');
+    const after = await prisma.entitlement.findUnique({ where: { userId: user.id } });
+    expect(after.status).toBe('EXPIRED');
 
     // A second sweep must be a no-op, or every run re-emails the user.
     expect(await expireFinishedTrials()).toBe(0);

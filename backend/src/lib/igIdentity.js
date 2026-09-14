@@ -28,6 +28,17 @@ const prisma = require('./prisma');
 
 const TRIAL_DAYS = 3;
 
+/**
+ * Auto-reply credits granted at trial start. The trial is classification-only
+ * by current spec (0) — a single constant so that changes later (a small
+ * taste of auto-reply during the trial) is one number, not a hunt through
+ * the grant transaction. Also seeds billing_plans.auto_reply_credits_per_cycle
+ * for the TRIAL row (see the plan-catalogue seed migration) — kept in code,
+ * not just in that seed data, since this is the value the grant transaction
+ * itself writes, independent of whatever the Plan row currently says.
+ */
+const TRIAL_AUTO_REPLY_CREDITS = 0;
+
 /** How long a pseudonymised ledger row is retained. See PRIVACY_NOTES.md. */
 const LEDGER_RETENTION_MONTHS = 24;
 
@@ -64,7 +75,7 @@ function purgeAfterDate(from = new Date()) {
  * Returns one of:
  *   { ok: false, reason: 'blocked' }
  *   { ok: false, reason: 'connected_elsewhere', ownerUserId, conversationCount }
- *   { ok: true, trialGranted: boolean, identity, subscription }
+ *   { ok: true, trialGranted: boolean, identity, entitlement }
  *
  * @param {object} args
  * @param {string} args.userId          the Codeback user connecting the account
@@ -114,27 +125,42 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
     // Reconnecting the SAME account must be idempotent: no error, and no
     // second trial. trialConsumedAt is what makes that true, and it is
     // stamped exactly once, ever.
+    //
+    // Grants into Entitlement directly (planCode 'TRIAL', cycleStartedAt +
+    // validUntil) rather than through entitlementService.grantPlan — that
+    // function's renewal math (rolling a bank, extending from a prior
+    // validUntil) does not apply to a first-ever trial grant, and a trial
+    // is not a Plan a tenant "purchases". See schema.prisma's Entitlement
+    // comment for the full Subscription -> Entitlement field mapping.
     const alreadyConsumed = Boolean(identity.trialConsumedAt);
-    let subscription = await tx.subscription.findUnique({ where: { userId } });
+    let entitlement = await tx.entitlement.findUnique({ where: { userId } });
     let trialGranted = false;
 
     if (!alreadyConsumed && emailVerified) {
       const now = new Date();
-      subscription = await tx.subscription.upsert({
+      entitlement = await tx.entitlement.upsert({
         where: { userId },
         create: {
           userId,
+          planCode: 'TRIAL',
           status: 'TRIALING',
-          trialStartedAt: now,
-          trialEndsAt: trialEndDate(now),
+          cycleStartedAt: now,
+          validUntil: trialEndDate(now),
+          replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
         },
         update: {
-          // Only lift a subscription that has never been anything. Someone
-          // already TRIALING or TRIAL_EXPIRED must not be reset by connecting
-          // a second Instagram account.
-          ...(subscription && subscription.status !== 'NONE'
+          // Only lift an entitlement that has never been anything. Someone
+          // already TRIALING/ACTIVE/GRACE/EXPIRED must not be reset by
+          // connecting a second Instagram account.
+          ...(entitlement && entitlement.status !== 'NONE'
             ? {}
-            : { status: 'TRIALING', trialStartedAt: now, trialEndsAt: trialEndDate(now) }),
+            : {
+                planCode: 'TRIAL',
+                status: 'TRIALING',
+                cycleStartedAt: now,
+                validUntil: trialEndDate(now),
+                replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
+              }),
         },
       });
 
@@ -153,25 +179,33 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
       data: { linkCount: { increment: 1 }, purgeAfter: purgeAfterDate() },
     });
 
-    return { ok: true, trialGranted, identity, subscription };
+    return { ok: true, trialGranted, identity, entitlement };
   });
 }
 
 /**
  * Is this user entitled to AI processing right now?
  *
+ * TRIAL-ONLY CHECK, kept for the existing (currently commented-out, see
+ * FINDINGS.md / Gate 0) call site in messageAnalysisJob.js and for the
+ * tests that predate billing. It deliberately does NOT recognize ACTIVE/
+ * GRACE — a paying tenant would read as "not entitled" here. Gate 4 swaps
+ * that call site over to entitlementService.canClassify(), which handles
+ * every status; this function should be considered superseded by it and
+ * not extended further.
+ *
  * On expiry, auto-reply and classification stop. The inbox stays readable and
  * the account is NOT locked — a user who cannot log in cannot pay you later.
  */
 async function hasActiveEntitlement(userId) {
-  const subscription = await prisma.subscription.findUnique({
+  const entitlement = await prisma.entitlement.findUnique({
     where: { userId },
-    select: { status: true, trialEndsAt: true },
+    select: { status: true, validUntil: true },
   });
 
-  if (!subscription) return false;
-  if (subscription.status !== 'TRIALING') return false;
-  if (subscription.trialEndsAt && subscription.trialEndsAt.getTime() <= Date.now()) {
+  if (!entitlement) return false;
+  if (entitlement.status !== 'TRIALING') return false;
+  if (entitlement.validUntil && entitlement.validUntil.getTime() <= Date.now()) {
     // Expired but the sweeper has not run yet. Treat as expired immediately
     // rather than granting a grace period the schedule happens to create.
     return false;
@@ -181,6 +215,7 @@ async function hasActiveEntitlement(userId) {
 
 module.exports = {
   TRIAL_DAYS,
+  TRIAL_AUTO_REPLY_CREDITS,
   LEDGER_RETENTION_MONTHS,
   hashIgUserId,
   claimInstagramIdentity,

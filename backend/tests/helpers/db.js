@@ -22,7 +22,7 @@ export async function resetDb() {
   // whether a given test created a user at all.
   await prisma.authToken.deleteMany({});
   await prisma.authIdentity.deleteMany({});
-  await prisma.subscription.deleteMany({});
+  await prisma.entitlement.deleteMany({});
   // No relation to User by design — these survive account deletion, so
   // nothing else clears them.
   await prisma.instagramIdentity.deleteMany({});
@@ -92,11 +92,12 @@ export async function createUser({
       preferences: { create: {} },
       ...(withTrial
         ? {
-            subscription: {
+            entitlement: {
               create: {
+                planCode: 'TRIAL',
                 status: 'TRIALING',
-                trialStartedAt: new Date(),
-                trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+                cycleStartedAt: new Date(),
+                validUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
               },
             },
           }
@@ -108,17 +109,18 @@ export async function createUser({
 
 /** Force a user's trial into the expired state, for entitlement tests. */
 export async function expireTrial(userId) {
-  return prisma.subscription.upsert({
+  return prisma.entitlement.upsert({
     where: { userId },
     create: {
       userId,
-      status: 'TRIAL_EXPIRED',
-      trialStartedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
-      trialEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      planCode: 'TRIAL',
+      status: 'EXPIRED',
+      cycleStartedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+      validUntil: new Date(Date.now() - 24 * 60 * 60 * 1000),
     },
     update: {
-      status: 'TRIAL_EXPIRED',
-      trialEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      status: 'EXPIRED',
+      validUntil: new Date(Date.now() - 24 * 60 * 60 * 1000),
     },
   });
 }

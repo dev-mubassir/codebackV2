@@ -139,11 +139,12 @@ describe('auto-reply with no business profile', () => {
         // An ACTIVE trial. AI classification is gated on entitlement, so
         // without this the job would skip before reaching the auto-reply gate
         // and the test would pass for entirely the wrong reason.
-        subscription: {
+        entitlement: {
           create: {
+            planCode: 'TRIAL',
             status: 'TRIALING',
-            trialStartedAt: new Date(),
-            trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+            cycleStartedAt: new Date(),
+            validUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
           },
         },
         ...(withProfile
