@@ -25,6 +25,17 @@ export async function resetDb() {
   await prisma.entitlement.deleteMany({});
   // No relation to User by design — these survive account deletion, so
   // nothing else clears them.
+  //
+  // The billing three (orders, credit_ledger, renewal_reminders) are in this
+  // group for the same reason InstagramIdentity is: they deliberately carry a
+  // plain tenantId with no foreign key, so deleting a User cascades nothing
+  // here. Without these lines a tenantId reused across test files would
+  // inherit the previous file's ledger rows and reminder history — and
+  // renewal_reminders in particular is an idempotency guard, so a stale row
+  // silently suppresses the send a later test is asserting.
+  await prisma.renewalReminder.deleteMany({});
+  await prisma.creditLedger.deleteMany({});
+  await prisma.order.deleteMany({});
   await prisma.instagramIdentity.deleteMany({});
   await prisma.oAuthNonce.deleteMany({});
   await prisma.deletionRequest.deleteMany({});

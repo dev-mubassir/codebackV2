@@ -401,6 +401,11 @@ async function rollCycle(tenantId) {
 
 module.exports = {
   GRACE_PERIOD_MS,
+  // Exported because routes/billing.js needs the SAME list to tell a
+  // customer the date their renewal will actually land on. A second copy
+  // that drifted would make the billing page promise a date grantPlan()
+  // does not produce.
+  LIVE_STATUSES,
   effectiveStatus,
   getEntitlement,
   canClassify,

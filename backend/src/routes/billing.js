@@ -15,7 +15,7 @@ const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { isBillingEnabled, isUsdPricingEnabled } = require('../lib/billingFlags');
-const { effectiveStatus } = require('../services/entitlementService');
+const { effectiveStatus, LIVE_STATUSES } = require('../services/entitlementService');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
 // would still leak "this route exists and requires login", which is more
@@ -131,15 +131,13 @@ const ORDER_HISTORY_LIMIT = 50;
  * The statuses grantPlan() treats as a WARM renewal — the ones where the
  * existing validUntil is still the right anchor for the next cycle.
  *
- * Mirrors entitlementService's own LIVE_STATUSES, which it does not export.
- * It has to match exactly: this list is the only reason the page can promise
- * "renewing early never loses days" and name the actual resulting date. If
- * the two ever drift, the page states a date the grant will not produce,
- * which is worse than showing nothing. Exporting LIVE_STATUSES from
- * entitlementService would remove the duplication — flagged and queued
- * rather than edited, since that file belongs to another gate.
+ * Imported from entitlementService rather than copied. It has to match
+ * exactly: this list is the only reason the page can promise "renewing early
+ * never loses days" and name the actual resulting date. A second copy that
+ * drifted would make the page state a date the grant will not produce, which
+ * is worse than showing nothing at all.
  */
-const WARM_RENEWAL_STATUSES = ['TRIALING', 'ACTIVE', 'GRACE'];
+const WARM_RENEWAL_STATUSES = LIVE_STATUSES;
 
 /** Whole days from now until `date`, rounded UP, never negative. Null for a missing date. */
 function daysUntil(date, now) {
