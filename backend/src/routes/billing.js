@@ -14,7 +14,7 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
-const { isBillingEnabled } = require('../lib/billingFlags');
+const { isBillingEnabled, isUsdPricingEnabled } = require('../lib/billingFlags');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
 // would still leak "this route exists and requires login", which is more
@@ -24,10 +24,92 @@ router.use((req, res, next) => {
   next();
 });
 
-router.use(requireAuth);
-
 const PURCHASABLE_PLAN_CODES = ['STARTER', 'PRO']; // TRIAL is granted by Instagram connect, never purchased; ENTERPRISE has no self-serve checkout
 const RECURRING_ADDON_CODE = 'extra_ig_account';
+
+/**
+ * GET /api/billing/plans — the public pricing catalogue.
+ *
+ * UNAUTHENTICATED on purpose: the marketing homepage renders from this,
+ * and a visitor has no session. Declared ABOVE `router.use(requireAuth)`
+ * for that reason — order is load-bearing here. It is still behind the
+ * BILLING_ENABLED gate above, so nothing about pricing is reachable while
+ * billing is dark.
+ *
+ * This is the single source of prices for BOTH the app billing page
+ * (Gate 5) and the marketing pricing section (Gate 6). Neither may
+ * hardcode an amount; changing a price is an UPDATE on plan_prices with no
+ * redeploy, which is the whole point of the catalogue living in the
+ * database.
+ *
+ * DELIBERATELY NOT EXPOSED: classificationCapCycle and
+ * classificationThrottlePerHour. Classification limits are enforced in code
+ * but are an internal ceiling — they are never advertised as a number on a
+ * customer-facing page, so they must not leak through the API that renders
+ * those pages either.
+ *
+ * USD_PRICING_ENABLED decides which CURRENCIES are exposed, not which rows
+ * exist: the USD/INTL PlanPrice rows stay in the database either way, so
+ * turning international pricing on is a flag flip, never a migration.
+ */
+router.get('/plans', async (req, res) => {
+  try {
+    const regions = isUsdPricingEnabled() ? ['IN', 'INTL'] : ['IN'];
+
+    const [plans, packs, extraIgPrices] = await Promise.all([
+      prisma.plan.findMany({
+        where: { isActive: true },
+        include: { prices: { where: { billingRegion: { in: regions } } } },
+      }),
+      prisma.addonPack.findMany({
+        where: { isActive: true },
+        include: { prices: { where: { billingRegion: { in: regions } } } },
+      }),
+      prisma.extraIgAccountPrice.findMany({ where: { billingRegion: { in: regions } } }),
+    ]);
+
+    const publicPrice = (p) => ({ billingRegion: p.billingRegion, currency: p.currency, amount: p.amount });
+
+    const payload = plans
+      .filter((plan) => plan.code !== 'TRIAL') // granted by connecting Instagram, never purchased
+      .map((plan) => ({
+        code: plan.code,
+        name: plan.name,
+        igAccountLimit: plan.igAccountLimit,
+        autoReplyCreditsPerCycle: plan.autoReplyCreditsPerCycle,
+        autoReplyBankCap: plan.autoReplyBankCap,
+        cycleLengthDays: plan.cycleLengthDays,
+        purchasable: PURCHASABLE_PLAN_CODES.includes(plan.code),
+        prices: plan.prices.map(publicPrice),
+        addons: {
+          // Priced per PURCHASING plan tier — deliberately cheaper on Pro,
+          // which is the gap the upgrade pitch is built on, so both pages
+          // need the per-tier number rather than one global add-on price.
+          replyCredits: packs.map((pack) => ({
+            code: pack.code,
+            creditAmount: pack.creditAmount,
+            prices: pack.prices.filter((p) => p.planCode === plan.code).map(publicPrice),
+          })),
+          extraIgAccount: {
+            code: RECURRING_ADDON_CODE,
+            prices: extraIgPrices.filter((p) => p.planCode === plan.code).map(publicPrice),
+          },
+        },
+      }));
+
+    return res.json({
+      currencies: regions.map((r) => (r === 'IN' ? 'INR' : 'USD')),
+      regions,
+      plans: payload,
+    });
+  } catch (error) {
+    console.error('[Billing] Failed to load the plan catalogue:', error.message);
+    return res.status(500).json({ error: "Couldn't load pricing. Try again." });
+  }
+});
+
+// Everything BELOW this line requires a session. /plans above is public.
+router.use(requireAuth);
 
 function frontendUrl() {
   return (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
