@@ -136,15 +136,22 @@ describe('auto-reply with no business profile', () => {
         passwordHash: await bcrypt.hash('correct-horse-1', 4),
         onboardingCompleted: true,
         preferences: { create: {} },
-        // An ACTIVE trial. AI classification is gated on entitlement, so
-        // without this the job would skip before reaching the auto-reply gate
-        // and the test would pass for entirely the wrong reason.
+        // An ACTIVE trial, CARRYING CREDITS. AI classification is gated on
+        // entitlement, so without the trial the job would skip before reaching
+        // the auto-reply gate and the test would pass for entirely the wrong
+        // reason. The credits close the mirror-image hole: the positive case
+        // below asserts that a `smart` tenant DOES send, and a tenant with an
+        // empty wallet sends nothing either — so without a stated balance that
+        // assertion could fail while the gate itself is perfectly healthy.
+        // Stated here rather than inherited from TRIAL_AUTO_REPLY_CREDITS so
+        // that tuning the trial allowance cannot quietly break this file.
         entitlement: {
           create: {
             planCode: 'TRIAL',
             status: 'TRIALING',
             cycleStartedAt: new Date(),
             validUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+            replyCreditsCurrent: 500,
           },
         },
         ...(withProfile

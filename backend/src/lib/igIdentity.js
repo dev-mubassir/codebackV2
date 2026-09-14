@@ -29,15 +29,25 @@ const prisma = require('./prisma');
 const TRIAL_DAYS = 3;
 
 /**
- * Auto-reply credits granted at trial start. The trial is classification-only
- * by current spec (0) — a single constant so that changes later (a small
- * taste of auto-reply during the trial) is one number, not a hunt through
- * the grant transaction. Also seeds billing_plans.auto_reply_credits_per_cycle
- * for the TRIAL row (see the plan-catalogue seed migration) — kept in code,
- * not just in that seed data, since this is the value the grant transaction
- * itself writes, independent of whatever the Plan row currently says.
+ * Auto-reply credits granted at trial start.
+ *
+ * A deliberate taste of the paid feature, not a full allowance. This was 0 —
+ * classification-only — which made the trial demonstrate the half of the
+ * product nobody is buying: it sorted the inbox and then refused to answer
+ * anything. 25 is enough to watch real replies go out on real conversations
+ * and still run out well before it substitutes for a plan.
+ *
+ * Abuse is bounded elsewhere, not by this number: trialConsumedAt is recorded
+ * per Instagram IDENTITY, so a second account or a fresh email does not earn a
+ * second trial. That is what makes raising this safe.
+ *
+ * Also seeds billing_plans.auto_reply_credits_per_cycle and _bank_cap for the
+ * TRIAL row — kept in code, not just in the seed data, since this is the value
+ * the grant transaction itself writes regardless of what the Plan row says.
+ * The two are kept in step by migration 20260914154500_trial_auto_reply_credits;
+ * change one and you must change the other.
  */
-const TRIAL_AUTO_REPLY_CREDITS = 0;
+const TRIAL_AUTO_REPLY_CREDITS = 25;
 
 /** How long a pseudonymised ledger row is retained. See PRIVACY_NOTES.md. */
 const LEDGER_RETENTION_MONTHS = 24;

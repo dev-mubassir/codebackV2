@@ -11,6 +11,7 @@
 2. Environment variables introduced by the billing work
 3. The readiness check — `npm run billing:doctor`
 4. What to expect in the Cashfree dashboard
+5. Running local development with billing ON
 
 ---
 
@@ -217,3 +218,106 @@ The webhook itself has been verified end to end, but with a synthetic
 self-signed request rather than a Cashfree-originated one — signature
 rejection, idempotent grant, and replay protection all confirmed against the
 real handler. A live payment is what remains untested.
+
+---
+
+## 5. Running local development with billing ON
+
+Turning `BILLING_ENABLED=true` on a development database makes enforcement
+live, and enforcement **fails closed**. Two things then bite, both silent.
+
+> Remember that editing `.env` needs a full restart — `node --watch` does not
+> watch it. See DEPLOYMENT-RUNBOOK §2.6.
+
+### 5.1 A tenant with no entitlement row is gated off entirely
+
+`classificationGateReason()` returns `not_entitled` when a tenant has no
+entitlement, so inbound DMs are marked `aiStatus: 'skipped'` and never
+classified. Nothing errors. The inbox simply stops thinking.
+
+Entitlements are created by `claimInstagramIdentity()` when an Instagram
+account is connected, so **any user who connected before the billing work
+existed has no entitlement row at all**. On this repo's local database that was
+every one of the 6 users, against 3 connected accounts.
+
+Check first — if this returns anything, those users are gated off:
+
+```sql
+SELECT u."email"
+FROM "users" u
+LEFT JOIN "entitlements" e ON e."user_id" = u."id"
+WHERE e."id" IS NULL;
+```
+
+Grant a long-lived trial to everyone missing one. Additive and idempotent —
+it touches no existing entitlement:
+
+```sql
+INSERT INTO "entitlements"
+  ("id", "user_id", "plan_code", "status", "cycle_started_at", "valid_until",
+   "reply_credits_current", "hour_window_started_at", "created_at", "updated_at")
+SELECT gen_random_uuid()::text, u."id", 'TRIAL', 'TRIALING',
+       now(), now() + interval '365 days',
+       25, now(), now(), now()
+FROM "users" u
+WHERE NOT EXISTS (SELECT 1 FROM "entitlements" e WHERE e."user_id" = u."id");
+```
+
+`id` and `updated_at` have no database default — Prisma normally supplies both
+— so raw SQL must pass them or the INSERT fails on a NOT NULL violation.
+
+### 5.2 Yes — a locally created trial's `validUntil` needs extending
+
+A real trial is `TRIAL_DAYS = 3`. A trial created by connecting an account on
+Monday stops auto-replying on Thursday, and after the grace window the inbox
+goes read-only. For day-to-day development that expiry is pure friction: it
+arrives without warning and looks exactly like a broken feature.
+
+So extend it. This is the UPDATE:
+
+```sql
+UPDATE "entitlements"
+SET "valid_until" = now() + interval '365 days',
+    "status"      = 'TRIALING',
+    "updated_at"  = now()
+WHERE "plan_code" = 'TRIAL';
+```
+
+`status` is reset alongside the date because a trial that already lapsed may
+be sitting at `EXPIRED`; moving the date alone would leave a row that is
+live by `validUntil` and dead by its stored status.
+
+Do **not** carry this habit to production. Extending `validUntil` there hands
+out free service, and the derived-status design means the row is believed.
+
+### 5.3 Topping up reply credits during development
+
+A trial grants 25 auto-reply credits, which is deliberately small — enough to
+watch the feature work, not enough to develop against for a week. When a tenant
+stops replying and `canAutoReply()` is the reason, top up rather than raising
+the constant:
+
+```sql
+UPDATE "entitlements" SET "reply_credits_current" = 500, "updated_at" = now()
+WHERE "user_id" = (SELECT "id" FROM "users" WHERE "email" = 'you@example.com');
+```
+
+Classification counters reset per cycle on their own, but if the burst guard
+is in the way mid-session, clear it the same way:
+
+```sql
+UPDATE "entitlements"
+SET "classification_count_cycle" = 0, "classification_count_hour" = 0,
+    "hour_window_started_at" = now(), "updated_at" = now()
+WHERE "user_id" = (SELECT "id" FROM "users" WHERE "email" = 'you@example.com');
+```
+
+### 5.4 Undoing all of it
+
+```sql
+DELETE FROM "entitlements";
+```
+
+Entitlements cascade from `users` and are rebuilt by connecting an Instagram
+account, so this is safe on a development database and destroys nothing else.
+It is not safe anywhere else.

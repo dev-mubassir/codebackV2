@@ -153,6 +153,33 @@ Any live-service credential rotation — `DATABASE_URL`, `RESEND_API_KEY`, `GOOG
    - `WEBHOOK_VERIFY_TOKEN` — trigger the Meta webhook handshake and confirm it 200s.
 4. **Only then finalize** — revoke or delete the old credential at the provider. Revoking before step 3 passes, with the new value turning out to be wrong, leaves the service with no working credential in either slot.
 
+### 2.6 Local dev — editing `backend/.env` requires a FULL restart
+
+**`npm run dev` will not pick up an edited `.env`. Stop the process and start it again.**
+
+`dotenv` reads the file once at startup, and the dev script is `node --watch src/index.js`. `--watch` watches the *module graph* — files that get `import`ed or `require`d. `.env` is read with `fs.readFileSync`, which the watcher never sees, so editing it restarts nothing and the process keeps serving the values it booted with.
+
+This is the same fact as step 2's "Northflank does not hot-reload env vars into a running container", and it fails the same silent way locally:
+
+> `BILLING_ENABLED=true` was set in `backend/.env` at 21:00. The backend had started at 20:52. `npm run billing:doctor` — a *fresh* process — reported `BILLING_ENABLED true`, while the running server still answered `GET /api/billing/plans` with **404**. Nothing in either output suggested the two disagreed.
+
+So when a flag "isn't working", check the process start time against the file's mtime before looking at code:
+
+```bash
+# Windows / PowerShell
+Get-Process -Id (Get-NetTCPConnection -LocalPort 5000 -State Listen).OwningProcess | Select-Object StartTime
+(Get-Item backend\.env).LastWriteTime
+```
+
+If the process is older than the file, that is the whole bug. Restart it:
+
+```bash
+# from backend/ — Ctrl+C the dev server first, then:
+npm run dev
+```
+
+`npm run billing:doctor` reads `.env` fresh every time, so it tells you what the file says — **never what the running server believes**. Agreement between the two is only guaranteed after a restart.
+
 ---
 
 ## PHASE 3 — Deploy

@@ -161,10 +161,12 @@ async function recordClassification(tenantId, messageId) {
  * May this tenant's auto-reply pipeline actually send a DM right now?
  *
  * Unlike classification, GRACE does NOT allow this — the brief is explicit
- * that only classification continues into grace. TRIALING is included for
- * completeness, but TRIAL_AUTO_REPLY_CREDITS defaults to 0 (see
- * igIdentity.js), so the credit check below blocks it naturally without a
- * TRIAL-specific branch here.
+ * that only classification continues into grace. TRIALING is allowed: a trial
+ * is granted TRIAL_AUTO_REPLY_CREDITS (see igIdentity.js) precisely so it can
+ * demonstrate the feature, and the credit check below is what stops it once
+ * that small allowance is gone. No TRIAL-specific branch is needed here, and
+ * adding one would be wrong — a trial that has bought nothing and a plan that
+ * has spent everything are the same situation, and the balance says so.
  */
 async function canAutoReply(tenantId) {
   const entitlement = await getEntitlement(tenantId);

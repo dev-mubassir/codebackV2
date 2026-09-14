@@ -118,6 +118,31 @@ export async function createUser({
   return { user, password };
 }
 
+/**
+ * Give a tenant auto-reply credits, as a PRECONDITION rather than a subject.
+ *
+ * A trial grants TRIAL_AUTO_REPLY_CREDITS, which is deliberately small — so a
+ * fixture that needs to watch an auto-reply actually SEND cannot rely on the
+ * trial's own allowance without silently coupling itself to that number. Any
+ * test whose subject is the send path (concurrency, fail-closed, the reply
+ * gates) should state its entitlement here and then forget about it.
+ *
+ * Without this, such a test fails with "expected 1 send, got 0" — which reads
+ * as a broken guard when it is really an empty wallet. That is exactly how
+ * three of these tests presented when BILLING_ENABLED was first turned on.
+ *
+ * Writes replyCreditsCurrent directly rather than going through grantPlan():
+ * the point is a stated starting balance, not a purchase, and grantPlan()
+ * would also move planCode and validUntil, changing fixtures that mean to be
+ * on a trial.
+ */
+export async function grantReplyCredits(userId, credits = 500) {
+  return prisma.entitlement.update({
+    where: { userId },
+    data: { replyCreditsCurrent: credits },
+  });
+}
+
 /** Force a user's trial into the expired state, for entitlement tests. */
 export async function expireTrial(userId) {
   return prisma.entitlement.upsert({
