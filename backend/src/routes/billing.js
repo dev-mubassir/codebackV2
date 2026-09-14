@@ -15,6 +15,7 @@ const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { isBillingEnabled, isUsdPricingEnabled } = require('../lib/billingFlags');
+const { effectiveStatus } = require('../services/entitlementService');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
 // would still leak "this route exists and requires login", which is more
@@ -114,6 +115,196 @@ router.use(requireAuth);
 function frontendUrl() {
   return (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How many orders the billing page's history table shows. A tenant buying a
+ * 30-day plan plus the occasional pack generates a handful of rows a year,
+ * so this is years of history — but it is still bounded, because "just
+ * return everything" is how an endpoint that was fine for a year starts
+ * timing out for the one customer who churned through 400 failed attempts.
+ */
+const ORDER_HISTORY_LIMIT = 50;
+
+/**
+ * The statuses grantPlan() treats as a WARM renewal — the ones where the
+ * existing validUntil is still the right anchor for the next cycle.
+ *
+ * Mirrors entitlementService's own LIVE_STATUSES, which it does not export.
+ * It has to match exactly: this list is the only reason the page can promise
+ * "renewing early never loses days" and name the actual resulting date. If
+ * the two ever drift, the page states a date the grant will not produce,
+ * which is worse than showing nothing. Exporting LIVE_STATUSES from
+ * entitlementService would remove the duplication — flagged and queued
+ * rather than edited, since that file belongs to another gate.
+ */
+const WARM_RENEWAL_STATUSES = ['TRIALING', 'ACTIVE', 'GRACE'];
+
+/** Whole days from now until `date`, rounded UP, never negative. Null for a missing date. */
+function daysUntil(date, now) {
+  if (!date) return null;
+  return Math.max(0, Math.ceil((date.getTime() - now.getTime()) / DAY_MS));
+}
+
+/**
+ * GET /api/billing/summary — everything the in-app billing page renders,
+ * in one round trip.
+ *
+ * TENANT SCOPE IS THE WHOLE SECURITY STORY HERE. Every query below is keyed
+ * on `req.userId`, which requireAuth derives from the server-side session.
+ * This route accepts NO identifier of any kind — no :id param, no ?tenantId,
+ * no body — precisely so there is nothing for a caller to tamper with. An
+ * endpoint that returns a plan, a credit balance, and a payment history is
+ * exactly the shape of thing an IDOR is worth writing, so the safest design
+ * is one where the dangerous parameter does not exist.
+ *
+ * DELIBERATELY NOT EXPOSED, same rule as /plans above:
+ * classificationCapCycle and classificationThrottlePerHour. The page shows
+ * how many classifications this cycle has used, because that is the
+ * customer's own usage, but never what the ceiling is — the limits are an
+ * internal burst guard and are not advertised as a number anywhere
+ * customer-facing (see Plan.classificationCapCycle's schema comment).
+ *
+ * Order rows are SELECTED field by field rather than returned whole:
+ * `rawPayload` is a stored Cashfree webhook body, and `paymentCountry` /
+ * `regionSource` are the region lock's internal provenance. None of the
+ * three is the customer's business, and a `findMany` with no select would
+ * ship all of them the first time someone added a column.
+ */
+router.get('/summary', async (req, res) => {
+  const tenantId = req.userId;
+  const now = new Date();
+
+  try {
+    const [entitlement, orders] = await Promise.all([
+      prisma.entitlement.findUnique({ where: { userId: tenantId } }),
+      prisma.order.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: ORDER_HISTORY_LIMIT,
+        select: {
+          cashfreeOrderId: true,
+          planCode: true,
+          addonCode: true,
+          amount: true,
+          currency: true,
+          status: true,
+          createdAt: true,
+          paidAt: true,
+        },
+      }),
+    ]);
+
+    const status = effectiveStatus(entitlement, now);
+    const plan = entitlement?.planCode ? await prisma.plan.findUnique({ where: { code: entitlement.planCode } }) : null;
+
+    // Credits SPENT since this cycle started, counted from the ledger rather
+    // than inferred by subtracting the balance from the plan's grant. The
+    // subtraction would be wrong for every tenant who carried a bank forward
+    // or bought a pack mid-cycle, which is precisely the population the 80%
+    // warning is aimed at.
+    const spentThisCycle = entitlement
+      ? await prisma.creditLedger.count({
+          where: { tenantId, type: 'SPEND', createdAt: { gte: entitlement.cycleStartedAt } },
+        })
+      : 0;
+
+    const current = entitlement?.replyCreditsCurrent ?? 0;
+    const banked = entitlement?.replyCreditsBanked ?? 0;
+    const remaining = current + banked;
+
+    // The pool this cycle actually had to spend = what is left plus what has
+    // already gone. Deriving it this way (instead of from the plan's
+    // per-cycle grant) keeps the percentage honest when a pack is bought
+    // mid-cycle: the denominator grows with the purchase, so the 80% banner
+    // correctly switches itself off the moment the tenant tops up.
+    const pool = remaining + spentThisCycle;
+    const usedFraction = pool > 0 ? spentThisCycle / pool : 0;
+
+    /**
+     * The renewal date promise, computed SERVER-SIDE with grantPlan's own
+     * rule, so the page states a date rather than a claim.
+     *
+     * "Renewing early never loses days" is a real product promise, and the
+     * only way to keep it visibly is to show the customer the exact expiry
+     * they will get. That date is anchored on the CURRENT validUntil for
+     * anyone still trialing/active/in grace, and on today only for a cold
+     * start (no entitlement, or fully expired past grace) — the same branch
+     * grantPlan takes. Sending the anchor and the resulting per-plan dates
+     * means the browser never does this arithmetic itself and cannot drift
+     * from what the grant will do.
+     */
+    const isWarmRenewal = Boolean(entitlement && entitlement.validUntil && WARM_RENEWAL_STATUSES.includes(status));
+    const anchor = isWarmRenewal ? entitlement.validUntil : now;
+
+    const purchasablePlans = await prisma.plan.findMany({
+      where: { code: { in: PURCHASABLE_PLAN_CODES }, isActive: true },
+      select: { code: true, cycleLengthDays: true },
+    });
+    const validUntilByPlan = {};
+    for (const p of purchasablePlans) {
+      validUntilByPlan[p.code] = new Date(anchor.getTime() + p.cycleLengthDays * DAY_MS);
+    }
+
+    // Has this tenant ever completed an add-on purchase? The upgrade pitch
+    // fires on the FIRST one, so the page needs the count, not a boolean —
+    // "you bought your first pack" and "you buy one every month" are
+    // different conversations.
+    const paidAddonOrders = await prisma.order.count({
+      where: { tenantId, status: 'PAID', addonCode: { not: null } },
+    });
+
+    return res.json({
+      plan: plan
+        ? {
+            code: plan.code,
+            name: plan.name,
+            igAccountLimit: plan.igAccountLimit,
+            autoReplyCreditsPerCycle: plan.autoReplyCreditsPerCycle,
+            autoReplyBankCap: plan.autoReplyBankCap,
+            cycleLengthDays: plan.cycleLengthDays,
+            purchasable: PURCHASABLE_PLAN_CODES.includes(plan.code),
+          }
+        : null,
+      status, // effective, derived from validUntil/graceUntil — never the stored column
+      validUntil: entitlement?.validUntil ?? null,
+      graceUntil: entitlement?.graceUntil ?? null,
+      cycleStartedAt: entitlement?.cycleStartedAt ?? null,
+      daysRemaining: daysUntil(entitlement?.validUntil, now),
+      graceDaysRemaining: status === 'GRACE' ? daysUntil(entitlement?.graceUntil, now) : null,
+      billingRegion: entitlement?.billingRegion ?? null,
+      currency: entitlement?.currency ?? null,
+      credits: {
+        current,
+        banked,
+        remaining,
+        spentThisCycle,
+        cyclePool: pool,
+        // Rounded here rather than in the browser so the banner threshold and
+        // the number printed beside it can never disagree by a rounding step.
+        usedPercent: Math.round(usedFraction * 100),
+      },
+      usage: {
+        // The customer's own consumption. No cap, no throttle — see the route
+        // doc above.
+        classificationsThisCycle: entitlement?.classificationCountCycle ?? 0,
+        autoRepliesThisCycle: spentThisCycle,
+      },
+      extraIgAccounts: entitlement?.extraIgAccounts ?? 0,
+      renewal: {
+        extendsFromValidUntil: isWarmRenewal,
+        anchor,
+        validUntilByPlan,
+      },
+      paidAddonOrders,
+      orders,
+    });
+  } catch (error) {
+    console.error('[Billing] Failed to load the billing summary:', error.message);
+    return res.status(500).json({ error: "Couldn't load your billing details. Try again." });
+  }
+});
 
 /**
  * POST /api/billing/checkout/plan
