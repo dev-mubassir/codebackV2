@@ -18,6 +18,18 @@
 const templates = require('./templates');
 const quota = require('./quota');
 
+/**
+ * Renewal reminder stage -> quota type. Kept beside the transport rather than
+ * in the job, because the tier a message is billed at is a property of the mail
+ * system (quota.js CRITICAL_TYPES), not of whichever caller happens to send it.
+ */
+const RENEWAL_QUOTA_TYPES = {
+  DAY_27: 'renewalDay27',
+  DAY_29: 'renewalDay29',
+  EXPIRY: 'renewalExpiry',
+  GRACE_DAY_2: 'renewalGraceDay2',
+};
+
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@mail.siffty.com';
 const REPLY_TO_EMAIL = process.env.REPLY_TO_EMAIL || process.env.SUPPORT_EMAIL || undefined;
 
@@ -272,12 +284,45 @@ module.exports = {
   sendBillingReconciliationMismatch: (to, { mismatches, checked }) =>
     deliver(to, 'billingReconciliationMismatch', templates.billingReconciliationMismatch({ mismatches, checked })),
 
+  /**
+   * The paid renewal sequence. MIXED TIER — this is the one sender whose
+   * criticality depends on its argument, which is why it maps reminderType to
+   * a distinct quota type rather than sending everything as "renewalReminder".
+   *
+   * The quota layer decides critical-vs-deferrable purely from `type` (see
+   * quota.js CRITICAL_TYPES), so a single shared type would force one answer
+   * for all four stages: either the day-27 nudge gets to eat the password-reset
+   * reserve, or the expiry-day notice — the customer's last chance to keep
+   * service running — gets starved by a day of nudges. Four types is what lets
+   * the same sender be deferrable early and critical late.
+   *
+   * Splitting by type also means the per-recipient hourly throttle is counted
+   * per stage, so a retry of one stage can never suppress a different one.
+   */
+  sendRenewalReminder: (to, { reminderType, unusedCredits, checkoutUrl }) => {
+    const type = RENEWAL_QUOTA_TYPES[reminderType];
+    // Fail loudly rather than defaulting to a deferrable type: a typo'd
+    // reminderType that silently became deferrable would quietly downgrade the
+    // expiry notice, and nothing downstream would ever report it.
+    if (!type) {
+      throw new Error(`email.sendRenewalReminder: unknown reminderType "${reminderType}"`);
+    }
+    return deliver(to, type, templates.renewalReminder({ reminderType, unusedCredits, checkoutUrl }));
+  },
+
   sendDeletionConfirmation: (to, { igUsername, accountDeleted, confirmationCode, statusUrl }) =>
     deliver(
       to,
       'deletionConfirmation',
       templates.deletionConfirmation({ igUsername, accountDeleted, confirmationCode, statusUrl })
     ),
+
+  /**
+   * Exposed so the renewal tests can assert the tiering contract directly —
+   * that EXPIRY and GRACE_DAY_2 land on quota types inside CRITICAL_TYPES —
+   * instead of inferring it by exhausting the daily cap.
+   */
+  RENEWAL_QUOTA_TYPES,
 
   /** Current quota position, for boot logging and tests. */
   quotaStats: quota.stats,
