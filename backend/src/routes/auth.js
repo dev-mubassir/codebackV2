@@ -35,6 +35,7 @@ const google = require('../lib/google');
 const oauthState = require('../lib/oauthState');
 const igIdentity = require('../lib/igIdentity');
 const { requireAuth } = require('../middleware/auth');
+const { isBillingEnabled } = require('../lib/billingFlags');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -1369,6 +1370,16 @@ router.get('/me', requireAuth, async (req, res) => {
       businessProfile: user.businessProfile,
       instagramAccounts: user.instagramAccounts,
       createdAt: user.createdAt,
+      // Client bootstrap flags. Carried on the call AppShell already makes at
+      // mount, so the nav and the route light up from ONE environment
+      // variable — the backend's — with no second copy on the frontend to
+      // drift out of step, and no extra round trip.
+      //
+      // A boolean, never the raw env value. The client is being told what it
+      // may render, not what the server is configured with.
+      features: {
+        billing: isBillingEnabled(),
+      },
     });
   } catch (error) {
     console.error('[Auth] Error fetching user:', error.message);

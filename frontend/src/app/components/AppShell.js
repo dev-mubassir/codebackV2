@@ -6,19 +6,8 @@ import { getMe, logout, getNotifications } from '@/lib/api';
 import Icon from './Icon';
 import { nav, common } from '@/content/copy';
 import styles from './AppShell.module.css';
+import { buildNavItems } from './navItems';
 
-const NAV_ITEMS = [
-  { section: nav.sections.overview, items: [
-    { label: nav.dashboard, path: '/dashboard', icon: 'dashboard' },
-  ]},
-  { section: nav.sections.messaging, items: [
-    { label: nav.inbox, path: '/inbox', icon: 'inbox' },
-    { label: nav.notifications, path: '/notifications', icon: 'bell' },
-  ]},
-  { section: nav.sections.configuration, items: [
-    { label: nav.settings, path: '/settings', icon: 'settings' },
-  ]},
-];
 
 export default function AppShell({ children, activeRoute }) {
   const router = useRouter();
@@ -27,6 +16,11 @@ export default function AppShell({ children, activeRoute }) {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
+
+  // Billing appears only once the server says it exists. `user` comes from
+  // the getMe() call this shell already makes, so there is no extra request
+  // and no frontend copy of the flag to drift.
+  const NAV_ITEMS = buildNavItems({ billingEnabled: Boolean(user?.features?.billing) });
 
   const currentPath = activeRoute || pathname;
 

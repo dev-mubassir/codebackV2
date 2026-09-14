@@ -52,6 +52,9 @@ export const nav = {
   inbox: 'Inbox',
   notifications: 'Notifications',
   settings: 'Settings',
+  // Rendered only when the server reports features.billing — see
+  // app/components/navItems.js.
+  billing: 'Billing',
   account: 'Account',
   logOut: 'Log out',
   openMenu: 'Open menu',

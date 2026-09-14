@@ -9,19 +9,8 @@ import { nav } from '@/content/copy';
 // from here — see the note in NavSidebar.module.css.
 import appShellStyles from './AppShell.module.css';
 import styles from './NavSidebar.module.css';
+import { buildNavItems } from './navItems';
 
-export const NAV_ITEMS = [
-  { section: nav.sections.overview, items: [
-    { label: nav.dashboard, path: '/dashboard', icon: 'dashboard' },
-  ]},
-  { section: nav.sections.messaging, items: [
-    { label: nav.inbox, path: '/inbox', icon: 'inbox' },
-    { label: nav.notifications, path: '/notifications', icon: 'bell' },
-  ]},
-  { section: nav.sections.configuration, items: [
-    { label: nav.settings, path: '/settings', icon: 'settings' },
-  ]},
-];
 
 export const NAV_DRAWER_ID = 'app-nav-drawer';
 
@@ -37,6 +26,9 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
   const pathname = usePathname();
   const currentPath = activeRoute || pathname;
   const navRef = useRef(null);
+  // Same server-reported flag AppShell uses. `user` is already a prop here,
+  // so the billing entry appears and disappears in both shells together.
+  const NAV_ITEMS = buildNavItems({ billingEnabled: Boolean(user?.features?.billing) });
   const previouslyFocusedRef = useRef(null);
 
   // Escape closes the drawer; only wired up while it's actually open.

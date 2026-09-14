@@ -3,9 +3,14 @@
 > Names and descriptions only. **No values appear in this file, ever** —
 > not examples, not placeholders that look real, not "expired" ones.
 
-Sections 2–4 (the variable tables, the readiness check, and what to expect
-in the Cashfree dashboard) are added by a later part of this work. This
-document currently covers the deploy sequence.
+---
+
+## Contents
+
+1. Deploy sequence
+2. Environment variables introduced by the billing work
+3. The readiness check — `npm run billing:doctor`
+4. What to expect in the Cashfree dashboard
 
 ---
 
@@ -109,3 +114,106 @@ Currently held: `20260914064620_drop_subscriptions_legacy`, the irreversible
 destruction of the pre-Entitlement trial data. It waits on a production
 survey, a verified backfill, and explicit owner approval. See that folder's
 README for how to promote one.
+
+---
+
+## 2. Environment variables introduced by the billing work
+
+> Names and descriptions only. Set the values yourself — in Northflank for
+> production, in `backend/.env` for local development. **No agent has ever
+> written or read a value into either**, by instruction, and none appears
+> anywhere in this repository.
+
+### Feature flags — not secrets, safe to name anywhere
+
+All three default to **false**, and only the exact string `true` enables
+them. Anything else (including `TRUE`, `1`, `yes`) reads as false — see
+`backend/src/lib/billingFlags.js`.
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `BILLING_ENABLED` | backend | Master switch. While false, `/api/billing/*` returns **404** regardless of auth, the billing nav entry is hidden, enforcement is inert, and the billing jobs do not run. This is the intended state until Meta App Review lands. |
+| `META_APPROVED` | backend | Reveals the "Built on the official Instagram Graph API" half of the marketing trust badge. Keep false until approval has actually landed — the claim is not ours to make before then. |
+| `USD_PRICING_ENABLED` | backend | Exposes USD/INTL prices through `/api/billing/plans`. The USD rows are in the database either way, so turning international pricing on is a flag flip, never a migration. |
+
+These are read at call time, not at module load, so a flag is a genuine kill
+switch rather than something frozen at boot.
+
+### Cashfree credentials — SECRETS
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `CASHFREE_APP_ID` | backend, secret | Cashfree client id, sent as `x-client-id` on order creation. |
+| `CASHFREE_SECRET_KEY` | backend, secret | Cashfree client secret, sent as `x-client-secret`. |
+
+> **`CASHFREE_SECRET_KEY` doubles as the webhook signing secret.** Cashfree
+> does not issue a separate one — webhook signatures are HMAC-SHA256 over
+> `timestamp + raw body`, keyed with the **client secret**. There is nothing
+> else to configure, and there is no `CASHFREE_WEBHOOK_SECRET`. The
+> consequence of getting this wrong is quiet: checkout fails loudly, but a
+> bad signing secret makes every inbound webhook fail verification and be
+> rejected with a 401 that only appears in logs.
+
+Sandbox and production are different hosts, selected by `NODE_ENV` — the
+same credentials do **not** work against both.
+
+### Related, pre-existing
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `SUPPORT_EMAIL` | backend | Recipient for the reconciliation mismatch digest (a mismatch means money is unaccounted for). Without it the digest degrades to a log line. |
+| `FRONTEND_URL` | backend | Builds the prefilled renewal checkout links. Already fatal in production if unset or pointing at localhost. |
+| `BACKEND_URL` | backend | Becomes the `notify_url` given to Cashfree — where webhooks are delivered. |
+
+---
+
+## 3. The readiness check
+
+```bash
+cd backend && npm run billing:doctor
+```
+
+Prints one table: each flag's effective value, whether each Cashfree
+credential is **present or absent** (never the value — the output is safe to
+paste into a chat or an issue), whether the database matches the migration
+directory, whether the Prisma client is current, and how many plans and
+prices are seeded.
+
+It exists because every "why do I see nothing" moment in this project has had
+one of those five causes, all of which produce the identical symptom — a page
+showing nothing — and none of which says so. Exit code is non-zero only for
+genuine problems, so it also works as a deploy check.
+
+If `BILLING_ENABLED` is off it says so explicitly and calls that the intended
+pre-launch state rather than flagging it as a fault.
+
+---
+
+## 4. What to expect in the Cashfree dashboard
+
+Short version: **almost nothing, and that is correct.**
+
+- **No environment file was ever written by an agent, by instruction.** Every
+  credential is set by the owner — Northflank for production, `backend/.env`
+  for local. Agents were told never to write or print secrets, so the absence
+  of changes there is correct behaviour, not a missed step.
+
+- **The MCP connection was used for development inspection only** — creating
+  one sandbox test order and reading it back to confirm the request/response
+  shape. The production runtime path makes plain server-side REST calls with
+  env-var credentials (`backend/src/lib/cashfreeOrders.js`). MCP is not a
+  runtime dependency and nothing in the deployed application talks to it.
+
+- **Exactly one artifact exists**: sandbox order `siffty-gate3-test-001`
+  (₹499, created, never paid). It is in the **SANDBOX** environment. If the
+  dashboard is toggled to Production it will show nothing at all — correctly,
+  because no production order has ever been created.
+
+- **Nothing further appears until a real sandbox payment is run** through the
+  billing page. That is the follow-up to Gate 6 and is the owner's step, not
+  an agent's: it needs real credentials and a real card/UPI flow.
+
+The webhook itself has been verified end to end, but with a synthetic
+self-signed request rather than a Cashfree-originated one — signature
+rejection, idempotent grant, and replay protection all confirmed against the
+real handler. A live payment is what remains untested.
