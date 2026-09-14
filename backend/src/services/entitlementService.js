@@ -59,37 +59,51 @@ async function getEntitlement(tenantId) {
 }
 
 /**
- * May this tenant's inbound DMs be run through AI classification right now?
+ * Why classification is or isn't allowed right now, as a reason code rather
+ * than a bare boolean — 'hourly_throttle' is the one reason a caller should
+ * NOT treat as a drop. It clears within the hour on its own, so a message
+ * blocked only for this reason should be re-queued with a delay rather than
+ * marked skipped; every other reason is durable until a plan/cycle change,
+ * so retrying soon cannot help. Gate 4 is where messageAnalysisJob.js's
+ * (currently disabled) gate is wired back up to consume this distinction —
+ * this function exists now so that wiring has something to call.
  *
  * Continues through GRACE (per the brief: "on validUntil, stop auto-replies,
- * keep classification running") — only NONE/EXPIRED block it. Within that,
- * the plan's own cycle cap and hourly throttle still apply: classification
- * is enforced in code but never advertised as a number anywhere customer-
- * facing (see Plan.classificationCapCycle's schema comment).
+ * keep classification running") — only NONE/EXPIRED are 'not_entitled'.
+ * The plan's cycle cap and hourly throttle are enforced in code but never
+ * advertised as a number anywhere customer-facing (see
+ * Plan.classificationCapCycle's schema comment).
  *
- * The hourly window is checked here but only ADVANCED by recordClassification
- * — this function never mutates state, so it is always safe to call from a
- * read path.
+ * The hourly window is checked here but only ADVANCED by
+ * recordClassification — this function never mutates state, so it is
+ * always safe to call from a read path.
+ *
+ * @returns {'ok'|'not_entitled'|'cycle_cap'|'hourly_throttle'}
  */
-async function canClassify(tenantId) {
+async function classificationGateReason(tenantId) {
   const entitlement = await getEntitlement(tenantId);
-  if (!entitlement || !LIVE_STATUSES.includes(entitlement.effectiveStatus)) return false;
+  if (!entitlement || !LIVE_STATUSES.includes(entitlement.effectiveStatus)) return 'not_entitled';
 
   const plan = await getPlan(entitlement.planCode);
-  if (!plan) return false; // no plan on record — fail closed, same precedent as the old billingService
+  if (!plan) return 'not_entitled'; // no plan on record — fail closed, same precedent as the old billingService
 
   if (plan.classificationCapCycle != null && entitlement.classificationCountCycle >= plan.classificationCapCycle) {
-    return false;
+    return 'cycle_cap';
   }
 
   if (plan.classificationThrottlePerHour != null) {
     const now = Date.now();
     const withinWindow = now - entitlement.hourWindowStartedAt.getTime() < HOUR_MS;
     const effectiveHourCount = withinWindow ? entitlement.classificationCountHour : 0;
-    if (effectiveHourCount >= plan.classificationThrottlePerHour) return false;
+    if (effectiveHourCount >= plan.classificationThrottlePerHour) return 'hourly_throttle';
   }
 
-  return true;
+  return 'ok';
+}
+
+/** May this tenant's inbound DMs be run through AI classification right now? Thin wrapper over classificationGateReason for callers that only need the boolean. */
+async function canClassify(tenantId) {
+  return (await classificationGateReason(tenantId)) === 'ok';
 }
 
 /**
@@ -363,6 +377,7 @@ module.exports = {
   effectiveStatus,
   getEntitlement,
   canClassify,
+  classificationGateReason,
   recordClassification,
   canAutoReply,
   spendReplyCredit,

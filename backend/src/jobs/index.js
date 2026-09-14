@@ -12,17 +12,21 @@ const { processMessageAnalysis, sweepStalledAnalyses } = require('./messageAnaly
 const { pruneWebhookPayloads } = require('./retentionJob');
 const { expireFinishedTrials, sendTrialEndingWarnings } = require('./trialJob');
 const { runHousekeeping } = require('./purgeJob');
+const { reconcileRecentOrders } = require('./billingReconciliationJob');
+const { BILLING_ENABLED } = require('../lib/billingFlags');
 
 const QUEUE_NAME = 'ai-processing';
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const TRIAL_INTERVAL_MS = 60 * 60 * 1000;        // hourly: a 3-day trial needs finer granularity than the retention sweep
 const HOUSEKEEPING_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const BILLING_RECONCILIATION_INTERVAL_MS = 24 * 60 * 60 * 1000; // nightly
 let started = false;
 let sweepTimer = null;
 let retentionTimer = null;
 let trialTimer = null;
 let housekeepingTimer = null;
+let billingReconciliationTimer = null;
 
 function startWorkers() {
   const jobSystem = getJobSystem(QUEUE_NAME, { concurrency: 3 });
@@ -100,6 +104,21 @@ function startWorkers() {
     runHousekeep();
     housekeepingTimer = setInterval(runHousekeep, HOUSEKEEPING_INTERVAL_MS);
     if (typeof housekeepingTimer.unref === 'function') housekeepingTimer.unref();
+
+    // Nightly billing reconciliation — the backstop for a dropped Cashfree
+    // webhook (see jobs/billingReconciliationJob.js). Gated on
+    // BILLING_ENABLED so it does nothing (not even a query) while billing
+    // is dark — there can be no Order rows to reconcile yet, but this
+    // avoids a scheduled task doing pointless work pre-launch.
+    if (BILLING_ENABLED) {
+      const runBillingReconciliation = () =>
+        reconcileRecentOrders().catch((err) =>
+          console.error('[Jobs] Billing reconciliation sweep failed:', err.message)
+        );
+      runBillingReconciliation();
+      billingReconciliationTimer = setInterval(runBillingReconciliation, BILLING_RECONCILIATION_INTERVAL_MS);
+      if (typeof billingReconciliationTimer.unref === 'function') billingReconciliationTimer.unref();
+    }
 
     started = true;
     console.log(`[Jobs] AI processing worker started (mode: ${jobSystem.mode}).`);

@@ -32,6 +32,8 @@ const brandDealRoutes = require('./routes/brandDeals');
 const notificationRoutes = require('./routes/notifications');
 const settingsRoutes = require('./routes/settings');
 const dataDeletionRoutes = require('./routes/dataDeletion');
+const billingRoutes = require('./routes/billing');
+const cashfreeWebhookRoutes = require('./routes/cashfreeWebhooks');
 
 const { setIO } = require('./lib/socket');
 const { startWorkers } = require('./jobs');
@@ -158,6 +160,19 @@ if (Buffer.from(process.env.TOKEN_ENCRYPTION_KEY.trim(), 'hex').length !== 32) {
 if (isProduction && !(process.env.RESEND_API_KEY || '').trim()) {
   console.warn('[Server] WARNING: RESEND_API_KEY is not set — password reset and verification');
   console.warn('[Server]          emails will be LOGGED TO THE CONSOLE instead of sent.');
+}
+
+// Not fatal (unlike the secrets above) — the billing routes themselves
+// already 404 while BILLING_ENABLED is false, and fail their own request
+// with a clear 502 if it's true but misconfigured. Crashing the whole
+// backend (blocking Instagram DMs) over a missing billing credential would
+// be disproportionate; a boot-time warning is enough to catch a
+// misconfigured deploy before a customer hits it.
+if (require('./lib/billingFlags').BILLING_ENABLED) {
+  if (!(process.env.CASHFREE_APP_ID || '').trim() || !(process.env.CASHFREE_SECRET_KEY || '').trim()) {
+    console.warn('[Server] WARNING: BILLING_ENABLED is true but CASHFREE_APP_ID/CASHFREE_SECRET_KEY are not fully set —');
+    console.warn('[Server]          checkout and webhook signature verification will fail at request time.');
+  }
 }
 
 // An admin session can impersonate any tenant, so the admin credential is
@@ -436,6 +451,11 @@ app.use('/auth', authRoutes);
 app.use('/webhook', webhookRoutes);
 app.use('/webhooks/instagram', webhookRoutes);
 
+// Cashfree webhook — always mounted (route itself 404s while BILLING_ENABLED
+// is false, so its existence is not conditional on the flag being read
+// correctly at boot; see routes/cashfreeWebhooks.js).
+app.use('/webhooks/cashfree', cashfreeWebhookRoutes);
+
 // Meta Data Deletion Request Callback (unauthenticated by design — the
 // signed_request HMAC is the authentication). Review-critical surface.
 app.use('/data-deletion', dataDeletionRoutes);
@@ -465,6 +485,9 @@ app.use('/api/notifications', notificationRoutes);
 // Creator AI preferences and business profile / onboarding
 app.use('/api/settings', settingsRoutes);
 app.use('/api', settingsRoutes);
+
+// Billing checkout — 404s while BILLING_ENABLED is false (routes/billing.js)
+app.use('/api/billing', billingRoutes);
 
 // ============================================
 // Start Server
