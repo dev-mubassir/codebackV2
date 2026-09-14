@@ -267,6 +267,11 @@ module.exports = {
   sendTrialEnding: (to, { daysLeft, dashboardUrl }) =>
     deliver(to, 'trialEnding', templates.trialEnding({ daysLeft, dashboardUrl })),
 
+  // CRITICAL — internal ops alert, not customer-facing. See quota.js's
+  // CRITICAL_TYPES comment: money is unaccounted for until a human looks.
+  sendBillingReconciliationMismatch: (to, { mismatches, checked }) =>
+    deliver(to, 'billingReconciliationMismatch', templates.billingReconciliationMismatch({ mismatches, checked })),
+
   sendDeletionConfirmation: (to, { igUsername, accountDeleted, confirmationCode, statusUrl }) =>
     deliver(
       to,

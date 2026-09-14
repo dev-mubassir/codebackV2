@@ -23,41 +23,50 @@ const entitlementService = require('./entitlementService');
  * Payment methods that are India-only by construction — UPI, netbanking,
  * and India-specific BNPL/wallet rails carry no "country" field in
  * Cashfree's payload because there is only ever one possible country.
- * Confirmed against the reverted code's PG webhook handler for the payload
- * shape (`data.payment.payment_group`, `data.payment.payment_status`) —
- * NOT independently re-confirmed against current docs this session; see
- * the Gate 3 report for why (doc search was unavailable) and re-verify
- * `card_country`'s exact field name before this handles real money.
+ * `payment_group`/`payment_status` shape confirmed against the reverted
+ * code's own PG webhook handler.
  */
 const DOMESTIC_ONLY_PAYMENT_GROUPS = ['upi', 'net_banking', 'nb', 'app', 'paylater', 'cardless_emi', 'banktransfer'];
 
 /**
- * Best-effort country inference from a webhook/order-fetch payment object.
- * Returns an ISO country code or null if genuinely unknown — callers fall
- * back to the order's own currency (chosen by the customer at checkout from
- * real regional pricing) rather than guessing further here.
+ * Region evidence from a webhook/order-fetch payment object, as a
+ * provenance pair rather than a bare country code — NEVER fall back to the
+ * order's own currency here. Currency is the pricing hint WE showed the
+ * customer before they paid, so using it as evidence of their actual
+ * region is circular — it is exactly the VPN-arbitrage path the region
+ * lock exists to close.
+ *
+ * `card_country` IS the correct field name (alongside `card_network`,
+ * `card_type`, `card_bank_name`) but Cashfree's own documented sample
+ * payloads show it frequently returning null — a real card payment with no
+ * usable country signal is the expected common case, not an edge case.
+ *
+ * @returns {{ country: string|null, source: 'RAIL_INFERRED'|'CARD_COUNTRY'|'UNVERIFIED' }}
  */
 function inferPaymentCountry(payment) {
   const group = payment?.payment_group;
-  if (group && DOMESTIC_ONLY_PAYMENT_GROUPS.includes(group)) return 'IN';
+  if (group && DOMESTIC_ONLY_PAYMENT_GROUPS.includes(group)) {
+    return { country: 'IN', source: 'RAIL_INFERRED' };
+  }
 
   const cardCountry = payment?.payment_method?.card?.card_country;
-  if (cardCountry) return cardCountry;
+  if (cardCountry) {
+    return { country: cardCountry, source: 'CARD_COUNTRY' };
+  }
 
-  return null;
+  return { country: null, source: 'UNVERIFIED' };
 }
 
-/** IN-or-INTL, from an inferred country code or (failing that) the order's own currency. */
-function resolveBillingRegion({ inferredCountry, orderCurrency }) {
-  if (inferredCountry) return inferredCountry === 'IN' ? 'IN' : 'INTL';
-  return orderCurrency === 'INR' ? 'IN' : 'INTL';
+/** IN-or-INTL from a country code. Only ever called with RAIL_INFERRED/CARD_COUNTRY evidence — never for UNVERIFIED, which has no country to convert. */
+function countryToBillingRegion(country) {
+  return country === 'IN' ? 'IN' : 'INTL';
 }
 
 /**
  * Mark an Order PAID and grant its plan/add-on, exactly once, ever.
  *
  * @param {string} cashfreeOrderId  our own merchant order_id
- * @param {object} payment          the webhook/order-fetch `payment` object, for country inference (may be partial or absent)
+ * @param {object} payment          the webhook/order-fetch `payment` object, for region evidence (may be partial or absent)
  * @param {string} rawPayload       raw JSON to store on the Order row for reconciliation/audit
  * @returns {{ outcome: 'granted'|'already_processed'|'not_found'|'not_success', order?: object }}
  */
@@ -68,13 +77,16 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
     return { outcome: 'not_found' };
   }
 
+  const { country, source } = inferPaymentCountry(payment);
+
   // The conditional update IS the idempotency guard.
   const claimed = await prisma.order.updateMany({
     where: { cashfreeOrderId, status: 'CREATED' },
     data: {
       status: 'PAID',
       paidAt: new Date(),
-      paymentCountry: inferPaymentCountry(payment),
+      paymentCountry: country,
+      regionSource: source,
       rawPayload,
     },
   });
@@ -85,15 +97,20 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
   }
 
   const order = await prisma.order.findUnique({ where: { cashfreeOrderId } });
-  const billingRegion = resolveBillingRegion({
-    inferredCountry: inferPaymentCountry(payment),
-    orderCurrency: order.currency,
-  });
+
+  // UNVERIFIED carries no billingRegion/currency at all — grantPlan's own
+  // `existing?.x || region.x` merge then leaves an unlocked tenant unlocked
+  // (null || null = null) and never overwrites an already-locked one
+  // (existing wins outright). See entitlementService.grantPlan and the
+  // Entitlement schema comment.
+  const billingRegion = source === 'UNVERIFIED' ? null : countryToBillingRegion(country);
+  const currency = billingRegion ? order.currency : null;
 
   if (order.planCode) {
     await entitlementService.grantPlan(order.tenantId, order.planCode, {
       billingRegion,
-      currency: order.currency,
+      currency,
+      regionSource: source,
     });
   } else if (order.addonCode) {
     await entitlementService.grantAddon(order.tenantId, order.addonCode);
@@ -105,8 +122,8 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
     throw new Error(`Order ${cashfreeOrderId} has no planCode or addonCode to grant`);
   }
 
-  console.log(`[Billing] Fulfilled order ${cashfreeOrderId} for tenant ${order.tenantId} (${order.planCode || order.addonCode}).`);
+  console.log(`[Billing] Fulfilled order ${cashfreeOrderId} for tenant ${order.tenantId} (${order.planCode || order.addonCode}), region evidence: ${source}.`);
   return { outcome: 'granted', order };
 }
 
-module.exports = { fulfillPaidOrder, inferPaymentCountry, resolveBillingRegion, DOMESTIC_ONLY_PAYMENT_GROUPS };
+module.exports = { fulfillPaidOrder, inferPaymentCountry, countryToBillingRegion, DOMESTIC_ONLY_PAYMENT_GROUPS };

@@ -19,4 +19,12 @@ const BILLING_ENABLED = process.env.BILLING_ENABLED === 'true';
 /** META_APPROVED gates the "official Instagram Graph API" half of the Gate 6 trust badge. Also defaults false. */
 const META_APPROVED = process.env.META_APPROVED === 'true';
 
-module.exports = { BILLING_ENABLED, META_APPROVED };
+/**
+ * Gates USD plan VISIBILITY only — a currency toggle, not a pricing
+ * migration. PlanPrice rows for USD/INTL stay in the database regardless of
+ * this flag's value, so flipping it on is a plain env var change, never a
+ * migration or a backfill.
+ */
+const USD_PRICING_ENABLED = process.env.USD_PRICING_ENABLED === 'true';
+
+module.exports = { BILLING_ENABLED, META_APPROVED, USD_PRICING_ENABLED };

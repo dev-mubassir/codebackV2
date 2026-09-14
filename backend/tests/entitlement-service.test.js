@@ -280,9 +280,9 @@ describe('entitlementService — hourly throttle reset', () => {
     });
 
     expect(await entitlementService.canClassify(user.id)).toBe(true);
-    await entitlementService.recordClassification(user.id);
+    await entitlementService.recordClassification(user.id, uniq('msg'));
     expect(await entitlementService.canClassify(user.id)).toBe(true);
-    await entitlementService.recordClassification(user.id);
+    await entitlementService.recordClassification(user.id, uniq('msg'));
 
     expect(await entitlementService.canClassify(user.id), 'the 2/hr cap has now been hit').toBe(false);
   });
@@ -303,7 +303,7 @@ describe('entitlementService — hourly throttle reset', () => {
       'a stale window must not carry its count into the new one'
     ).toBe(true);
 
-    await entitlementService.recordClassification(user.id);
+    await entitlementService.recordClassification(user.id, uniq('msg'));
     const after = await prisma.entitlement.findUnique({ where: { userId: user.id } });
     expect(after.classificationCountHour, 'recording after a stale window starts a fresh count of 1').toBe(1);
     expect(after.hourWindowStartedAt.getTime()).toBeGreaterThan(Date.now() - 5000);
@@ -319,8 +319,49 @@ describe('entitlementService — hourly throttle reset', () => {
     });
 
     expect(await entitlementService.canClassify(user.id)).toBe(true);
-    await entitlementService.recordClassification(user.id);
+    await entitlementService.recordClassification(user.id, uniq('msg'));
     expect(await entitlementService.canClassify(user.id), 'the 1/cycle cap is now spent').toBe(false);
+  });
+
+  it('the SAME messageId recorded three times counts exactly once — retries and provider failover are structurally one classification', async () => {
+    const { user } = await createUser({ withTrial: false });
+    const plan = await createPlan({ classificationCapCycle: 1000, classificationThrottlePerHour: 1000 });
+    await createEntitlement(user.id, {
+      planCode: plan.code,
+      status: 'ACTIVE',
+      validUntil: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+    });
+
+    const messageId = uniq('msg-retry');
+    await entitlementService.recordClassification(user.id, messageId);
+    await entitlementService.recordClassification(user.id, messageId); // e.g. a retried Gemini call
+    await entitlementService.recordClassification(user.id, messageId); // e.g. xAI/OpenAI failover on the same message
+
+    const entitlement = await prisma.entitlement.findUnique({ where: { userId: user.id } });
+    expect(entitlement.classificationCountCycle, 'three attempts at the same message must count as one').toBe(1);
+    expect(entitlement.classificationCountHour).toBe(1);
+
+    const ledger = await prisma.creditLedger.findMany({ where: { tenantId: user.id, type: 'CLASSIFY' } });
+    expect(ledger, 'only one CLASSIFY row for this messageId, not three').toHaveLength(1);
+    expect(ledger[0].messageId).toBe(messageId);
+    expect(ledger[0].delta, 'a classification is not a credit movement').toBe(0);
+  });
+
+  it('DIFFERENT messages for the same tenant each count separately', async () => {
+    const { user } = await createUser({ withTrial: false });
+    const plan = await createPlan({ classificationCapCycle: 1000, classificationThrottlePerHour: 1000 });
+    await createEntitlement(user.id, {
+      planCode: plan.code,
+      status: 'ACTIVE',
+      validUntil: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
+    });
+
+    await entitlementService.recordClassification(user.id, uniq('msg-a'));
+    await entitlementService.recordClassification(user.id, uniq('msg-b'));
+    await entitlementService.recordClassification(user.id, uniq('msg-c'));
+
+    const entitlement = await prisma.entitlement.findUnique({ where: { userId: user.id } });
+    expect(entitlement.classificationCountCycle).toBe(3);
   });
 });
 

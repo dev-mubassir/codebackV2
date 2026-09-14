@@ -107,20 +107,41 @@ async function canClassify(tenantId) {
 }
 
 /**
- * Record ONE successful classification call. Callers must call this only
- * after Gemini actually returns — a timeout that gets retried and succeeds
- * on the second attempt counts once, because the caller only reaches this
- * line once, on the attempt that succeeded. This function does not itself
- * know or care how many attempts preceded the success.
+ * Record ONE successful classification call for `messageId`, structurally
+ * idempotent — not by convention.
+ *
+ * The CreditLedger row this writes (type CLASSIFY) is guarded by the
+ * @@unique([tenantId, messageId, type]) constraint. A retried Gemini call,
+ * or a Gemini->xAI->OpenAI failover, all resolve to the SAME messageId, so
+ * the second and third attempt's insert collides (P2002) and is treated as
+ * a no-op — the counters below are only incremented on the FIRST successful
+ * insert for a given message. This also means reprocessing an old DM after
+ * a model/prompt change costs the customer nothing: same messageId, same
+ * no-op.
+ *
+ * Callers still only need to call this once per attempt that returns
+ * successfully — the idempotency here is a structural backstop, not
+ * permission to call it redundantly on purpose.
  *
  * The hourly window is a lazy sliding counter: if the last recorded window
  * has expired, this call both resets the window AND is the first count in
  * the new one — there is no separate "reset" step run by a cron.
  */
-async function recordClassification(tenantId) {
+async function recordClassification(tenantId, messageId) {
   const now = new Date();
   return prisma.$transaction(async (tx) => {
     const entitlement = await tx.entitlement.findUnique({ where: { userId: tenantId } });
+    const balanceAfter = entitlement ? entitlement.replyCreditsBanked + entitlement.replyCreditsCurrent : 0;
+
+    try {
+      await tx.creditLedger.create({
+        data: { tenantId, messageId, delta: 0, type: 'CLASSIFY', source: 'classification', balanceAfter },
+      });
+    } catch (err) {
+      if (err.code === 'P2002') return; // already recorded for this message — no-op, not an error
+      throw err;
+    }
+
     if (!entitlement) return;
 
     const withinWindow = now.getTime() - entitlement.hourWindowStartedAt.getTime() < HOUR_MS;
@@ -207,8 +228,8 @@ function computeBankRollover(entitlement, plan) {
  * Grant a plan — a first purchase OR a renewal, both go through here.
  * tenantId, planCode ('STARTER' | 'PRO' | 'ENTERPRISE' — never 'TRIAL',
  * which is granted only by igIdentity.claimInstagramIdentity), and
- * region = { billingRegion, currency } as reported by the Cashfree webhook
- * for a FIRST payment (ignored for a renewal — see the lock rule below).
+ * region = { billingRegion, currency, regionSource } as resolved by
+ * billingFulfillment.js from the Cashfree webhook's payment evidence.
  *
  * RENEWAL DATE MATH — "renewing early always extends from validUntil,
  * never from today": true for anyone still TRIALING/ACTIVE/GRACE
@@ -222,10 +243,14 @@ function computeBankRollover(entitlement, plan) {
  * computeBankRollover. A cold start forfeits whatever was left, per "after
  * grace: credit bank is zeroed" — it simply never carries it forward.
  *
- * REGION LOCK — billingRegion/currency are set ONLY when there was no
- * existing lock (existing?.billingRegion is null/undefined). A renewal
- * NEVER overwrites an already-locked region, even if `region` here reports
- * something different — that is what makes the lock a lock.
+ * REGION LOCK — billingRegion/currency/regionSource are set ONLY when
+ * there was no existing lock (existing?.billingRegion is null/undefined).
+ * A renewal NEVER overwrites an already-locked region, even if `region`
+ * here reports something different — that is what makes the lock a lock.
+ * `region.billingRegion` is null for an UNVERIFIED payment (see
+ * billingFulfillment.js), so `existing?.x || region.x` correctly leaves an
+ * unlocked tenant unlocked (null || null = null) rather than ever locking
+ * from weak/absent evidence — the plan is still granted normally either way.
  */
 async function grantPlan(tenantId, planCode, region) {
   const plan = await getPlan(planCode);
@@ -242,6 +267,7 @@ async function grantPlan(tenantId, planCode, region) {
 
     const billingRegion = existing?.billingRegion || region.billingRegion;
     const currency = existing?.currency || region.currency;
+    const regionSource = existing?.regionSource || region.regionSource;
 
     let carriedBank = 0;
     if (isWarmRenewal) {
@@ -256,6 +282,7 @@ async function grantPlan(tenantId, planCode, region) {
       planCode,
       billingRegion,
       currency,
+      regionSource,
       status: 'ACTIVE',
       validUntil,
       graceUntil,

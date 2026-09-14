@@ -115,6 +115,42 @@ const templates = {
     };
   },
 
+  /**
+   * Internal ops alert — NOT customer-facing. One digest per reconciliation
+   * run, never one email per mismatch (see billingReconciliationJob.js).
+   * A mismatch means a customer paid and a webhook was dropped; this is the
+   * "money is unaccounted for" signal reaching a human.
+   */
+  billingReconciliationMismatch({ mismatches, checked }) {
+    const rows = mismatches
+      .map(
+        (m) =>
+          `- order ${m.cashfreeOrderId} · tenant ${m.tenantId} · ${m.planCode || m.addonCode} · healed: ${m.healed ? 'yes' : 'NO — see logs'}`
+      )
+      .join('\n');
+    const rowsHtml = mismatches
+      .map(
+        (m) =>
+          `<li style="margin:0 0 6px;">order <code>${m.cashfreeOrderId}</code> · tenant <code>${m.tenantId}</code> · ${m.planCode || m.addonCode} · healed: <strong>${m.healed ? 'yes' : 'NO — see logs'}</strong></li>`
+      )
+      .join('');
+    return {
+      subject: `[Siffty billing] ${mismatches.length} webhook mismatch(es) found in reconciliation`,
+      text:
+        `Nightly billing reconciliation checked ${checked} pending order(s) and found ${mismatches.length} ` +
+        `paid at Cashfree but not reflected in our database — a webhook was dropped for each.\n\n` +
+        `${rows}\n\n` +
+        `"healed: yes" means the plan/add-on was granted automatically during this run. "NO" means it was not — check the server logs for that order immediately.\n\n` +
+        `Siffty · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        `${mismatches.length} billing mismatch(es)`,
+        `<p style="margin:0;font-size:15px;line-height:1.5;">Nightly billing reconciliation checked ${checked} pending order(s) and found ${mismatches.length} paid at Cashfree but not reflected in our database — a webhook was dropped for each.</p>
+         <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${rowsHtml}</ul>
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">"healed: yes" means the plan/add-on was granted automatically during this run. "NO" means it was not — check the server logs for that order immediately.</p>`
+      ),
+    };
+  },
+
   trialEnding({ daysLeft, dashboardUrl }) {
     const when = daysLeft <= 0 ? 'has ended' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
     return {

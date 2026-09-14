@@ -665,6 +665,31 @@ model OAuthNonce {
 }
 
 // ============================================
+// Session store — created and managed at RUNTIME by connect-pg-simple
+// (lib/session.js), never by application code and never by a Prisma
+// migration's own logic. Modeled here only so Prisma stops treating it as
+// unexplained drift on every `migrate dev`; column shape confirmed against
+// the live table (`\d user_sessions`) and matches connect-pg-simple's own
+// default schema exactly.
+//
+// The migration that introduces this model is adopted via
+// `prisma migrate resolve --applied`, NOT a normal deploy, on any database
+// where connect-pg-simple has already created the table at runtime (local
+// dev, and almost certainly production — see FINDINGS.md F11 / the auth-
+// hardening baseline). A normal `migrate deploy` against such a database
+// would fail with "relation already exists". A database where the table
+// does not exist yet (a fresh test DB) applies it normally.
+// ============================================
+model UserSession {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("user_sessions")
+}
+
+// ============================================
 // Meta data-deletion callback bookkeeping.
 //
 // Meta requires us to return a confirmation code and host a status page for
@@ -755,13 +780,26 @@ enum CreditLedgerType {
   SPEND
   EXPIRE
   ROLLOVER
+  CLASSIFY // a recorded classification event, not a credit movement — delta is always 0. See CreditLedger's messageId note.
 }
 
 enum OrderStatus {
   CREATED
   PAID
   FAILED
-  EXPIRED
+  EXPIRED // either Cashfree reported it FAILED/EXPIRED, or it aged past 7 days in CREATED and the nightly reconciliation job retired it — see billingReconciliationJob.js
+}
+
+// ============================================
+// How a payment's country was established, for the region lock. Ordered
+// from strongest to weakest evidence — never derived from currency alone,
+// which is circular (currency is the pricing hint WE showed the customer,
+// not evidence of where they actually are).
+// ============================================
+enum RegionSource {
+  RAIL_INFERRED // UPI/netbanking/wallet — India-only by construction, no country field needed
+  CARD_COUNTRY // card payment with a non-null payment_method.card.card_country
+  UNVERIFIED // card payment with a null card_country (Cashfree's own sample payloads show this is common) — plan is granted, region stays unlocked
 }
 
 // ============================================
@@ -806,8 +844,16 @@ model Entitlement {
   userId String @unique @map("user_id")
 
   planCode      String?           @map("plan_code") // Plan.code — TRIAL, STARTER, PRO, ENTERPRISE; null until a trial/plan is granted
-  billingRegion String?           @map("billing_region") // locked at first successful payment — IN | INTL; null pre-payment
-  currency      String? // locked together with billingRegion — INR | USD; null pre-payment
+  // billingRegion/currency are set ONLY from RAIL_INFERRED or CARD_COUNTRY
+  // evidence (see RegionSource below) — NEVER inferred from currency alone,
+  // which is circular: currency is what we showed the customer as a
+  // pricing hint, so treating it as region evidence is exactly the VPN
+  // arbitrage the lock exists to prevent. An UNVERIFIED payment still
+  // grants the plan normally but leaves both null/unset, so a later
+  // payment carrying real evidence can still set the lock.
+  billingRegion String?           @map("billing_region") // locked at first RAIL_INFERRED/CARD_COUNTRY payment — IN | INTL; null pre-payment or UNVERIFIED
+  currency      String? // locked together with billingRegion — INR | USD; null pre-payment or UNVERIFIED
+  regionSource  RegionSource?     @map("region_source") // how billingRegion (if set) was established
   status        EntitlementStatus @default(NONE) // NONE default is deliberate — see the model note above
 
   validUntil DateTime? @map("valid_until")
@@ -844,16 +890,27 @@ model Entitlement {
 // rules require retaining invoice-linked transaction records independent of
 // the account that generated them, once billing is live. Same reasoning as
 // InstagramIdentity's deliberate non-relation to User.
+//
+// messageId + the (tenantId, messageId, type) unique constraint below are
+// what make a CLASSIFY entry idempotent — a retried Gemini call, or a
+// Gemini->xAI->OpenAI failover, all resolve to the SAME messageId, so
+// recordClassification()'s insert collides (P2002) on the second and third
+// attempt and is treated as a no-op rather than a second count. GRANT/
+// SPEND/EXPIRE/ROLLOVER rows leave messageId NULL, and Postgres unique
+// constraints never consider two NULLs equal, so those rows never collide
+// with each other or with a CLASSIFY row.
 // ============================================
 model CreditLedger {
   id           String           @id @default(uuid())
   tenantId     String           @map("tenant_id")
+  messageId    String?          @map("message_id") // set only for type=CLASSIFY; the idempotency key
   delta        Int // positive = credited, negative = spent
   type         CreditLedgerType
-  source       String // e.g. "plan_grant:starter", "addon:reply_credits_500", "auto_reply_spend", "cycle_rollover"
+  source       String // e.g. "plan_grant:starter", "addon:reply_credits_500", "auto_reply_spend", "cycle_rollover", "classification"
   balanceAfter Int              @map("balance_after")
   createdAt    DateTime         @default(now()) @map("created_at")
 
+  @@unique([tenantId, messageId, type])
   @@index([tenantId, createdAt])
   @@map("credit_ledger")
 }
@@ -872,18 +929,19 @@ model CreditLedger {
 // enforced in application code (Gate 3), not by the schema.
 // ============================================
 model Order {
-  id              String      @id @default(uuid())
-  cashfreeOrderId String      @unique @map("cashfree_order_id")
-  tenantId        String      @map("tenant_id")
-  planCode        String?     @map("plan_code")
-  addonCode       String?     @map("addon_code")
+  id              String       @id @default(uuid())
+  cashfreeOrderId String       @unique @map("cashfree_order_id")
+  tenantId        String       @map("tenant_id")
+  planCode        String?      @map("plan_code")
+  addonCode       String?      @map("addon_code")
   amount          Int // smallest currency unit — paise (INR) or cents (USD)
   currency        String
-  status          OrderStatus @default(CREATED)
-  paymentCountry  String?     @map("payment_country") // from the Cashfree webhook; locks billingRegion on first payment
-  rawPayload      String?     @map("raw_payload") // last webhook payload received for this order, for reconciliation
-  createdAt       DateTime    @default(now()) @map("created_at")
-  paidAt          DateTime?   @map("paid_at")
+  status          OrderStatus  @default(CREATED)
+  paymentCountry  String?      @map("payment_country") // from the Cashfree webhook; raw value behind regionSource's classification
+  regionSource    RegionSource? @map("region_source") // how paymentCountry (if any) was established — see the enum's own comment
+  rawPayload      String?      @map("raw_payload") // last webhook payload received for this order, for reconciliation
+  createdAt       DateTime     @default(now()) @map("created_at")
+  paidAt          DateTime?    @map("paid_at")
 
   @@index([tenantId, createdAt])
   @@index([status])

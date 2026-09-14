@@ -11,12 +11,18 @@
 --   picked a plan. billing_region/currency stay NULL — no region was ever
 --   locked pre-billing.
 --
--- REVERSE MIGRATION (manual, not scripted): recreate the "subscriptions"
--- table and "SubscriptionStatus" enum, then copy rows back out of
--- "entitlements" where plan_code IS NULL OR plan_code = 'TRIAL'. The 'NONE'
--- value added to EntitlementStatus by the prior migration cannot be
--- un-added (Postgres has no DROP VALUE) regardless of whether this
--- migration itself is reversed.
+-- "subscriptions" is RENAMED to "subscriptions_legacy_20260914" below, not
+-- dropped — ruling: do not destroy it until production has been verified
+-- against it. The real DROP TABLE is its own separate, unapplied migration
+-- that waits for explicit approval.
+--
+-- REVERSE MIGRATION (manual, not scripted): rename
+-- "subscriptions_legacy_20260914" back to "subscriptions" (data is intact,
+-- nothing to recreate), and delete the rows this migration inserted into
+-- "entitlements" (identifiable as the ones with no Order/CreditLedger
+-- history). The 'NONE' value added to EntitlementStatus by the prior
+-- migration cannot be un-added (Postgres has no DROP VALUE) regardless of
+-- whether this migration itself is reversed.
 
 -- entitlements.plan_code/billing_region/currency become nullable: NONE and
 -- TRIALING entitlements have neither a plan nor a locked region/currency.
@@ -58,5 +64,17 @@ SELECT
 FROM "subscriptions" s
 WHERE NOT EXISTS (SELECT 1 FROM "entitlements" e WHERE e."user_id" = s."user_id");
 
-DROP TABLE "subscriptions" CASCADE;
-DROP TYPE "SubscriptionStatus";
+-- RENAME, not DROP — ruling: do not destroy subscriptions until production
+-- has been verified against it. The real DROP TABLE is its own separate,
+-- deliberately UNAPPLIED migration (see
+-- prisma/migrations/*_drop_subscriptions_legacy/migration.sql) that waits
+-- for explicit approval after that verification. Renaming here still frees
+-- the "subscriptions" name for any future use and makes it obvious at a
+-- glance that this table is retired, without a single `migrate deploy`
+-- being able to destroy the backfill's source data before anyone has
+-- confirmed the backfill was correct.
+--
+-- The SubscriptionStatus enum type is NOT dropped here either — the
+-- renamed table's "status" column still uses it. It is dropped in that
+-- same later, unapplied migration, alongside the table itself.
+ALTER TABLE "subscriptions" RENAME TO "subscriptions_legacy_20260914";

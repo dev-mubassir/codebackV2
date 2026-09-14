@@ -40,8 +40,16 @@ const DEFAULT_CRITICAL_RESERVE = 20; // of that cap, critical-only
 const PER_RECIPIENT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const PER_RECIPIENT_MAX = 3;
 
-/** Which sends are critical. Anything not listed is treated as deferrable. */
-const CRITICAL_TYPES = new Set(['passwordReset', 'verification']);
+/**
+ * Which sends are critical. Anything not listed is treated as deferrable.
+ *
+ * billingReconciliationMismatch: a mismatch means a customer paid and the
+ * webhook that should have granted their plan/credits never arrived — the
+ * closest thing this codebase has to "money is unaccounted for." One
+ * digest per nightly run (never one per mismatch), so this can never be
+ * the thing that exhausts the reserve a password reset needs.
+ */
+const CRITICAL_TYPES = new Set(['passwordReset', 'verification', 'billingReconciliationMismatch']);
 
 function dailyCap() {
   const raw = parseInt(process.env.EMAIL_DAILY_CAP || '', 10);

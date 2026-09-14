@@ -305,6 +305,48 @@ was broken when this was written.
 send, a hash, or another query there would make it measurably slower than the
 generic path and turn the timing into the oracle the body no longer is.
 
+### D8. Route-shadowing: every `/api/*` sub-router mounted after `app.use('/api', apiRoutes)` is shadowed by it
+
+**Fixed once** (feat/billing, the `fix(api): correct route mount ordering
+and flag-vs-auth ordering` commit) for `/api/billing` specifically. **Not
+fixed for anything else** — the same latent bug exists on every other
+`/api/*` sub-router mounted below `apiRoutes` in `index.js`
+(`/api/accounts`, `/api/dashboard`, `/api/analytics`, `/api/brand-deals`,
+`/api/notifications`, `/api/settings`), and is invisible there only by
+coincidence.
+
+**Why it's invisible today.** Express matches middleware by path PREFIX in
+registration order. `app.use('/api', apiRoutes)` matches `/api/anything`,
+including `/api/accounts/...`, `/api/billing/...` — every sub-path, whether
+or not `apiRoutes` itself defines a route there. `apiRoutes` opens with
+`router.use(requireAuth)`, which runs for every one of those requests
+before Express ever reaches the router registered later that was actually
+meant to handle it. If `requireAuth` PASSES, Express falls through
+correctly once `apiRoutes`' own route table finds no match, and the request
+reaches the intended router with no visible effect. If `requireAuth` FAILS,
+`apiRoutes` answers with its own 401 directly — and every sibling router
+mounted after it happens to demand the identical `requireAuth`, so the
+wrong router answering 401 instead of the right one produces byte-identical
+output. The bug has zero observable symptom as long as every affected
+router's auth requirement matches `apiRoutes`'.
+
+**Where it stops being invisible.** `/api/billing` needed a DIFFERENT
+answer for an unauthenticated, feature-flagged-off request — 404 (feature
+doesn't exist), not 401 (feature exists, log in) — and that's exactly where
+the shadowing surfaced as a real, user-visible bug.
+
+**The fix pattern.** Mount a sub-router with different auth/gating
+semantics than `apiRoutes` BEFORE `app.use('/api', apiRoutes)`, the same
+way `/api/admin` already is (comment at the mount site: "must be mounted
+before /api"). Mounting order in `index.js` is load-bearing, not
+cosmetic — anyone adding a new `/api/*` router with its own gating logic
+needs to mount it before `apiRoutes`, or lose a day rediscovering this.
+
+**Not fixed now:** reordering every existing shadowed router is unrelated
+to feat/billing and carries its own (small but nonzero) regression risk for
+zero behavior change today. Flagged here so the next router with different
+auth doesn't repeat the investigation.
+
 ## Credentials — handled outside the repo, do not touch in code
 
 ### C1. Hardcoded admin credentials in a tracked file
