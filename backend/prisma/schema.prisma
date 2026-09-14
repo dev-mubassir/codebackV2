@@ -900,6 +900,39 @@ model Entitlement {
 // constraints never consider two NULLs equal, so those rows never collide
 // with each other or with a CLASSIFY row.
 // ============================================
+// ============================================
+// One row per renewal reminder actually sent.
+//
+// EXISTS PURELY AS AN IDEMPOTENCY GUARD. The renewal sequence runs on a
+// timer several times a day, and every run re-evaluates the same windows —
+// without this, a tenant three days from expiry would be emailed on every
+// single pass. The unique constraint below is what makes "send once per
+// cycle per reminder type" structural rather than a matter of getting the
+// scheduling arithmetic exactly right: the job inserts BEFORE sending and
+// treats a P2002 as "already sent, skip", the same pattern CreditLedger's
+// CLASSIFY rows use for classification.
+//
+// cycleStartedAt identifies WHICH cycle the reminder belongs to, rather
+// than a cycle number we would have to maintain. It is restamped by every
+// grantPlan() and every rollCycle(), so a renewed tenant automatically
+// becomes eligible for a fresh set of reminders with no cleanup step.
+//
+// tenantId is a plain field with no User relation, matching CreditLedger
+// and Order: deliberately NOT cascading, so the record of what was sent
+// survives the account it was sent to.
+// ============================================
+model RenewalReminder {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  cycleStartedAt DateTime @map("cycle_started_at")
+  reminderType   String   @map("reminder_type") // DAY_27 | DAY_29 | EXPIRY | GRACE_DAY_2
+  sentAt         DateTime @default(now()) @map("sent_at")
+
+  @@unique([tenantId, cycleStartedAt, reminderType])
+  @@index([tenantId, sentAt])
+  @@map("renewal_reminders")
+}
+
 model CreditLedger {
   id           String           @id @default(uuid())
   tenantId     String           @map("tenant_id")

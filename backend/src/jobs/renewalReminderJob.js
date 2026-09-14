@@ -32,11 +32,36 @@
  * days — you have 340 unused replies waiting." With no autopay doing the
  * work, unused credits are the strongest renewal lever available.
  *
- * IDEMPOTENCY, required: a re-run must not re-send. Key on
- * (entitlement, cycle, reminder type). Note that no table for this exists
- * yet — schema.prisma is a shared file Gate 7 may NOT edit, so either
- * derive idempotency from existing columns or FLAG IT and queue the schema
- * change for Wave 2. Do not edit the schema in a Wave 1 worktree.
+ * IDEMPOTENCY, required: a re-run must not re-send. This job runs several
+ * times a day and re-evaluates the same windows every pass, so without a
+ * guard a tenant three days out would be emailed on every run.
+ *
+ * Wave 0 has provided the table: prisma.renewalReminder, unique on
+ * (tenantId, cycleStartedAt, reminderType). Use it the way
+ * recordClassification uses CreditLedger — INSERT FIRST, and treat a P2002
+ * as "already sent, skip" rather than an error:
+ *
+ *   try {
+ *     await prisma.renewalReminder.create({ data: { tenantId, cycleStartedAt, reminderType } });
+ *   } catch (err) {
+ *     if (err.code === 'P2002') continue;   // already sent this cycle
+ *     throw err;
+ *   }
+ *   await mailer.sendX(...)
+ *
+ * Inserting before sending means a crash between the two sends nothing
+ * twice; the opposite order can double-send. cycleStartedAt is restamped by
+ * grantPlan() and rollCycle(), so a renewed tenant becomes eligible for a
+ * fresh set of reminders automatically, with no cleanup step.
+ *
+ * reminderType values: 'DAY_27' | 'DAY_29' | 'EXPIRY' | 'GRACE_DAY_2'.
+ *
+ * CHECKOUT LINK — cross-gate contract with Gate 5, use exactly this shape:
+ *   `${FRONTEND_URL}/billing?renew=<PLAN_CODE>&src=email_<reminderType>`
+ * The email cannot POST to the checkout endpoint, so it links to the
+ * billing page, which reads ?renew= and opens checkout for that plan
+ * directly. Gate 5 implements the receiving half. Anything else here is a
+ * login-then-navigate flow, which is what the brief rules out.
  *
  * All sends go through lib/email (the sole email egress point — never
  * import `resend` here), from noreply@mail.siffty.com.
