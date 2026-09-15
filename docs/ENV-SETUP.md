@@ -305,6 +305,15 @@ live by `validUntil` and dead by its stored status.
 Do **not** carry this habit to production. Extending `validUntil` there hands
 out free service, and the derived-status design means the row is believed.
 
+> **A deliberate dev grant on this repo's local database.**
+> `admin@codeback.internal` holds a TRIAL entitlement valid until
+> **2027-09-14** — a one-year trial made by the §5.1 INSERT and §5.2 UPDATE
+> above, with its matching `dev_grant` ledger row, so `billing:doctor`
+> balances. It is intentional, not a bug and not a real trial: that account has
+> no Instagram identity, so nothing was stamped and the one-trial-per-account
+> rule is untouched. Delete it with §5.4 if you want the admin account to show
+> the no-trial states.
+
 ### 5.3 Topping up reply credits during development
 
 A trial grants 25 auto-reply credits, which is deliberately small — enough to
@@ -388,8 +397,11 @@ node scripts/dev-reset-trial.js @your_instagram_username --apply
 node scripts/dev-reset-trial.js @your_instagram_username --apply --delete-entitlement
 ```
 
-Then, in the app, **disconnect that Instagram account and connect it again**.
-The connect redirect should carry `?trial=TRIAL_GRANTED`, and the billing page
-should show a 25-credit trial ending three days from now.
+Then, in the app, press **Start my trial** on `/billing`. The account is still
+connected and is now claimable, so `POST /api/billing/trial/claim` grants the
+trial through the same rules as a connect — no disconnect needed. (Disconnecting
+and reconnecting still works too; that redirect carries `?trial=TRIAL_GRANTED`.)
+Either way the billing page should show a 25-credit trial ending three days
+from now.
 
 `--ig-user-id <id>` works in place of `@username`. `blockedAt` is never touched.

@@ -130,7 +130,7 @@ const { hashIgUserId } = require('../src/lib/igIdentity');
     }
   }
 
-  console.log('\n  Next: in the app, disconnect that Instagram account and connect it again.\n');
+  console.log('\n  Next: in the app, press "Start my trial" on /billing (or disconnect and reconnect that Instagram account).\n');
   await prisma.$disconnect();
 })().catch(async (err) => {
   console.error('\n  FAILED:', err.message, '\n');
