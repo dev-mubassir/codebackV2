@@ -18,6 +18,7 @@
 
 const prisma = require('../lib/prisma');
 const entitlementService = require('./entitlementService');
+const { recoverSkippedMessages } = require('./skippedMessageRecovery');
 
 /**
  * Payment methods that are India-only by construction — UPI, netbanking,
@@ -112,6 +113,10 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
       currency,
       regionSource: source,
     });
+    // A purchase can end a stretch with no entitlement (a lapsed trial, or an
+    // expired plan). Re-queue the DMs that were skipped meanwhile — after the
+    // grant has committed, and never throwing: the order is already PAID.
+    await recoverSkippedMessages(order.tenantId, { trigger: `plan_grant:${order.planCode.toLowerCase()}` });
   } else if (order.addonCode) {
     await entitlementService.grantAddon(order.tenantId, order.addonCode);
   } else {

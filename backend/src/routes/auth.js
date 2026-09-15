@@ -1322,6 +1322,12 @@ router.get('/instagram/callback', async (req, res) => {
     // be discarded here, which is how a spent trial reached the dashboard as
     // an unexplained "No plan yet". The summary endpoint re-derives the same
     // reason later, so nothing depends on this parameter surviving.
+    // DMs that arrived before this trial existed. After the grant has committed;
+    // never throws, so it cannot fail a connect. Lazily required, same as the jobs.
+    if (claim.trialGranted) {
+      await require('../services/skippedMessageRecovery').recoverSkippedMessages(user.id, { trigger: 'instagram_connect' });
+    }
+
     console.log(`[Auth] Instagram connect complete — trial outcome: ${claim.trialOutcome}. Redirecting to dashboard.`);
     res.redirect(`${frontendUrl()}/dashboard?trial=${encodeURIComponent(claim.trialOutcome)}`);
 

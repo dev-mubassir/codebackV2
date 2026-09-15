@@ -173,6 +173,15 @@ export const inbox = {
     fallback: 'This one is worth answering yourself.',
   },
 
+  // Recent inbound DMs that were NOT sorted (GET /api/billing/summary
+  // unsortedMessages). Sorting that stops must say so — never silently.
+  unsorted: {
+    title: (count) => (count === 1 ? '1 recent message was not sorted' : `${count} recent messages were not sorted`),
+    notEntitled: 'They arrived while there was no active trial or plan, so Siffty did not read or sort them. They are still here to read.',
+    other: 'Sorting was unavailable when they arrived. They are still here to read.',
+    action: 'Start a trial or pick a plan',
+  },
+
   insights: {
     title: 'Conversation insights',
     show: 'Show insights',

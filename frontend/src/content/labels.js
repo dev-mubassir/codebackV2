@@ -196,6 +196,28 @@ export function messageStatusLabel(value) {
 }
 
 // ============================================
+// Why an inbound message was not sorted — Message.aiSkipReason
+// (set only when aiStatus is 'skipped'). No numbers: a paid plan's limits are
+// fair-use guards, never published.
+// ============================================
+export const SKIP_REASON_LABELS = {
+  not_entitled: { label: 'Not sorted', description: 'Arrived while there was no active trial or plan.', tone: 'warning' },
+  cycle_cap: { label: 'Not sorted', description: "Arrived after this cycle's sorting allowance was used.", tone: 'warning' },
+  hourly_throttle: {
+    label: 'Not sorted',
+    description: 'Arrived during an unusual burst of messages, so sorting paused.',
+    tone: 'warning',
+  },
+};
+
+const UNRECORDED_SKIP = { label: 'Not sorted', description: 'Sorting was unavailable when this arrived.', tone: 'warning' };
+
+export function skipReasonLabel(value) {
+  if (!value) return { ...UNRECORDED_SKIP };
+  return SKIP_REASON_LABELS[value] ? { ...SKIP_REASON_LABELS[value] } : { ...UNRECORDED_SKIP };
+}
+
+// ============================================
 // Instagram connection — InstagramAccount
 // ============================================
 export const CONNECTION_STATUS_LABELS = {

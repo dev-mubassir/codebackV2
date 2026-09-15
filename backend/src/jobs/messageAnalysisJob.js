@@ -51,6 +51,14 @@ const STALLED_ANALYSIS_MS = 15 * 60 * 1000;
 const THROTTLE_REQUEUE_DELAY_MS = 10 * 60 * 1000;
 const MAX_THROTTLE_REQUEUES = 7;
 
+// A message re-queued by services/skippedMessageRecovery (aiRecoveredAt set)
+// may still auto-reply only if it ARRIVED within this window. Older ones are
+// classified and left for the human: an automatic answer to a two-day-old DM
+// is worse than silence. Measured from createdAt — when the DM reached us —
+// and read from the durable column, so it also holds when the stalled-analysis
+// sweeper re-queues the message without the recovery's job data.
+const RECOVERED_AUTO_REPLY_WINDOW_MS = 60 * 60 * 1000;
+
 /**
  * The reply mode actually in force for a tenant.
  *
@@ -255,8 +263,8 @@ async function processMessageAnalysis(job) {
       }
 
       await prisma.message
-        .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
-        .catch(() => {});
+        .update({ where: { id: message.id }, data: { aiStatus: 'skipped', aiSkipReason: 'hourly_throttle' } })
+        .catch((err) => console.error(`[messageAnalysisJob] Could not mark ${messageId} skipped:`, err.message));
       console.warn(
         `[messageAnalysisJob] Skipped ${messageId}: still hourly-throttled after ${MAX_THROTTLE_REQUEUES} re-queues.`
       );
@@ -264,9 +272,12 @@ async function processMessageAnalysis(job) {
     }
 
     if (gate !== 'ok') {
+      // The reason is recorded, not just the status: `not_entitled` is what
+      // services/skippedMessageRecovery re-queues once a trial or plan starts,
+      // and the inbox tells the customer why this DM went unsorted.
       await prisma.message
-        .update({ where: { id: message.id }, data: { aiStatus: 'skipped' } })
-        .catch(() => {});
+        .update({ where: { id: message.id }, data: { aiStatus: 'skipped', aiSkipReason: gate } })
+        .catch((err) => console.error(`[messageAnalysisJob] Could not mark ${messageId} skipped:`, err.message));
       console.log(`[messageAnalysisJob] Skipped ${messageId}: ${gate} for user ${userId}.`);
       return;
     }
@@ -469,7 +480,19 @@ async function processMessageAnalysis(job) {
       console.log(`[messageAnalysisJob] Auto-reply withheld for ${messageId}: no reply credits or not entitled.`);
     }
 
-    if (isAutoReplyActive && message.direction === 'inbound' && hasReplyBudget) {
+    // A recovered message outside the window is classified (above) but never
+    // answered automatically — see RECOVERED_AUTO_REPLY_WINDOW_MS.
+    const recoveredTooLate =
+      Boolean(message.aiRecoveredAt) &&
+      Date.now() - new Date(message.createdAt).getTime() > RECOVERED_AUTO_REPLY_WINDOW_MS;
+
+    if (isAutoReplyActive && message.direction === 'inbound' && hasReplyBudget && recoveredTooLate) {
+      console.log(
+        `[messageAnalysisJob] Auto-reply withheld for ${messageId}: recovered after a skip and arrived more than an hour ago — left for the human.`
+      );
+    }
+
+    if (isAutoReplyActive && message.direction === 'inbound' && hasReplyBudget && !recoveredTooLate) {
       await maybeAutoReply({
         conversation,
         contact: conversation.contact,

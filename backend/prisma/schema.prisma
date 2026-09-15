@@ -291,6 +291,14 @@ model Message {
   igTimestamp    DateTime? @map("ig_timestamp") // Timestamp from Instagram
 
   aiStatus   String    @default("pending") @map("ai_status") // "pending", "processing", "completed", "failed", "skipped"
+  // The classification gate's reason when aiStatus is "skipped": "not_entitled",
+  // "cycle_cap" or "hourly_throttle". NULL otherwise, and for skips recorded
+  // before the column existed.
+  aiSkipReason  String?   @map("ai_skip_reason")
+  // Set when a skipped message is re-queued after an entitlement grant
+  // (services/skippedMessageRecovery.js). A recovered message may auto-reply
+  // only if it arrived within the last hour; older ones are classified only.
+  aiRecoveredAt DateTime? @map("ai_recovered_at")
   attempts   Int       @default(0)
   analyzedAt DateTime? @map("analyzed_at")
 

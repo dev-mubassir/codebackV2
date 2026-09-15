@@ -18,6 +18,7 @@ const { isBillingEnabled, isUsdPricingEnabled, isMetaApproved } = require('../li
 const { effectiveStatus, LIVE_STATUSES, downgradeBlock } = require('../services/entitlementService');
 const { TRIAL_OUTCOMES, trialStatusForUser, claimTrialForUser } = require('../lib/igIdentity');
 const { createRateLimiter } = require('../lib/rateLimit');
+const { recoverSkippedMessages, countUnsortedMessages } = require('../services/skippedMessageRecovery');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
 // would still leak "this route exists and requires login", which is more
@@ -386,6 +387,10 @@ router.get('/summary', async (req, res) => {
       // told a connected user to go and connect an account.
       instagramConnected:
         (await prisma.instagramAccount.count({ where: { userId: tenantId, connectionStatus: 'CONNECTED' } })) > 0,
+      // Inbound DMs from the last 7 days that were NOT classified, by the gate
+      // reason recorded at the time. The inbox states this rather than letting
+      // sorting stop silently.
+      unsortedMessages: await countUnsortedMessages(tenantId, now),
       planChange,
       trial: trialPlan
         ? {
@@ -447,6 +452,8 @@ router.post('/trial/claim', trialClaimLimiter, async (req, res) => {
   try {
     const { trialGranted, trialOutcome } = await claimTrialForUser({ userId: req.userId });
     console.log(`[Billing] Trial claim for user ${req.userId} — trial outcome: ${trialOutcome}.`);
+    // DMs that arrived while this tenant had no entitlement. Never throws.
+    if (trialGranted) await recoverSkippedMessages(req.userId, { trigger: 'trial_claim' });
     return res.status(TRIAL_CLAIM_HTTP_STATUS[trialOutcome] ?? 409).json({ trialGranted, trialOutcome });
   } catch (error) {
     console.error('[Billing] Trial claim failed:', error.message);

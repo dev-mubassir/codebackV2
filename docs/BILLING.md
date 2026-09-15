@@ -323,6 +323,34 @@ The message is stored and visible in the inbox either way; only the AI layer is
 withheld. The gate is also a spend control: without it, an expired tenant's DMs
 keep costing model calls indefinitely.
 
+### Skipped messages: recorded, recovered, shown
+
+A skip used to be final and silent. DMs that arrived before a tenant's trial or
+plan existed were never classified, and nothing said so.
+
+- **Recorded.** Every skip writes the gate reason to `messages.ai_skip_reason`.
+  Skips from before that column existed have `NULL` and count as `unrecorded`.
+- **Recovered on grant.** Right after a trial starts (on connect or claim) or a
+  plan is bought, `services/skippedMessageRecovery.js` re-queues inbound
+  messages skipped for `not_entitled` (or `NULL`) in the **last 7 days**:
+  - Newest first, bounded by what is left of the classification cap this cycle.
+  - `cycle_cap` and `hourly_throttle` skips are not recovered, because a grant
+    is not what clears them.
+  - Each re-queue is a conditional update plus its own job id. The queue drops
+    a repeated `analyze-<id>`.
+  - Recovery runs after the grant commits and never throws. A failed recovery
+    must not fail a connect, a claim or a paid order.
+- **Classification only, by default.** A recovered message (`ai_recovered_at`
+  set) may auto-reply only if it **arrived within the last hour**. Older ones
+  are classified and left for the human: an automatic answer to a two-day-old
+  DM is worse than silence. The rule reads the durable column, so it still
+  holds if the stalled-analysis sweeper re-queues the message.
+- **Shown.** `/summary` returns `unsortedMessages` (count by reason, last 7
+  days). The inbox shows a banner above the conversation list, and a
+  "Not sorted · why" line on each skipped message. The "no active trial or
+  plan" wording is used only for a *recorded* `not_entitled` skip. No wording
+  names a number, since paid limits stay unpublished.
+
 **Caps are fair-use guards, not sold quantities.** The paid plans' classification
 cap and hourly throttle are enforced but never published: not on a page, and
 not through `/plans` or `/summary`. Only the trial's cap is shown, because it is

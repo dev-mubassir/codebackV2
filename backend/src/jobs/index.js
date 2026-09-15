@@ -168,6 +168,8 @@ function startWorkers() {
  * @param {object} [opts]
  * @param {number} [opts.delayMs]          defer the first run (hourly-throttle requeue)
  * @param {number} [opts.throttleAttempt]  which requeue this is; also varies the jobId
+ * @param {string} [opts.jobKey]           varies the jobId for a deliberate re-run of a message
+ *                                          that was already enqueued once (skipped-message recovery)
  *
  * THE jobId MUST VARY PER REQUEUE. Both queue backends dedupe on jobId —
  * the in-process one keeps a `_seenJobIds` set that is never cleared — so
@@ -177,9 +179,10 @@ function startWorkers() {
  * message permanently. Suffixing the attempt keeps normal dedupe intact
  * while letting the retry through.
  */
-async function enqueueMessageAnalysis(messageId, { delayMs = 0, throttleAttempt = 0 } = {}) {
+async function enqueueMessageAnalysis(messageId, { delayMs = 0, throttleAttempt = 0, jobKey = null } = {}) {
   const jobSystem = startWorkers();
-  const jobId = throttleAttempt > 0 ? `analyze-${messageId}-t${throttleAttempt}` : `analyze-${messageId}`;
+  let jobId = throttleAttempt > 0 ? `analyze-${messageId}-t${throttleAttempt}` : `analyze-${messageId}`;
+  if (jobKey) jobId = `${jobId}-${jobKey}`;
   try {
     await jobSystem.add(
       'message.analysis',
