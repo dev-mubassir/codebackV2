@@ -407,6 +407,15 @@ export async function claimTrial() {
   return data;
 }
 
+/**
+ * Turn the two early renewal reminder emails on or off. The expiry-day and
+ * grace-final notices are not affected. Resolves with { nudgeEmails }.
+ */
+export async function setRenewalNudgeEmails(nudgeEmails) {
+  const { data } = await api.put('/api/billing/reminders', { nudgeEmails });
+  return data;
+}
+
 /** Attach an email to a legacy Instagram-created account that has none. */
 export async function addEmail(email) {
   const { data } = await api.post('/auth/add-email', { email });

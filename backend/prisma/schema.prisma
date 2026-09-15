@@ -59,6 +59,10 @@ model User {
   // scanning the session store.
   sessionVersion      Int       @default(0) @map("session_version")
   lastSeenAt          DateTime? @map("last_seen_at") // last time the user opened the app
+  // The two OPTIONAL renewal nudges (day 27, day 29). The expiry-day and
+  // grace-final notices are service notices and ignore this. See
+  // jobs/renewalReminderJob.js and migration 20260915170000_renewal_nudge_emails.
+  renewalNudgeEmails  Boolean   @default(true) @map("renewal_nudge_emails")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 

@@ -18,15 +18,56 @@
  * settings makes no billing request at all.
  */
 
+import { useState } from 'react';
 import Link from 'next/link';
 import useBillingSummary from './useBillingSummary';
 import TrialStateCard from './TrialStateCard';
-import { STATUS_BADGE } from './PlanStatusCard';
+import { STATUS_BADGE, NoSubscriptionNote } from './PlanStatusCard';
 import { trialCardState, replacesPlanPanels } from '@/lib/trialState';
-import { getInstagramAuthUrl } from '@/lib/api';
+import { getInstagramAuthUrl, setRenewalNudgeEmails } from '@/lib/api';
 import { formatCount } from '@/content/format';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
+
+/**
+ * The one real control over renewals: the two early reminder emails. Optimistic,
+ * and rolled back if the save fails, so the box never shows a state the server
+ * does not hold.
+ */
+function RenewalReminderToggle({ initial }) {
+  const t = billing.settingsPanel.reminders;
+  const [on, setOn] = useState(initial !== false);
+  const [state, setState] = useState('idle'); // idle | saving | failed
+
+  async function onChange(event) {
+    const next = event.target.checked;
+    setOn(next);
+    setState('saving');
+    try {
+      const saved = await setRenewalNudgeEmails(next);
+      setOn(saved.nudgeEmails);
+      setState('idle');
+    } catch {
+      setOn(!next);
+      setState('failed');
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+        <input type="checkbox" checked={on} onChange={onChange} disabled={state === 'saving'} />
+        <span>{t.label}</span>
+      </label>
+      <p className={styles.help}>{t.help}</p>
+      {state === 'failed' && (
+        <p className={styles.help} role="alert">
+          {t.failed}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function Item({ label, children }) {
   return (
@@ -93,6 +134,9 @@ export function PlanSummaryPanelView({ summary, onClaimed }) {
           {sortLimit != null ? billing.usage.ofLimit(sorted, formatCount(sortLimit)) : sorted}
         </Item>
       </div>
+
+      <NoSubscriptionNote summary={summary} className={styles.help} />
+      {plan && plan.code !== 'TRIAL' && <RenewalReminderToggle initial={summary.reminders?.nudgeEmails} />}
     </section>
   );
 }

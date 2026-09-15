@@ -407,6 +407,13 @@ router.get('/summary', async (req, res) => {
       paidAddonOrders,
       replyCreditPacksThisCycle,
       orders,
+      // The one control a customer has over renewals: whether the two early
+      // reminder emails are sent. See PUT /reminders.
+      reminders: {
+        nudgeEmails:
+          (await prisma.user.findUnique({ where: { id: tenantId }, select: { renewalNudgeEmails: true } }))
+            ?.renewalNudgeEmails ?? true,
+      },
     });
   } catch (error) {
     console.error('[Billing] Failed to load the billing summary:', error.message);
@@ -635,6 +642,37 @@ router.post('/checkout/addon', async (req, res) => {
     console.error('[Billing] Add-on checkout failed:', error.response?.data || error.message);
     await prisma.order.updateMany({ where: { tenantId: req.userId, addonCode, status: 'CREATED' }, data: { status: 'FAILED' } }).catch(() => {});
     return res.status(502).json({ error: "Couldn't start checkout. Try again." });
+  }
+});
+
+/**
+ * PUT /api/billing/reminders — { nudgeEmails: boolean }
+ *
+ * CANCELLATION IS A WORDING PROBLEM, NOT A FEATURE. Nothing renews
+ * automatically, so there is no subscription to cancel: not buying another
+ * cycle is cancelling. The only thing a customer could actually want to stop
+ * is being reminded, and this is that switch.
+ *
+ * It covers the two early nudges only. The expiry-day and grace-final notices
+ * describe service stopping and credits being cleared, so they keep sending —
+ * the settings copy next to the switch says exactly that.
+ */
+router.put('/reminders', async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const keys = Object.keys(body);
+  if (typeof body.nudgeEmails !== 'boolean' || keys.length !== 1) {
+    return res.status(400).json({ error: 'Send { "nudgeEmails": true } or { "nudgeEmails": false }.' });
+  }
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { renewalNudgeEmails: body.nudgeEmails },
+      select: { renewalNudgeEmails: true },
+    });
+    return res.json({ nudgeEmails: user.renewalNudgeEmails });
+  } catch (error) {
+    console.error('[Billing] Failed to save the renewal reminder preference:', error.message);
+    return res.status(500).json({ error: "Couldn't save that. Try again." });
   }
 });
 

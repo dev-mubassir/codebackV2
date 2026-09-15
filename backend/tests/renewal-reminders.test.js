@@ -445,3 +445,44 @@ describe('the last two notices cannot be starved by the deferrable reserve', () 
     errors.mockRestore();
   });
 });
+
+describe('Gate 11a — turning off renewal reminder emails', () => {
+  const optOut = (userId) => prisma.user.update({ where: { id: userId }, data: { renewalNudgeEmails: false } });
+
+  it('skips DAY_27 and DAY_29 for a tenant who turned reminders off, and records nothing', async () => {
+    const early = await createPaidTenant({ msUntilExpiry: IN_DAY_27, current: 10 });
+    const late = await createPaidTenant({ msUntilExpiry: IN_DAY_29, current: 10 });
+    await optOut(early.id);
+    await optOut(late.id);
+
+    expect(await job.sendRenewalReminders()).toBe(0);
+    expect(mail.messages).toHaveLength(0);
+    expect(await remindersFor(early.id), 'no row, so switching back on still delivers').toHaveLength(0);
+    expect(await remindersFor(late.id)).toHaveLength(0);
+  });
+
+  it('still sends the EXPIRY and GRACE_FINAL service notices after an opt-out', async () => {
+    const expiring = await createPaidTenant({ msUntilExpiry: IN_EXPIRY, current: 10 });
+    const inGrace = await createPaidTenant({ msUntilExpiry: IN_GRACE_FINAL, current: 10 });
+    await optOut(expiring.id);
+    await optOut(inGrace.id);
+
+    expect(await job.sendRenewalReminders()).toBe(2);
+    expect((await remindersFor(expiring.id)).map((r) => r.reminderType)).toEqual(['EXPIRY']);
+    expect((await remindersFor(inGrace.id)).map((r) => r.reminderType)).toEqual(['GRACE_FINAL']);
+  });
+
+  it('switching reminders back on inside the window delivers that stage', async () => {
+    const user = await createPaidTenant({ msUntilExpiry: IN_DAY_27, current: 10 });
+    await optOut(user.id);
+    expect(await job.sendRenewalReminders()).toBe(0);
+
+    await prisma.user.update({ where: { id: user.id }, data: { renewalNudgeEmails: true } });
+    expect(await job.sendRenewalReminders()).toBe(1);
+    expect((await remindersFor(user.id)).map((r) => r.reminderType)).toEqual(['DAY_27']);
+  });
+
+  it('only the two early stages are marked optional', () => {
+    expect(job.STAGES.filter((s) => s.optional).map((s) => s.reminderType)).toEqual(['DAY_27', 'DAY_29']);
+  });
+});

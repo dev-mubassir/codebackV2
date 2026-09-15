@@ -83,8 +83,12 @@ const frontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:3000').
  * reading — at that moment the plan has run out.
  */
 const STAGES = [
-  { reminderType: 'DAY_27', min: 1 * DAY_MS, max: 3 * DAY_MS },
-  { reminderType: 'DAY_29', min: 0, max: 1 * DAY_MS },
+  // `optional`: the two early nudges are the only part of the sequence a
+  // customer can switch off (User.renewalNudgeEmails). EXPIRY and GRACE_FINAL
+  // are not reminders — they say service has stopped and credits are about to
+  // be cleared — so they send regardless, and the settings page says so.
+  { reminderType: 'DAY_27', min: 1 * DAY_MS, max: 3 * DAY_MS, optional: true },
+  { reminderType: 'DAY_29', min: 0, max: 1 * DAY_MS, optional: true },
   { reminderType: 'EXPIRY', min: -2 * DAY_MS, max: 0 },
   // Ends at the real end of grace, not at a hardcoded -3 days: past
   // graceUntil the tenant is a cold start (grantPlan forfeits the credit
@@ -156,7 +160,7 @@ async function sendRenewalReminders() {
       cycleStartedAt: true,
       replyCreditsCurrent: true,
       replyCreditsBanked: true,
-      user: { select: { email: true } },
+      user: { select: { email: true, renewalNudgeEmails: true } },
     },
   });
 
@@ -168,6 +172,11 @@ async function sendRenewalReminders() {
 
     const to = entitlement.user?.email;
     if (!to) continue;
+
+    // Opted out of the nudges. Checked BEFORE the idempotency insert, so no
+    // row is written: switching reminders back on inside the same window still
+    // delivers that stage rather than finding it already "sent".
+    if (stage.optional && entitlement.user.renewalNudgeEmails === false) continue;
 
     // INSERT FIRST, SEND SECOND — the same shape as
     // entitlementService.recordClassification, and for the same reason.
