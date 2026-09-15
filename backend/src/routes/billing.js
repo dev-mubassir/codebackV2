@@ -498,6 +498,25 @@ router.post('/trial/claim', trialClaimLimiter, async (req, res) => {
 });
 
 /**
+ * A checkout that failed while creating its Cashfree order is terminal at once:
+ * EXPIRED, the only terminal state. Nothing waits for reconciliation to find an
+ * order that never existed.
+ *
+ * Safe even when Cashfree DID create the order and only the response was lost:
+ * the browser never received a payment_session_id, so that order cannot be
+ * paid, and it expires at Cashfree within its 60 minutes anyway. Only THIS
+ * order is touched — never the tenant's other in-flight checkouts.
+ */
+async function retireUnstartedOrder(orderId) {
+  if (!orderId) return;
+  try {
+    await prisma.order.updateMany({ where: { cashfreeOrderId: orderId, status: 'CREATED' }, data: { status: 'EXPIRED' } });
+  } catch (err) {
+    console.error(`[Billing] Could not expire unstarted order ${orderId}; reconciliation will:`, err.message);
+  }
+}
+
+/**
  * POST /api/billing/checkout/plan
  * body: { planCode: 'STARTER'|'PRO', billingRegionHint?: 'IN'|'INTL', customerPhone: string }
  *
@@ -508,6 +527,7 @@ router.post('/trial/claim', trialClaimLimiter, async (req, res) => {
  */
 router.post('/checkout/plan', async (req, res) => {
   const { planCode, billingRegionHint, customerPhone } = req.body || {};
+  let orderId = null;
 
   if (!PURCHASABLE_PLAN_CODES.includes(planCode)) {
     return res.status(400).json({ error: 'Unknown or non-purchasable plan code.' });
@@ -554,7 +574,7 @@ router.post('/checkout/plan', async (req, res) => {
       return res.status(404).json({ error: `No price configured for ${planCode} in region ${billingRegion}.` });
     }
 
-    const orderId = generateOrderId();
+    orderId = generateOrderId();
     await prisma.order.create({
       data: {
         cashfreeOrderId: orderId,
@@ -583,12 +603,8 @@ router.post('/checkout/plan', async (req, res) => {
       currency: price.currency,
     });
   } catch (error) {
-    // The order is left CREATED. Whether Cashfree actually created it (a timeout
-    // after success) is Cashfree's to say: reconciliation asks, and expires it
-    // if Cashfree reports it expired or has no such order. The previous
-    // updateMany here also marked every OTHER in-flight order of this plan for
-    // the tenant as failed.
     console.error('[Billing] Plan checkout failed:', error.response?.data || error.message);
+    await retireUnstartedOrder(orderId);
     return res.status(502).json({ error: "Couldn't start checkout. Try again." });
   }
 });
@@ -604,6 +620,7 @@ router.post('/checkout/plan', async (req, res) => {
  */
 router.post('/checkout/addon', async (req, res) => {
   const { addonCode, customerPhone } = req.body || {};
+  let orderId = null;
 
   if (!addonCode) {
     return res.status(400).json({ error: 'addonCode is required.' });
@@ -643,7 +660,7 @@ router.post('/checkout/addon', async (req, res) => {
       return res.status(404).json({ error: `No price configured for "${addonCode}" on your plan/region.` });
     }
 
-    const orderId = generateOrderId();
+    orderId = generateOrderId();
     await prisma.order.create({
       data: {
         cashfreeOrderId: orderId,
@@ -672,8 +689,8 @@ router.post('/checkout/addon', async (req, res) => {
       currency: price.currency,
     });
   } catch (error) {
-    // Left CREATED for reconciliation to resolve — see the plan checkout above.
     console.error('[Billing] Add-on checkout failed:', error.response?.data || error.message);
+    await retireUnstartedOrder(orderId);
     return res.status(502).json({ error: "Couldn't start checkout. Try again." });
   }
 });

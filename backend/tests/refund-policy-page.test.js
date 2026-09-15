@@ -32,6 +32,9 @@ describe('Gate 11d — refund policy page', () => {
     expect(src).toContain('5–7');
     expect(src).toMatch(/entirely unused/);
     expect(src).toMatch(/Trials are free/);
+    expect(src, 'the plan rule counts the purchase’s own credits').toMatch(/less than \{PLAN_USAGE_LIMIT_PERCENT\}% of the credits from that purchase/);
+    expect(src).toMatch(/Credits you already had are used first/);
+    expect(src, 'the extra-account rule is stated').toMatch(/no Instagram account has ever been connected/);
   });
 
   it('never says "discretion"', () => {

@@ -67,20 +67,10 @@ async function evaluatePolicy(order, now = new Date(), db = prisma) {
   const kind = order.planCode ? 'plan' : order.addonCode === 'extra_ig_account' ? 'extra_ig_account' : 'reply_pack';
   const daysSincePayment = order.paidAt ? (now.getTime() - order.paidAt.getTime()) / DAY_MS : null;
 
-  const spend = order.paidAt
-    ? await db.creditLedger.aggregate({
-        where: { tenantId: order.tenantId, type: 'SPEND', createdAt: { gte: order.paidAt } },
-        _sum: { delta: true },
-      })
-    : { _sum: { delta: 0 } };
-  const creditsUsedSincePayment = -(spend._sum.delta ?? 0);
-
-  let creditsGranted = snap.grantedCredits ?? null;
-  if (creditsGranted == null && kind === 'plan') {
-    creditsGranted = (await db.plan.findUnique({ where: { code: order.planCode } }))?.autoReplyCreditsPerCycle ?? null;
-  } else if (creditsGranted == null && kind === 'reply_pack') {
-    creditsGranted = (await db.addonPack.findUnique({ where: { code: order.addonCode } }))?.creditAmount ?? null;
-  }
+  // The purchase's OWN credits (FIFO: credits already held spend first).
+  const usage = await entitlementService.creditsUsedFromOrder(order, { db });
+  const creditsGranted = kind === 'extra_ig_account' ? null : usage.granted;
+  const creditsUsedFromPurchase = usage.usedFromOrder;
 
   const reasons = [];
   if (daysSincePayment == null) reasons.push('The order has no payment date.');
@@ -91,17 +81,19 @@ async function evaluatePolicy(order, now = new Date(), db = prisma) {
   let usedPercent = null;
   const cycleEndsAt = snap.grantedValidUntil || null;
   if (kind === 'plan') {
-    usedPercent = creditsGranted > 0 ? round1((creditsUsedSincePayment / creditsGranted) * 100) : 0;
+    usedPercent = creditsGranted > 0 ? round1((creditsUsedFromPurchase / creditsGranted) * 100) : 0;
     if (usedPercent >= PLAN_USAGE_LIMIT_PERCENT) {
       reasons.push(
-        `${creditsUsedSincePayment} of ${creditsGranted} auto-replies used (${usedPercent}%); the limit is under ${PLAN_USAGE_LIMIT_PERCENT}%.`
+        `${creditsUsedFromPurchase} of the ${creditsGranted} credits from this purchase used (${usedPercent}%); the limit is under ${PLAN_USAGE_LIMIT_PERCENT}%.`
       );
     }
     if (cycleEndsAt && now.getTime() >= new Date(cycleEndsAt).getTime()) {
       reasons.push(`The paid period ended on ${new Date(cycleEndsAt).toISOString()}.`);
     }
-  } else if (kind === 'reply_pack' && creditsUsedSincePayment > 0) {
-    reasons.push(`${creditsUsedSincePayment} auto-replies sent since the top-up; a top-up is refundable only if entirely unused.`);
+  } else if (kind === 'reply_pack' && creditsUsedFromPurchase > 0) {
+    reasons.push(`${creditsUsedFromPurchase} of this top-up's credits used; a top-up is refundable only if entirely unused.`);
+  } else if (kind === 'extra_ig_account' && order.slotUsedAt) {
+    reasons.push(`An Instagram account was connected using this slot on ${order.slotUsedAt.toISOString()}.`);
   }
 
   return {
@@ -112,7 +104,11 @@ async function evaluatePolicy(order, now = new Date(), db = prisma) {
     daysSincePayment: daysSincePayment == null ? null : round1(daysSincePayment),
     paidAt: order.paidAt?.toISOString() ?? null,
     creditsGranted,
-    creditsUsedSincePayment,
+    creditsAheadAtGrant: usage.creditsAheadAtGrant,
+    creditsSpentSincePayment: usage.spentSincePayment,
+    creditsUsedFromPurchase,
+    usageMeasure: usage.measure,
+    slotUsedAt: kind === 'extra_ig_account' ? order.slotUsedAt?.toISOString() ?? null : undefined,
     usedPercent,
     usageLimitPercent: kind === 'plan' ? PLAN_USAGE_LIMIT_PERCENT : null,
     cycleEndsAt,

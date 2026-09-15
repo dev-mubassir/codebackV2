@@ -573,6 +573,111 @@ const DAY_MS = 24 * HOUR_MS;
 const sameInstant = (a, b) => Boolean(a && b && new Date(a).getTime() === new Date(b).getTime());
 
 /**
+ * How many of the credits ONE order granted have been consumed.
+ *
+ * Spend is FIFO: banked (older) credits drain before current, and a top-up joins
+ * the back of the queue. So credits the tenant already held at the grant — the
+ * carried bank for a plan, the whole balance for a top-up — burn first, and this
+ * order's own credits are only touched once those are gone:
+ *
+ *   used = clamp(spent since payment − creditsAheadAtGrant, 0, granted)
+ *
+ * Counting every reply since payment instead (the first version) charged an
+ * early renewer for spending the credits they carried over.
+ *
+ * KNOWN SIMPLIFICATION, in the customer's favour: credits ahead that leave
+ * without being spent (a bank-cap discard, another order's refund) are not
+ * subtracted from the queue, so this can undercount — never overcount — use.
+ * Orders fulfilled before creditsAheadAtGrant was recorded fall back to all
+ * spends since payment, and say so in `measure`.
+ */
+async function creditsUsedFromOrder(order, { db = prisma } = {}) {
+  const snap = order.grantSnapshot || {};
+  let granted = snap.grantedCredits;
+  if (granted == null) {
+    if (order.planCode) granted = (await getPlan(order.planCode, db))?.autoReplyCreditsPerCycle ?? 0;
+    else if (order.addonCode && order.addonCode !== 'extra_ig_account') {
+      granted = (await db.addonPack.findUnique({ where: { code: order.addonCode } }))?.creditAmount ?? 0;
+    } else granted = 0;
+  }
+
+  const hasAhead = typeof snap.creditsAheadAtGrant === 'number';
+  const ahead = hasAhead ? snap.creditsAheadAtGrant : 0;
+  const spend = order.paidAt
+    ? await db.creditLedger.aggregate({
+        where: { tenantId: order.tenantId, type: 'SPEND', createdAt: { gte: order.paidAt } },
+        _sum: { delta: true },
+      })
+    : { _sum: { delta: 0 } };
+  const spentSincePayment = -(spend._sum.delta ?? 0);
+
+  return {
+    granted,
+    creditsAheadAtGrant: hasAhead ? ahead : null,
+    spentSincePayment,
+    usedFromOrder: Math.min(granted, Math.max(0, spentSincePayment - ahead)),
+    measure: hasAhead ? 'fifo_from_purchase' : 'all_spends_since_payment',
+  };
+}
+
+/**
+ * Mark extra-Instagram-account slots as used (orders.slot_used_at).
+ *
+ * A slot's refund window closes for good once an Instagram account is connected
+ * using it. There is no per-account slot assignment, so the rule is counted: the
+ * tenant's plan includes `igAccountLimit` accounts, and the k-th held extra slot
+ * (oldest purchase first) is in use whenever `igAccountLimit + k` or more
+ * accounts are connected. A stamp is never removed — "ever connected" survives a
+ * disconnect.
+ *
+ * Only the `extraIgAccounts` most recent paid, unrevoked slot orders are the
+ * ones currently held; older ones belong to a lapsed period that a cold start
+ * reset.
+ *
+ * Called after every Instagram connect or reconnect and after a slot purchase.
+ * NEVER THROWS: a connect must not fail over refund bookkeeping.
+ *
+ * @returns {Promise<number>} slots newly stamped
+ */
+async function recordInstagramSlotUsage(tenantId, { now = new Date() } = {}) {
+  try {
+    const e = await prisma.entitlement.findUnique({ where: { userId: tenantId } });
+    if (!e?.planCode || !e.extraIgAccounts) return 0;
+    const plan = await getPlan(e.planCode);
+    if (plan?.igAccountLimit == null) return 0;
+
+    const paidSlots = await prisma.order.findMany({
+      where: { tenantId, status: 'PAID', addonCode: 'extra_ig_account' },
+      orderBy: { paidAt: 'desc' },
+      select: { id: true, cashfreeOrderId: true, slotUsedAt: true },
+    });
+    const revoked = new Set(
+      (
+        await prisma.refund.findMany({
+          where: { cashfreeOrderId: { in: paidSlots.map((o) => o.cashfreeOrderId) }, revokedAt: { not: null } },
+          select: { cashfreeOrderId: true },
+        })
+      ).map((r) => r.cashfreeOrderId)
+    );
+    const held = paidSlots.filter((o) => !revoked.has(o.cashfreeOrderId)).slice(0, e.extraIgAccounts).reverse();
+
+    const connected = await prisma.instagramAccount.count({ where: { userId: tenantId, connectionStatus: 'CONNECTED' } });
+    let stamped = 0;
+    for (let k = 0; k < held.length; k += 1) {
+      if (connected < plan.igAccountLimit + k + 1) break;
+      if (held[k].slotUsedAt) continue;
+      const { count } = await prisma.order.updateMany({ where: { id: held[k].id, slotUsedAt: null }, data: { slotUsedAt: now } });
+      stamped += count;
+    }
+    if (stamped) console.log(`[Entitlement] ${stamped} extra Instagram account slot(s) now in use for tenant ${tenantId}.`);
+    return stamped;
+  } catch (err) {
+    console.error(`[Entitlement] Could not record Instagram slot usage for tenant ${tenantId}:`, err.message);
+    return 0;
+  }
+}
+
+/**
  * Undo what one fully refunded order granted (Gate 11c). A refund without
  * revocation is free service. Runs inside the refund's transaction
  * (services/refundService.js), which has already locked the order and made sure
@@ -677,14 +782,13 @@ async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null }
     data.extraIgAccounts = Math.max(0, e.extraIgAccounts - 1);
     summary.extraIgAccounts = { before: e.extraIgAccounts, after: data.extraIgAccounts };
   } else {
-    let granted = snap?.grantedCredits;
-    if (granted == null) {
-      granted = order.planCode
-        ? (await getPlan(order.planCode, tx))?.autoReplyCreditsPerCycle ?? 0
-        : (await tx.addonPack.findUnique({ where: { code: order.addonCode } }))?.creditAmount ?? 0;
-    }
+    // Only what is LEFT of this purchase's own credits can be taken back:
+    // granted minus what was consumed from it (FIFO — see creditsUsedFromOrder).
+    // Taking back more would eat credits from purchases behind it in the queue.
+    const usage = await creditsUsedFromOrder(order, { db: tx });
+    const granted = usage.granted;
     const balance = e.replyCreditsCurrent + e.replyCreditsBanked;
-    const removed = Math.min(granted, balance);
+    const removed = Math.min(granted - usage.usedFromOrder, balance);
     const fromCurrent = Math.min(removed, e.replyCreditsCurrent);
     const fromBanked = removed - fromCurrent;
     const shortfall = granted - removed;
@@ -699,11 +803,20 @@ async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null }
         source: 'expire:refund',
         balanceAfter: balance - removed,
         note:
-          `refund${refundId ? ` ${refundId}` : ''} of order ${order.cashfreeOrderId}: granted ${granted}, removed ${removed}` +
+          `refund${refundId ? ` ${refundId}` : ''} of order ${order.cashfreeOrderId}: granted ${granted}, ` +
+          `used ${usage.usedFromOrder}, removed ${removed}` +
           (shortfall > 0 ? `, shortfall ${shortfall} (already spent; balance clamped at zero)` : ''),
       },
     });
-    summary.credits = { granted, removed, shortfall, balanceBefore: balance, balanceAfter: balance - removed };
+    summary.credits = {
+      granted,
+      usedFromOrder: usage.usedFromOrder,
+      removed,
+      shortfall,
+      measure: usage.measure,
+      balanceBefore: balance,
+      balanceAfter: balance - removed,
+    };
   }
 
   // Honest status from the resulting dates.
@@ -740,4 +853,6 @@ module.exports = {
   grantAddon,
   rollCycle,
   revokeOrderGrant,
+  creditsUsedFromOrder,
+  recordInstagramSlotUsage,
 };

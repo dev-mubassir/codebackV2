@@ -19,7 +19,9 @@
 
 const crypto = require('crypto');
 const axios = require('axios');
-const { getBaseUrl, smallestUnitToDecimal } = require('./cashfree');
+// cashfreeResponseParser: Cashfree ids exceed Number.MAX_SAFE_INTEGER, and axios's
+// default JSON parsing would round them — see lib/cashfree.js parseCashfreeJson.
+const { getBaseUrl, smallestUnitToDecimal, cashfreeResponseParser } = require('./cashfree');
 
 // Carried over from the reverted code (lib/cashfreeOrders.js, commit
 // 0a47627), which states this was independently confirmed against
@@ -103,6 +105,7 @@ async function createOrder({ orderId, amountInPaise, currency, customerId, custo
         'x-idempotency-key': orderId,
       },
       timeout: 15000,
+      transformResponse: [cashfreeResponseParser],
     }
   );
 
@@ -128,6 +131,7 @@ async function getOrder(orderId) {
       'x-client-secret': clientSecret,
     },
     timeout: 15000,
+    transformResponse: [cashfreeResponseParser],
   });
 
   return response.data;
@@ -154,6 +158,7 @@ async function getPaymentsForOrder(orderId) {
       'x-client-secret': clientSecret,
     },
     timeout: 15000,
+    transformResponse: [cashfreeResponseParser],
   });
 
   return response.data; // array of payment attempts
@@ -186,7 +191,11 @@ async function createRefund({ orderId, refundId, amountInPaise, note }) {
       refund_note: note ? String(note).slice(0, 100) : undefined,
       refund_speed: 'STANDARD',
     },
-    { headers: authHeaders({ 'Content-Type': 'application/json', 'x-idempotency-key': refundId }), timeout: 15000 }
+    {
+      headers: authHeaders({ 'Content-Type': 'application/json', 'x-idempotency-key': refundId }),
+      timeout: 15000,
+      transformResponse: [cashfreeResponseParser],
+    }
   );
   return response.data; // { cf_refund_id, refund_id, refund_status: 'PENDING' | ..., refund_amount, ... }
 }
@@ -195,7 +204,7 @@ async function createRefund({ orderId, refundId, amountInPaise, note }) {
 async function getRefund(orderId, refundId) {
   const response = await axios.get(
     `${getBaseUrl()}/pg/orders/${encodeURIComponent(orderId)}/refunds/${encodeURIComponent(refundId)}`,
-    { headers: authHeaders(), timeout: 15000 }
+    { headers: authHeaders(), timeout: 15000, transformResponse: [cashfreeResponseParser] }
   );
   return response.data;
 }

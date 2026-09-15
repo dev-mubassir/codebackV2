@@ -88,8 +88,11 @@ codebase.
     `PaymentAttempt` row instead. Payment history shows "Payment failed" from
     that row.
   - **Expiry comes only from expiry.** Orders are created with a 60-minute
-    `order_expiry_time`. Reconciliation marks an order `EXPIRED` when Cashfree
-    reports it `EXPIRED`/`TERMINATED` or has no record of it. The 7-day rule
+    `order_expiry_time`. A checkout whose Cashfree order creation fails is
+    marked `EXPIRED` immediately: the browser never received a payment session,
+    so it cannot be paid even if Cashfree did create it. Reconciliation marks an
+    order `EXPIRED` when Cashfree reports it `EXPIRED`/`TERMINATED` or has no
+    record of it. The 7-day rule
     remains as a safety net and sends a CRITICAL alert if it ever fires. A
     payment confirmed on an expired order grants nothing and sends the
     `paidAfterExpiry` CRITICAL alert.
@@ -477,13 +480,48 @@ Admin API (behind `requireAdmin`):
 | `POST /api/admin/billing/orders/:orderId/refunds` | `{ reason, amount?, overridePolicy?, overrideReason? }`. `amount` in paise/cents, default everything still refundable |
 | `POST /api/admin/billing/refunds/:refundId/sync` | Re-read a refund from Cashfree; the backstop for a dropped webhook |
 
-**The policy is reported, never a hard refusal.** Eligibility is computed from
-the ledger: auto-replies sent since `paidAt` (`SPEND` rows), against the
-credits the order granted. A plan needs fewer than 20% used, within 7 days,
-before its paid period ends; a reply pack needs zero used since purchase. An
-ineligible refund answers `409 REFUND_POLICY_INELIGIBLE` with the numbers, and
+**The policy is reported, never a hard refusal.** Every refund must be asked for
+within 7 days of payment. Beyond that:
+
+| Purchase | Refundable when |
+|---|---|
+| Plan | Less than 20% of the credits from that purchase used, and its paid period has not ended |
+| Reply top-up | None of its credits used |
+| Extra Instagram account | No Instagram account ever connected using that slot |
+
+An ineligible refund answers `409 REFUND_POLICY_INELIGIBLE` with the numbers, and
 goes through only with `overridePolicy: true` plus an `overrideReason`. Both, and
 the eligibility snapshot, are stored on the `Refund` row.
+
+**Usage counts the purchase's own credits, FIFO.** Spend drains older credits
+first: the carried bank before a plan's new credits, and everything already held
+before a top-up. Fulfilment records `creditsAheadAtGrant` in the grant snapshot,
+and `entitlementService.creditsUsedFromOrder` computes:
+
+```
+used = clamp(spent since payment − creditsAheadAtGrant, 0, credits granted)
+```
+
+Counting every reply since payment (the first version) charged an early renewer
+for spending the credits they carried over. The one simplification is in the
+customer's favour: credits ahead that leave without being spent (a bank-cap
+discard, another order's refund) are not taken out of the queue, so usage can be
+undercounted, never overcounted. An order without `creditsAheadAtGrant` falls back
+to all spends since payment and reports `usageMeasure: all_spends_since_payment`.
+
+**Extra account slots are recorded when used.** Instagram account limits are not
+enforced at connect, and account rows can be deleted, so use cannot be read back
+later. `entitlementService.recordInstagramSlotUsage` runs after every Instagram
+connect or reconnect (both branches in `routes/auth.js`) and after a slot
+purchase. The plan includes `igAccountLimit` accounts; the k-th held slot, oldest
+purchase first, is in use once `igAccountLimit + k` accounts are connected. It
+stamps `orders.slot_used_at` once and never clears it, so a disconnect does not
+reopen the refund window.
+
+**A trial after a refund is allowed.** Refunding a first purchase restores `NONE`,
+and `trialDecision` lets a `NONE` entitlement claim. Refunds are admin-approved, so
+the loop cannot be automated, and `InstagramIdentity.trialConsumedAt` still limits
+each Instagram account to one trial ever.
 
 **Status only ever comes from Cashfree.** The row is written `REQUESTED` before
 Cashfree is called. A 4xx from Cashfree makes it `FAILED`; a timeout leaves it
@@ -522,3 +560,207 @@ machine, every revocation case, replays and concurrent deliveries.
 `tests/ledger-invariant.test.js` includes refunds. `npm run billing:doctor` fails
 on any fully refunded order without a revocation, and warns on partial refunds
 and on refunds `REQUESTED` for over a day.
+
+### Database connection pool
+
+Fulfilment and revocation run inside interactive transactions, and every read
+inside them goes through the transaction client. Reading through the global
+Prisma client there needs a second pool connection while the transaction already
+holds one; in a webhook retry storm every other connection is held by
+transactions queued behind the first one's row lock, so the pool deadlocks until
+its timeout and deliveries answer 500. That happened at `connection_limit=3`
+(8 of 10 deliveries). With the fix the storm passes at `connection_limit` 1, 2,
+3, 5 and 9.
+
+**Production (Northflank, checked 15 September 2026):** service
+`codeback-backend` on plan `nf-compute-20` (0.2 vCPU, 512 MB), 1 instance.
+`DATABASE_URL` sets no `connection_limit` or `pool_timeout`, so Prisma uses its
+default of `2 × physical CPU cores + 1`, counted on the host machine rather than
+the 0.2 vCPU allocation. The exact number is not visible without running a
+command inside the container. Setting an explicit `connection_limit` in
+`DATABASE_URL` would make it known and bounded.
+
+### Refund commands
+
+Refunds go through the admin API with an admin session cookie. The examples
+below use values from the real Cashfree **sandbox** run on 15 September 2026:
+order `sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8`, a ₹499 Starter purchase
+(`49900` paise). Amounts in requests are always in paise (INR) or cents (USD).
+
+**0. Log in once and keep the cookie.** `curl` sends no `Origin` header, so the
+CSRF origin guard lets it through. Use your own admin username and password;
+never paste them into a shared file.
+
+```bash
+BACKEND=https://api.citykirana.in
+curl -s -c admin.cookies -H 'Content-Type: application/json' \
+  -X POST "$BACKEND/api/admin/login" \
+  -d '{"username":"YOUR_ADMIN_USERNAME","password":"YOUR_ADMIN_PASSWORD"}'
+```
+
+**1. Check eligibility.** Always first: it returns the verdict, the numbers it
+was decided on, earlier refunds, and what is still refundable.
+
+```bash
+curl -s -b admin.cookies \
+  "$BACKEND/api/admin/billing/orders/sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8/refund-eligibility"
+```
+
+```json
+{
+  "order": {
+    "cashfreeOrderId": "sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8",
+    "tenantId": "8984d8c3-dd67-4758-8e8a-ea627b35f5fb",
+    "item": "STARTER",
+    "amount": 49900,
+    "currency": "INR",
+    "status": "PAID",
+    "paidAt": "2026-09-15T11:49:41.281Z"
+  },
+  "refundableAmount": 49900,
+  "policy": {
+    "eligible": true,
+    "reasons": [],
+    "kind": "plan",
+    "windowDays": 7,
+    "daysSincePayment": 0,
+    "paidAt": "2026-09-15T11:49:41.281Z",
+    "creditsGranted": 500,
+    "creditsAheadAtGrant": 0,
+    "creditsSpentSincePayment": 0,
+    "creditsUsedFromPurchase": 0,
+    "usageMeasure": "fifo_from_purchase",
+    "usedPercent": 0,
+    "usageLimitPercent": 20,
+    "cycleEndsAt": "2026-10-15T11:49:41.369Z",
+    "evaluatedAt": "2026-09-15T11:49:41.794Z"
+  },
+  "refunds": []
+}
+```
+
+**2. Refund.** `reason` is required. Omit `amount` to refund everything still
+refundable; pass it for a partial refund (which revokes nothing and alerts).
+
+```bash
+curl -s -b admin.cookies -H 'Content-Type: application/json' \
+  -X POST "$BACKEND/api/admin/billing/orders/sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8/refunds" \
+  -d '{"reason":"Customer asked within 7 days; nothing used"}'
+```
+
+`201`. Cashfree answers `PENDING`, so nothing is revoked yet (response trimmed):
+
+```json
+{
+  "refund": {
+    "refundId": "rf_ecd7da3e1c894125a211fd6b4cb2079b",
+    "cashfreeOrderId": "sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8",
+    "amount": 49900,
+    "currency": "INR",
+    "reason": "Customer asked within 7 days; nothing used",
+    "status": "PENDING",
+    "cfRefundId": "1319869432",
+    "overridePolicy": false,
+    "overrideReason": null,
+    "revokedAt": null
+  },
+  "policy": { "eligible": true, "usedPercent": 0 },
+  "revocation": null
+}
+```
+
+A partial refund of ₹100:
+
+```bash
+curl -s -b admin.cookies -H 'Content-Type: application/json' \
+  -X POST "$BACKEND/api/admin/billing/orders/sfy_ORDER_ID/refunds" \
+  -d '{"reason":"Partial goodwill for a day of downtime","amount":10000}'
+```
+
+**3. Override the policy, with a reason.** An ineligible refund is refused with
+the numbers, never silently:
+
+```json
+{
+  "error": "This refund is outside the refund policy. To issue it anyway, send overridePolicy: true with an overrideReason.",
+  "code": "REFUND_POLICY_INELIGIBLE",
+  "policy": {
+    "eligible": false,
+    "reasons": ["100 of the 500 credits from this purchase used (20%); the limit is under 20%."],
+    "creditsGranted": 500,
+    "creditsUsedFromPurchase": 100,
+    "usedPercent": 20
+  }
+}
+```
+
+To issue it anyway, send both fields. Both are stored on the refund row with the
+policy check:
+
+```bash
+curl -s -b admin.cookies -H 'Content-Type: application/json' \
+  -X POST "$BACKEND/api/admin/billing/orders/sfy_ORDER_ID/refunds" \
+  -d '{"reason":"Customer asked on day 3","overridePolicy":true,"overrideReason":"Auto-replies were misfiring on our side for two days"}'
+```
+
+**4. Re-sync from Cashfree.** Use this when a refund stays `PENDING` or
+`REQUESTED`. It reads Cashfree's current status and applies it, including the
+revocation:
+
+```bash
+curl -s -b admin.cookies \
+  -X POST "$BACKEND/api/admin/billing/refunds/rf_ecd7da3e1c894125a211fd6b4cb2079b/sync"
+```
+
+```json
+{
+  "outcome": "updated",
+  "refund": {
+    "refundId": "rf_ecd7da3e1c894125a211fd6b4cb2079b",
+    "status": "SUCCESS",
+    "cfRefundId": "1319869432",
+    "arn": "Test_ARN",
+    "statusDescription": "Refund processed successfully",
+    "revokedAt": "2026-09-15T11:51:42.422Z"
+  },
+  "revocation": {
+    "cashfreeOrderId": "sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8",
+    "item": "STARTER",
+    "snapshotMissing": false,
+    "validity": { "mode": "restored_prior", "validUntilBefore": "2026-10-15T11:49:41.369Z", "validUntilAfter": null },
+    "credits": { "granted": 500, "usedFromOrder": 0, "removed": 500, "shortfall": 0, "measure": "fifo_from_purchase", "balanceBefore": 500, "balanceAfter": 0 },
+    "extraIgAccounts": null,
+    "statusBefore": "ACTIVE",
+    "statusAfter": "NONE"
+  }
+}
+```
+
+The ledger row it wrote: `EXPIRE`, `-500`, source `expire:refund`, note
+`refund rf_ecd7da3e1c894125a211fd6b4cb2079b of order sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8: granted 500, used 0, removed 500`.
+
+### Proven against the Cashfree sandbox
+
+A real end-to-end run on 15 September 2026, with no mocks:
+
+| Step | Proven |
+|---|---|
+| `createOrder` | Sandbox order created; `order_expiry_time` accepted (60 minutes) |
+| Payment | Order Pay with the sandbox test UPI id; Cashfree reported `PAID` |
+| `PAYMENT_SUCCESS_WEBHOOK` | Reached the local backend through the tunnel; order fulfilled with its grant snapshot |
+| `createRefund` | Refund created, `PENDING`, `cf_refund_id` returned |
+| `getRefund` / re-sync | Returned `SUCCESS` with an ARN; grant revoked; ledger balanced |
+| `REFUND_STATUS_WEBHOOK` | **Not received** within 120 seconds, so the refund settled through re-sync |
+
+Two things the run found:
+
+- **Cashfree ids exceed a JavaScript number.** `cf_payment_id` arrived as the JSON
+  number `1453353814355098112`, which `JSON.parse` rounds to
+  `1453353814355098000`. The same payment was recorded as two attempts.
+  `lib/cashfree.js parseCashfreeJson` now quotes every `cf_*_id` before parsing,
+  for the webhook body and every Cashfree API response.
+- **Refund webhooks need dashboard configuration.** Cashfree sends
+  `REFUND_STATUS_WEBHOOK` to the webhook endpoints set in the dashboard
+  (Developers → Webhooks), not to an order's `notify_url`. Add
+  `https://<backend>/webhooks/cashfree` there with refund events enabled. Until
+  then, a refund settles only when someone re-syncs it.

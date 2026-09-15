@@ -19,7 +19,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { verifyWebhookSignature } = require('../lib/cashfree');
+const { verifyWebhookSignature, parseCashfreeJson } = require('../lib/cashfree');
 const { fulfillPaidOrder, recordPaymentAttempt } = require('../services/billingFulfillment');
 const { applyRefundStatus } = require('../services/refundService');
 const { isBillingEnabled } = require('../lib/billingFlags');
@@ -56,7 +56,17 @@ router.post('/', async (req, res) => {
   //
   // ids MUST be strings before they go anywhere near Prisma: an object or a
   // number there is a validation throw, i.e. exactly that 5xx loop.
-  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  // Read the VERIFIED raw bytes with parseCashfreeJson, not req.body: express.json
+  // has already rounded any cf_*_id larger than a safe JS integer.
+  let parsed = req.body;
+  if (req.rawBody) {
+    try {
+      parsed = parseCashfreeJson(req.rawBody.toString('utf8'));
+    } catch {
+      parsed = req.body;
+    }
+  }
+  const body = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
   const { type, data } = body;
   const rawPayload = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
 

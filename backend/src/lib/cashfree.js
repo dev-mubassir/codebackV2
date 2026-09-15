@@ -96,4 +96,39 @@ function smallestUnitToDecimal(amount) {
   return Number((amount / 100).toFixed(2));
 }
 
-module.exports = { getBaseUrl, cashfreeEnvironment, verifyWebhookSignature, smallestUnitToDecimal };
+/**
+ * Parse a Cashfree JSON body without losing digits in its ids.
+ *
+ * Cashfree sends cf_payment_id (and cf_order_id, cf_refund_id) as JSON NUMBERS
+ * in some payloads, and they are larger than Number.MAX_SAFE_INTEGER:
+ * 1453353814355098112 parses to 1453353814355098000. Seen for real in the
+ * sandbox end-to-end run on 15 September 2026 — one payment was recorded as two
+ * attempts under two different ids, because a replay's dedupe key no longer
+ * matched. JSON.parse cannot recover the digits afterwards, so every cf_*_id
+ * integer is quoted BEFORE parsing and kept as an exact string.
+ *
+ * Signature verification still runs over the untouched raw bytes; this is only
+ * how the verified body is read.
+ */
+function parseCashfreeJson(text) {
+  return JSON.parse(String(text).replace(/("cf_[a-z_]*id"\s*:\s*)(-?\d+)(?=\s*[,}\]])/g, '$1"$2"'));
+}
+
+/** axios transformResponse using parseCashfreeJson; leaves non-JSON bodies as they are. */
+function cashfreeResponseParser(data) {
+  if (typeof data !== 'string' || data.length === 0) return data;
+  try {
+    return parseCashfreeJson(data);
+  } catch {
+    return data;
+  }
+}
+
+module.exports = {
+  getBaseUrl,
+  cashfreeEnvironment,
+  verifyWebhookSignature,
+  smallestUnitToDecimal,
+  parseCashfreeJson,
+  cashfreeResponseParser,
+};

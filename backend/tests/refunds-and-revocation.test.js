@@ -25,13 +25,14 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import { buildTestApp } from './helpers/app.js';
-import { prisma, resetDb, createUser, uniq } from './helpers/db.js';
+import { prisma, resetDb, createUser, createAccount, uniq } from './helpers/db.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios');
 const svc = require('../src/services/entitlementService.js');
 const mailer = require('../src/lib/email/index.js');
 const { fulfillPaidOrder } = require('../src/services/billingFulfillment.js');
+const igIdentity = require('../src/lib/igIdentity.js');
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BACKEND_ROOT = join(HERE, '..');
@@ -215,7 +216,10 @@ describe('11b — the admin endpoint and the refund policy', () => {
       kind: 'plan',
       windowDays: 7,
       creditsGranted: 500,
-      creditsUsedSincePayment: 40,
+      creditsAheadAtGrant: 0,
+      creditsSpentSincePayment: 40,
+      creditsUsedFromPurchase: 40,
+      usageMeasure: 'fifo_from_purchase',
       usedPercent: 8,
       usageLimitPercent: 20,
     });
@@ -232,7 +236,7 @@ describe('11b — the admin endpoint and the refund policy', () => {
     const refused = await agent.post(url).send({ reason: 'asked' });
     expect(refused.status).toBe(409);
     expect(refused.body.code).toBe('REFUND_POLICY_INELIGIBLE');
-    expect(refused.body.policy).toMatchObject({ eligible: false, usedPercent: 20, creditsUsedSincePayment: 100 });
+    expect(refused.body.policy).toMatchObject({ eligible: false, usedPercent: 20, creditsUsedFromPurchase: 100 });
 
     expect((await agent.post(url).send({ reason: 'asked', overridePolicy: true })).status, 'override needs its reason').toBe(400);
     expect(post, 'nothing reached Cashfree while refused').not.toHaveBeenCalled();
@@ -266,16 +270,21 @@ describe('11b — the admin endpoint and the refund policy', () => {
     expect(res.body.policy.reasons.join(' ')).toMatch(/window is 7 days/);
   });
 
-  it('a top-up is eligible only while no auto-reply has been sent since', async () => {
+  it('a top-up is eligible only while none of ITS credits are used — credits already held spend first', async () => {
     const { user } = await createUser({ withTrial: false });
     await paidOrder(user.id, { planCode: 'STARTER' });
     const pack = await paidOrder(user.id, { addonCode: 'reply_credits_500', amount: 19900 });
     const agent = await adminAgent();
     const url = `/api/admin/billing/orders/${pack.cashfreeOrderId}/refund-eligibility`;
 
-    expect((await agent.get(url)).body.policy).toMatchObject({ eligible: true, kind: 'reply_pack' });
+    expect((await agent.get(url)).body.policy).toMatchObject({ eligible: true, kind: 'reply_pack', creditsAheadAtGrant: 500 });
+    await spend(user.id, 500);
+    expect((await agent.get(url)).body.policy, 'the 500 plan credits ahead of it went first').toMatchObject({
+      eligible: true,
+      creditsUsedFromPurchase: 0,
+    });
     await spend(user.id, 1);
-    expect((await agent.get(url)).body.policy.eligible).toBe(false);
+    expect((await agent.get(url)).body.policy).toMatchObject({ eligible: false, creditsUsedFromPurchase: 1 });
   });
 
   it('refuses an amount above what is still refundable', async () => {
@@ -381,7 +390,7 @@ describe('11c — a full refund revokes the purchase, exactly once', () => {
     expect(e.replyCreditsCurrent + e.replyCreditsBanked).toBe(0);
     const [expire] = await refundExpires(user.id);
     expect(expire.delta).toBe(-500);
-    expect(expire.note).toContain('granted 500, removed 500');
+    expect(expire.note).toContain('granted 500, used 0, removed 500');
     const stored = await prisma.refund.findUnique({ where: { refundId: row.refundId } });
     expect(stored.revokedAt).not.toBeNull();
     expect(stored.revocation).toMatchObject({ validity: { mode: 'restored_prior' }, credits: { granted: 500, removed: 500, shortfall: 0 } });
@@ -434,7 +443,7 @@ describe('11c — a full refund revokes the purchase, exactly once', () => {
     expect(e.replyCreditsCurrent + e.replyCreditsBanked).toBe(0);
     const [expire] = await refundExpires(user.id);
     expect(expire.delta).toBe(-50);
-    expect(expire.note).toMatch(/granted 500, removed 50, shortfall 450/);
+    expect(expire.note).toMatch(/granted 500, used 450, removed 50, shortfall 450/);
   });
 
   it('an upgrade refunded with nothing after it: back to the previous plan and its dates', async () => {
@@ -586,6 +595,109 @@ describe('11c — partial refunds and refunds issued outside Siffty', () => {
     const e = await expectBalanced(user.id);
     expect(e.validUntil.getTime()).toBe(before.validUntil.getTime() - 30 * DAY_MS);
     expect(alertKinds()).toEqual(['refundOutsideSiffty', 'refundSnapshotMissing']);
+  });
+});
+
+describe('Usage is measured on the purchase’s own credits (FIFO)', () => {
+  it('an early renewer is not charged for spending the credits they carried over', async () => {
+    const { user } = await createUser({ withTrial: false });
+    await paidOrder(user.id, { planCode: 'STARTER' });
+    await spend(user.id, 300); // 200 left
+    const renewal = await paidOrder(user.id, { planCode: 'STARTER' });
+    const agent = await adminAgent();
+    const url = `/api/admin/billing/orders/${renewal.cashfreeOrderId}/refund-eligibility`;
+
+    await spend(user.id, 150); // all from the carried 200
+    expect((await agent.get(url)).body.policy).toMatchObject({
+      eligible: true,
+      creditsAheadAtGrant: 200,
+      creditsSpentSincePayment: 150,
+      creditsUsedFromPurchase: 0,
+      usedPercent: 0,
+    });
+
+    await spend(user.id, 60); // 50 more carried, then 10 of the renewal's own
+    expect((await agent.get(url)).body.policy).toMatchObject({ eligible: true, creditsUsedFromPurchase: 10, usedPercent: 2 });
+  });
+
+  it('refunding a plan takes back only what is left of ITS credits — a top-up behind it stays whole', async () => {
+    const { user } = await createUser({ withTrial: false });
+    const plan = await paidOrder(user.id, { planCode: 'STARTER' });
+    await paidOrder(user.id, { addonCode: 'reply_credits_500', amount: 19900 });
+    await spend(user.id, 100); // from the plan's 500, which is ahead of the top-up
+    cashfreeAcceptsRefunds();
+    const row = await refund(await adminAgent(), plan, { overridePolicy: true, overrideReason: 'Goodwill' });
+
+    await deliverRefundWebhook({ orderId: plan.cashfreeOrderId, refundId: row.refundId, status: 'SUCCESS', amountMinor: 49900 });
+
+    const e = await expectBalanced(user.id);
+    expect(e.replyCreditsCurrent + e.replyCreditsBanked, 'the top-up’s 500 untouched').toBe(500);
+    const [expire] = await refundExpires(user.id);
+    expect(expire.note).toMatch(/granted 500, used 100, removed 400, shortfall 100/);
+  });
+});
+
+describe('Extra Instagram account slots', () => {
+  const eligibility = async (agent, order) =>
+    (await agent.get(`/api/admin/billing/orders/${order.cashfreeOrderId}/refund-eligibility`)).body.policy;
+
+  it('refundable while no account was ever connected using the slot; a connect closes it for good', async () => {
+    const { user } = await createUser({ withTrial: false });
+    await paidOrder(user.id, { planCode: 'STARTER' }); // includes 1 account
+    await createAccount({ userId: user.id });
+    const slot = await paidOrder(user.id, { addonCode: 'extra_ig_account', amount: 9900 });
+    const agent = await adminAgent();
+
+    expect(await eligibility(agent, slot)).toMatchObject({ eligible: true, kind: 'extra_ig_account', slotUsedAt: null });
+
+    const second = await createAccount({ userId: user.id });
+    await svc.recordInstagramSlotUsage(user.id); // what the connect callback calls
+    let policy = await eligibility(agent, slot);
+    expect(policy.eligible).toBe(false);
+    expect(policy.reasons.join(' ')).toMatch(/connected using this slot/);
+
+    await prisma.instagramAccount.update({ where: { id: second.id }, data: { connectionStatus: 'DISCONNECTED' } });
+    await svc.recordInstagramSlotUsage(user.id);
+    policy = await eligibility(agent, slot);
+    expect(policy.eligible, '"ever connected" survives a disconnect').toBe(false);
+  });
+
+  it('a slot bought while already over the included count is used at once', async () => {
+    const { user } = await createUser({ withTrial: false });
+    await paidOrder(user.id, { planCode: 'STARTER' });
+    await createAccount({ userId: user.id });
+    await createAccount({ userId: user.id });
+    const slot = await paidOrder(user.id, { addonCode: 'extra_ig_account', amount: 9900 });
+
+    expect((await prisma.order.findUnique({ where: { id: slot.id } })).slotUsedAt).not.toBeNull();
+  });
+
+  it('both connect branches of the Instagram callback record slot usage', async () => {
+    const { readFileSync } = await import('fs');
+    const src = readFileSync(join(BACKEND_ROOT, 'src', 'routes', 'auth.js'), 'utf8');
+    expect(src.match(/await recordInstagramSlotUsage\(/g)).toHaveLength(2);
+  });
+});
+
+describe('A trial after a refund', () => {
+  it('a refund that restores "no plan" lets that account claim its trial', async () => {
+    const { user } = await createUser({ withTrial: false, emailVerified: true });
+    const order = await paidOrder(user.id, { planCode: 'STARTER' });
+    const igUserId = uniq('ig-after-refund');
+    await createAccount({ userId: user.id, igUserId });
+    const connect = await igIdentity.claimInstagramIdentity({ userId: user.id, igUserId, emailVerified: true });
+    expect(connect.trialOutcome, 'already on a paid plan at connect: no trial, and no stamp').toBe('ALREADY_ENTITLED');
+
+    await deliverRefundWebhook({ orderId: order.cashfreeOrderId, refundId: 'rf_then_trial', status: 'SUCCESS', amountMinor: 49900 });
+    expect((await expectBalanced(user.id)).status).toBe('NONE');
+
+    const claim = await igIdentity.claimTrialForUser({ userId: user.id });
+    expect(claim).toMatchObject({ trialGranted: true, trialOutcome: 'TRIAL_GRANTED' });
+    const e = await expectBalanced(user.id, 'trial after refund');
+    expect([e.status, e.planCode]).toEqual(['TRIALING', 'TRIAL']);
+
+    const again = await igIdentity.claimTrialForUser({ userId: user.id });
+    expect(again.trialGranted, 'trialConsumedAt still governs: one trial per identity').toBe(false);
   });
 });
 

@@ -199,6 +199,10 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventTyp
     let granted;
     let grantedCredits;
     let grantedDays = null;
+    // How many credits spend BEFORE this purchase's own (FIFO: older first).
+    // Refund eligibility and revocation measure the purchase's own credits from
+    // it — see entitlementService.creditsUsedFromOrder.
+    let creditsAheadAtGrant = null;
     if (order.planCode) {
       granted = await entitlementService.grantPlan(
         order.tenantId,
@@ -209,11 +213,16 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventTyp
       const plan = await tx.plan.findUnique({ where: { code: order.planCode } });
       grantedCredits = plan?.autoReplyCreditsPerCycle ?? 0;
       grantedDays = plan?.cycleLengthDays ?? null;
+      // grantPlan puts the new cycle's credits in `current` and the carried
+      // balance in `banked`, and spend drains banked first.
+      creditsAheadAtGrant = granted.replyCreditsBanked;
     } else if (order.addonCode) {
       granted = await entitlementService.grantAddon(order.tenantId, order.addonCode, { tx });
       const pack =
         order.addonCode === 'extra_ig_account' ? null : await tx.addonPack.findUnique({ where: { code: order.addonCode } });
       grantedCredits = pack?.creditAmount ?? 0;
+      // A top-up joins the back of the queue: everything already held spends first.
+      creditsAheadAtGrant = pack ? (before ? before.replyCreditsCurrent + before.replyCreditsBanked : 0) : null;
     } else {
       // Schema allows neither to be set only through a bug elsewhere — the
       // checkout path (routes/billing.js) always sets exactly one. Fail loud,
@@ -235,6 +244,7 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventTyp
           grantedGraceUntil: granted?.graceUntil?.toISOString() ?? null,
           grantedDays,
           grantedCredits,
+          creditsAheadAtGrant,
         },
       },
     });
@@ -269,6 +279,11 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventTyp
   for (const run of afterCommit) await run();
 
   const { order } = result;
+  if (order.addonCode === 'extra_ig_account') {
+    // Instagram account limits are not enforced at connect, so a tenant can
+    // already be over the included count when buying a slot. Stamp it now if so.
+    await entitlementService.recordInstagramSlotUsage(order.tenantId);
+  }
   if (order.planCode) {
     // A purchase can end a stretch with no entitlement (a lapsed trial, or an
     // expired plan). Re-queue the DMs that were skipped meanwhile — after the

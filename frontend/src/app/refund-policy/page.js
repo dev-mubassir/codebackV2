@@ -53,28 +53,32 @@ export default function RefundPolicyPage() {
           <p>A plan purchase is refunded in full when both of these are true:</p>
           <ul>
             <li>you ask within {REFUND_WINDOW_DAYS} days of the payment, and</li>
-            <li>
-              fewer than {PLAN_USAGE_LIMIT_PERCENT}% of the auto-reply credits that purchase gave you
-              have been used.
-            </li>
+            <li>less than {PLAN_USAGE_LIMIT_PERCENT}% of the credits from that purchase have been used.</li>
           </ul>
           <div className={styles.callout}>
             <p>
-              Example: a plan that gives you 500 auto-replies qualifies if you have sent 99 or fewer
-              since paying. At 100 or more it does not.
+              Example: a plan that gives you 500 credits qualifies while fewer than 100 of those 500
+              have been used. At 100 or more it does not.
             </p>
           </div>
           <p>
-            Usage is counted from the auto-replies sent after the payment, as recorded in your
-            account&apos;s credit history.
+            Credits you already had are used first. If you buy a plan while you still have credits
+            left from before, replies use those up before touching the new purchase, so they do not
+            count against it. Usage is taken from your account&apos;s credit history.
           </p>
         </section>
 
         <section className={styles.section}>
-          <h2>3. Add-on top-ups</h2>
+          <h2>3. Add-ons</h2>
           <p>
-            A top-up is refunded in full if you ask within {REFUND_WINDOW_DAYS} days of the payment
-            and it is entirely unused — meaning no auto-reply has been sent since you bought it.
+            <strong>Auto-reply top-ups</strong> are refunded in full if you ask within{' '}
+            {REFUND_WINDOW_DAYS} days of the payment and the top-up is entirely unused — none of its
+            credits have been used. Credits you already had are used first.
+          </p>
+          <p>
+            <strong>Extra Instagram accounts</strong> are refunded in full if you ask within{' '}
+            {REFUND_WINDOW_DAYS} days of the payment and no Instagram account has ever been connected
+            using that extra account.
           </p>
         </section>
 
@@ -84,10 +88,11 @@ export default function RefundPolicyPage() {
             <li>More than {REFUND_WINDOW_DAYS} days after the payment.</li>
             <li>After the plan period you paid for has ended.</li>
             <li>
-              When {PLAN_USAGE_LIMIT_PERCENT}% or more of a plan&apos;s auto-reply credits have been
+              When {PLAN_USAGE_LIMIT_PERCENT}% or more of the credits from a plan purchase have been
               used.
             </li>
-            <li>When any auto-reply has been sent since an add-on top-up was bought.</li>
+            <li>When any of a top-up&apos;s credits have been used.</li>
+            <li>When an Instagram account has been connected using an extra account.</li>
           </ul>
         </section>
 

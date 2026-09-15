@@ -485,3 +485,49 @@ describe('Gate 9.6 — retry storm', () => {
     expect(e.validUntil.getTime()).toBeLessThanOrEqual(Date.now() + 30 * DAY_MS + 60_000);
   });
 });
+
+describe('Gate 9.7 — Cashfree ids larger than a JavaScript number', () => {
+  // From the real sandbox run on 15 September 2026: this payment was recorded as
+  // two attempts, 1453353814355098112 and 1453353814355098000, because a JSON
+  // number above Number.MAX_SAFE_INTEGER is rounded by JSON.parse.
+  const BIG_ID = '1453353814355098112';
+  const { parseCashfreeJson } = require('../src/lib/cashfree.js');
+
+  it('parseCashfreeJson keeps every digit of cf_*_id numbers, and leaves other numbers alone', () => {
+    const parsed = parseCashfreeJson(`{"cf_payment_id":${BIG_ID},"cf_refund_id": 42,"payment_amount":499.5,"note":"cf_payment_id: 1"}`);
+    expect(parsed).toEqual({ cf_payment_id: BIG_ID, cf_refund_id: '42', payment_amount: 499.5, note: 'cf_payment_id: 1' });
+    expect(String(JSON.parse(`{"id":${BIG_ID}}`).id), 'plain JSON.parse loses the last digits').toBe('1453353814355098000');
+  });
+
+  it('a success webhook with the id as a JSON number, then replayed with it as a string, is ONE attempt with the exact id', async () => {
+    const { tenantId, order } = await tenantWithOrder();
+    const event = paymentEvent(order.cashfreeOrderId);
+    const asString = JSON.stringify({ ...event, data: { ...event.data, payment: { ...event.data.payment, cf_payment_id: BIG_ID } } });
+    const asNumber = asString.replace(`"${BIG_ID}"`, BIG_ID);
+    expect(asNumber).toContain(`"cf_payment_id":${BIG_ID}`);
+
+    expect((await deliver(asNumber)).status).toBe(200);
+    expect((await deliver(asString)).status).toBe(200);
+
+    expect((await attemptsFor(order)).map((a) => a.cfPaymentId)).toEqual([BIG_ID]);
+    expect(await grants(tenantId)).toHaveLength(1);
+  });
+
+  it('every Cashfree API call parses its response with the id-safe parser', async () => {
+    const get = vi.spyOn(axios, 'get').mockResolvedValue({ data: [] });
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: {} });
+    const body = `[{"cf_payment_id":${BIG_ID}}]`;
+
+    await cashfreeOrders.getOrder('sfy_x');
+    await cashfreeOrders.getPaymentsForOrder('sfy_x');
+    await cashfreeOrders.getRefund('sfy_x', 'rf_x');
+    await cashfreeOrders.createRefund({ orderId: 'sfy_x', refundId: 'rf_x', amountInPaise: 100, note: 'n' });
+    await cashfreeOrders.createOrder({ orderId: 'sfy_x', amountInPaise: 100, currency: 'INR', customerId: 'c', customerPhone: '9999999999', returnUrl: 'https://x.test' });
+
+    const configs = [...get.mock.calls.map((c) => c[1]), ...post.mock.calls.map((c) => c[2])];
+    expect(configs).toHaveLength(5);
+    for (const config of configs) {
+      expect(config.transformResponse[0](body)[0].cf_payment_id).toBe(BIG_ID);
+    }
+  });
+});

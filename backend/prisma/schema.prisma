@@ -994,6 +994,10 @@ model Order {
   // A refund's revocation reads it — "validUntil before the order" cannot be
   // reconstructed afterwards. NULL for orders paid before it existed.
   grantSnapshot   Json?        @map("grant_snapshot")
+  // extra_ig_account orders only: when an Instagram account was first connected
+  // using this slot. Set once, never cleared; it closes the slot's refund window.
+  // See entitlementService.recordInstagramSlotUsage.
+  slotUsedAt      DateTime?    @map("slot_used_at")
   createdAt       DateTime     @default(now()) @map("created_at")
   paidAt          DateTime?    @map("paid_at")
 
