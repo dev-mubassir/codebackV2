@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getMe } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import PricingSection from '@/app/components/pricing/PricingSection';
 import { marketing, auth, common, errors } from '@/content/copy';
 import styles from './page.module.css';
 
@@ -178,6 +179,11 @@ function LandingPageContent() {
           ))}
         </div>
       </section>
+
+      {/* Pricing. Renders nothing at all while BILLING_ENABLED is off — the
+          plans endpoint 404s and the section returns null — so the homepage
+          is unchanged until the flag flips. See components/pricing. */}
+      <PricingSection />
 
       {/* Footer */}
       <footer className={styles.footer}>

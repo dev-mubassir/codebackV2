@@ -48,6 +48,31 @@ delete process.env.ADMIN_PASSWORD;
 delete process.env.ADMIN_PASSWORD_HASH;
 delete process.env.ADMIN_EMAILS;
 
+// BILLING ON BY DEFAULT.
+//
+// Enforcement is the interesting half of this system — the quota gates, the
+// credit spend, the expiry behaviour — and for most of this project the suite
+// ran with the flag off, so none of it was exercised unless a file opted in.
+// That is not a theoretical gap: three auto-reply tests passed for years and
+// failed the moment billing was switched on locally, because they had been
+// asserting sends that enforcement would have refused.
+//
+// The value was also being INHERITED from backend/.env (vitest loads it), so
+// the suite's meaning depended on the developer's own machine. Pinning it here
+// makes enforcement the default and the result reproducible.
+//
+// Tests that are ABOUT the off state clear it explicitly and restore it —
+// see billing-plans-endpoint, billing-summary-endpoint, entitlement-enforcement
+// ("everything stays inert") and instagram-connect-regression.
+process.env.BILLING_ENABLED = 'true';
+
+// The other two stay OFF, matching their production default, and are pinned
+// for the same reason: both are read from process.env at call time, so a value
+// in a developer's .env would otherwise change what these tests mean. The
+// tests that exercise them set them per-case.
+delete process.env.USD_PRICING_ENABLED;
+delete process.env.META_APPROVED;
+
 // Never let a test reach a real queue, a real Redis, a real AI provider — or
 // a real MAILBOX. RESEND_API_KEY is present in backend/.env, and without this
 // the suite would send live email through the production Resend account to

@@ -1,14 +1,17 @@
 /**
- * Trial lifecycle.
+ * Trial lifecycle, operating on Entitlement (which absorbed the old
+ * trial-only Subscription model — see schema.prisma's Entitlement comment).
  *
- * WHAT EXPIRY MEANS. On TRIAL_EXPIRED, automatic replies stop and AI
- * classification stops. The inbox stays fully readable and nothing is deleted.
- * The account is NOT locked — a user who cannot log in cannot pay you later,
- * and locking someone out of their own customer conversations to sell them a
- * subscription is hostile.
+ * WHAT EXPIRY MEANS. On EXPIRED, automatic replies stop and AI classification
+ * stops. The inbox stays fully readable and nothing is deleted. The account
+ * is NOT locked — a user who cannot log in cannot pay you later, and locking
+ * someone out of their own customer conversations to sell them a plan is
+ * hostile. A trial has no grace stage (see Entitlement's schema comment), so
+ * TRIALING transitions straight to EXPIRED here, same as before.
  *
- * Two sweeps:
- *   expireFinishedTrials()  TRIALING past trialEndsAt -> TRIAL_EXPIRED + email
+ * Two sweeps, scoped to planCode 'TRIAL' — a paid tenant's ACTIVE -> GRACE ->
+ * EXPIRED transition is a separate, not-yet-built Gate 4 sweep, not this one:
+ *   expireFinishedTrials()  TRIALING past validUntil -> EXPIRED + email
  *   sendTrialEndingWarnings() one warning per trial, the day before it ends
  */
 
@@ -30,26 +33,26 @@ const frontendUrl = () => (process.env.FRONTEND_URL || 'http://localhost:3000').
 async function expireFinishedTrials() {
   const now = new Date();
 
-  const due = await prisma.subscription.findMany({
-    where: { status: 'TRIALING', trialEndsAt: { lte: now } },
+  const due = await prisma.entitlement.findMany({
+    where: { planCode: 'TRIAL', status: 'TRIALING', validUntil: { lte: now } },
     select: { id: true, userId: true, user: { select: { email: true } } },
   });
 
   let expired = 0;
-  for (const subscription of due) {
+  for (const entitlement of due) {
     // Conditional on status so two concurrent sweeps cannot both "win" and
     // both send the email.
-    const result = await prisma.subscription.updateMany({
-      where: { id: subscription.id, status: 'TRIALING' },
-      data: { status: 'TRIAL_EXPIRED' },
+    const result = await prisma.entitlement.updateMany({
+      where: { id: entitlement.id, status: 'TRIALING' },
+      data: { status: 'EXPIRED' },
     });
     if (result.count === 0) continue;
 
     expired += 1;
 
-    if (subscription.user?.email) {
+    if (entitlement.user?.email) {
       try {
-        await mailer.sendTrialEnding(subscription.user.email, {
+        await mailer.sendTrialEnding(entitlement.user.email, {
           daysLeft: 0,
           dashboardUrl: `${frontendUrl()}/dashboard`,
         });
@@ -77,19 +80,20 @@ async function sendTrialEndingWarnings({ intervalMs = 6 * 60 * 60 * 1000 } = {})
   const windowEnd = new Date(now + 24 * 60 * 60 * 1000);
   const windowStart = new Date(now + 24 * 60 * 60 * 1000 - intervalMs);
 
-  const ending = await prisma.subscription.findMany({
+  const ending = await prisma.entitlement.findMany({
     where: {
+      planCode: 'TRIAL',
       status: 'TRIALING',
-      trialEndsAt: { gt: windowStart, lte: windowEnd },
+      validUntil: { gt: windowStart, lte: windowEnd },
     },
     select: { id: true, user: { select: { email: true } } },
   });
 
   let sent = 0;
-  for (const subscription of ending) {
-    if (!subscription.user?.email) continue;
+  for (const entitlement of ending) {
+    if (!entitlement.user?.email) continue;
     try {
-      await mailer.sendTrialEnding(subscription.user.email, {
+      await mailer.sendTrialEnding(entitlement.user.email, {
         daysLeft: 1,
         dashboardUrl: `${frontendUrl()}/dashboard`,
       });

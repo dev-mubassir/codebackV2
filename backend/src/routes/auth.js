@@ -35,6 +35,7 @@ const google = require('../lib/google');
 const oauthState = require('../lib/oauthState');
 const igIdentity = require('../lib/igIdentity');
 const { requireAuth } = require('../middleware/auth');
+const { isBillingEnabled } = require('../lib/billingFlags');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -1199,7 +1200,7 @@ router.get('/instagram/callback', async (req, res) => {
         { attemptedByUserId: currentUserId, reason: 'blocked' },
         req.ip
       );
-      return res.redirect(`${frontendUrl()}/dashboard?error=account_blocked`);
+      return res.redirect(`${frontendUrl()}/dashboard?error=account_blocked&trial=${claim.trialOutcome}`);
     }
 
     if (!claim.ok && claim.reason === 'connected_elsewhere') {
@@ -1226,11 +1227,12 @@ router.get('/instagram/callback', async (req, res) => {
       if (req.accepts('json') && !req.accepts('html')) {
         return res.status(409).json({
           error: 'Account already connected',
+          code: claim.trialOutcome,
           message:
             'That Instagram account is connected to another Codeback workspace. Disconnect it there first, or contact support if you cannot reach that workspace.',
         });
       }
-      return res.redirect(`${frontendUrl()}/dashboard?error=account_already_connected`);
+      return res.redirect(`${frontendUrl()}/dashboard?error=account_already_connected&trial=${claim.trialOutcome}`);
     }
 
     if (existingAccount) {
@@ -1316,8 +1318,18 @@ router.get('/instagram/callback', async (req, res) => {
       sessionVersion: user.sessionVersion,
     });
 
-    console.log('[Auth] Instagram connect complete. Redirecting to dashboard.');
-    res.redirect(`${frontendUrl()}/dashboard`);
+    // The trial outcome travels on the redirect and into the log. It used to
+    // be discarded here, which is how a spent trial reached the dashboard as
+    // an unexplained "No plan yet". The summary endpoint re-derives the same
+    // reason later, so nothing depends on this parameter surviving.
+    // DMs that arrived before this trial existed. After the grant has committed;
+    // never throws, so it cannot fail a connect. Lazily required, same as the jobs.
+    if (claim.trialGranted) {
+      await require('../services/skippedMessageRecovery').recoverSkippedMessages(user.id, { trigger: 'instagram_connect' });
+    }
+
+    console.log(`[Auth] Instagram connect complete — trial outcome: ${claim.trialOutcome}. Redirecting to dashboard.`);
+    res.redirect(`${frontendUrl()}/dashboard?trial=${encodeURIComponent(claim.trialOutcome)}`);
 
   } catch (error) {
     // error.response?.data is Meta's error JSON. Never log the error object
@@ -1369,6 +1381,16 @@ router.get('/me', requireAuth, async (req, res) => {
       businessProfile: user.businessProfile,
       instagramAccounts: user.instagramAccounts,
       createdAt: user.createdAt,
+      // Client bootstrap flags. Carried on the call AppShell already makes at
+      // mount, so the nav and the route light up from ONE environment
+      // variable — the backend's — with no second copy on the frontend to
+      // drift out of step, and no extra round trip.
+      //
+      // A boolean, never the raw env value. The client is being told what it
+      // may render, not what the server is configured with.
+      features: {
+        billing: isBillingEnabled(),
+      },
     });
   } catch (error) {
     console.error('[Auth] Error fetching user:', error.message);

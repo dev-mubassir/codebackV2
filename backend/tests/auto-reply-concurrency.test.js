@@ -24,7 +24,7 @@ import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest';
 import { createRequire } from 'node:module';
 import { vi } from 'vitest';
 
-import { prisma, resetDb, createUser, uniq } from './helpers/db.js';
+import { prisma, resetDb, createUser, grantReplyCredits, uniq } from './helpers/db.js';
 
 const require = createRequire(import.meta.url);
 const aiService = require('../src/services/aiService.js');
@@ -91,6 +91,12 @@ afterEach(() => {
  */
 async function seedConversationAtCapBoundary() {
   const { user } = await createUser({ name: 'Auto Tenant' });
+  // Entitlement is a PRECONDITION here, not the subject. What is under test is
+  // the read-then-act gap in the auto-reply gate; a tenant who simply ran out
+  // of credits would also send zero replies and would look identical to a
+  // working lock. Credits are set well above the daily cap so the only thing
+  // that can stop a send is the guard this test is about.
+  await grantReplyCredits(user.id);
   await prisma.businessProfile.update({
     where: { userId: user.id },
     data: { autoReplyMode: 'smart', businessName: 'Test Shop', pricingInfo: 'Packages from $50' },

@@ -1,7 +1,7 @@
 {
   "name": "codeback-backend",
   "version": "1.0.0",
-  "description": "Codeback — Instagram DM Inbox SaaS Backend",
+  "description": "Codeback \u2014 Instagram DM Inbox SaaS Backend",
   "main": "src/index.js",
   "scripts": {
     "dev": "node --watch src/index.js",
@@ -11,7 +11,8 @@
     "db:generate": "npx prisma generate",
     "db:migrate": "npx prisma migrate dev",
     "db:push": "npx prisma db push",
-    "db:studio": "npx prisma studio"
+    "db:studio": "npx prisma studio",
+    "billing:doctor": "node scripts/billing-doctor.js"
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",

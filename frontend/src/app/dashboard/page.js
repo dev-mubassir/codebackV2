@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { io } from 'socket.io-client';
 import { getMe, getAccounts, getInstagramAuthUrl, disconnectAccount, getDashboardSummary, getAnalyticsSummary } from '@/lib/api';
 import AppShell from '@/app/components/AppShell';
 import Icon from '@/app/components/Icon';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
+import TrialStateCard from '@/app/components/billing/TrialStateCard';
+import useBillingSummary from '@/app/components/billing/useBillingSummary';
+import { trialCardState } from '@/lib/trialState';
 import { dashboard as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
 import { categoryLabel, replyModeLabel, replyModeSendsAutomatically, tokenStatusLabel, connectionStatusLabel } from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
@@ -259,6 +262,14 @@ export default function DashboardPage() {
           {accounts.length > 0 ? t.addAccount : t.connectInstagram}
         </a>
       </div>
+
+      {/* Mounted only with billing on, so pre-launch the dashboard never
+          calls the billing summary at all. */}
+      {user?.features?.billing && (
+        <Suspense fallback={null}>
+          <TrialPrompt onConnect={handleConnect} />
+        </Suspense>
+      )}
 
       {loadError && (
         <div className={styles.alertBanner} role="alert">
@@ -587,6 +598,43 @@ export default function DashboardPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * The trial card for the dashboard — where the connect flow lands.
+ *
+ * Shows the confirmation straight after a connect that granted a trial
+ * (?trial=TRIAL_GRANTED on the redirect), and otherwise explains why a tenant
+ * with no trial or plan has neither: already used, email unverified, or not
+ * started yet. A live trial or a paid plan shows nothing here — the billing
+ * page owns that, and repeating it would push the inbox numbers down.
+ *
+ * Uses the dashboard's own handleConnect, so the unverified-email check still
+ * runs before anyone is sent through Instagram's consent screen.
+ */
+function TrialPrompt({ onConnect }) {
+  const searchParams = useSearchParams();
+  const { summary, reload } = useBillingSummary();
+  // A claim from this card confirms the same way a connect does: the granted
+  // card, once, rather than the prompt silently disappearing.
+  const [claimedOutcome, setClaimedOutcome] = useState(null);
+  const state = trialCardState(summary, { justConnectedOutcome: claimedOutcome || searchParams.get('trial') });
+  if (!state) return null;
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <TrialStateCard
+        summary={summary}
+        state={state}
+        connectHref={getInstagramAuthUrl()}
+        onConnect={onConnect}
+        usageHref="/billing"
+        onClaimed={async (outcome) => {
+          await reload();
+          setClaimedOutcome(outcome);
+        }}
+      />
+    </div>
   );
 }
 

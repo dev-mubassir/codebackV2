@@ -22,9 +22,20 @@ export async function resetDb() {
   // whether a given test created a user at all.
   await prisma.authToken.deleteMany({});
   await prisma.authIdentity.deleteMany({});
-  await prisma.subscription.deleteMany({});
+  await prisma.entitlement.deleteMany({});
   // No relation to User by design — these survive account deletion, so
   // nothing else clears them.
+  //
+  // The billing three (orders, credit_ledger, renewal_reminders) are in this
+  // group for the same reason InstagramIdentity is: they deliberately carry a
+  // plain tenantId with no foreign key, so deleting a User cascades nothing
+  // here. Without these lines a tenantId reused across test files would
+  // inherit the previous file's ledger rows and reminder history — and
+  // renewal_reminders in particular is an idempotency guard, so a stale row
+  // silently suppresses the send a later test is asserting.
+  await prisma.renewalReminder.deleteMany({});
+  await prisma.creditLedger.deleteMany({});
+  await prisma.order.deleteMany({});
   await prisma.instagramIdentity.deleteMany({});
   await prisma.oAuthNonce.deleteMany({});
   await prisma.deletionRequest.deleteMany({});
@@ -92,11 +103,12 @@ export async function createUser({
       preferences: { create: {} },
       ...(withTrial
         ? {
-            subscription: {
+            entitlement: {
               create: {
+                planCode: 'TRIAL',
                 status: 'TRIALING',
-                trialStartedAt: new Date(),
-                trialEndsAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+                cycleStartedAt: new Date(),
+                validUntil: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
               },
             },
           }
@@ -106,19 +118,45 @@ export async function createUser({
   return { user, password };
 }
 
+/**
+ * Give a tenant auto-reply credits, as a PRECONDITION rather than a subject.
+ *
+ * A trial grants TRIAL_AUTO_REPLY_CREDITS, which is deliberately small — so a
+ * fixture that needs to watch an auto-reply actually SEND cannot rely on the
+ * trial's own allowance without silently coupling itself to that number. Any
+ * test whose subject is the send path (concurrency, fail-closed, the reply
+ * gates) should state its entitlement here and then forget about it.
+ *
+ * Without this, such a test fails with "expected 1 send, got 0" — which reads
+ * as a broken guard when it is really an empty wallet. That is exactly how
+ * three of these tests presented when BILLING_ENABLED was first turned on.
+ *
+ * Writes replyCreditsCurrent directly rather than going through grantPlan():
+ * the point is a stated starting balance, not a purchase, and grantPlan()
+ * would also move planCode and validUntil, changing fixtures that mean to be
+ * on a trial.
+ */
+export async function grantReplyCredits(userId, credits = 500) {
+  return prisma.entitlement.update({
+    where: { userId },
+    data: { replyCreditsCurrent: credits },
+  });
+}
+
 /** Force a user's trial into the expired state, for entitlement tests. */
 export async function expireTrial(userId) {
-  return prisma.subscription.upsert({
+  return prisma.entitlement.upsert({
     where: { userId },
     create: {
       userId,
-      status: 'TRIAL_EXPIRED',
-      trialStartedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
-      trialEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      planCode: 'TRIAL',
+      status: 'EXPIRED',
+      cycleStartedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000),
+      validUntil: new Date(Date.now() - 24 * 60 * 60 * 1000),
     },
     update: {
-      status: 'TRIAL_EXPIRED',
-      trialEndsAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      status: 'EXPIRED',
+      validUntil: new Date(Date.now() - 24 * 60 * 60 * 1000),
     },
   });
 }

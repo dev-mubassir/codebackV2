@@ -98,7 +98,9 @@ router.get('/summary', async (req, res) => {
     });
 
     const businessProfile = user?.businessProfile || {};
-    const primaryCategory = businessProfile.primaryCategory || 'video_editor';
+    // "Something else" when unset — the same placeholder the profile defaults
+    // to (businessProfileService DEFAULT_PROFILE), never a type nobody picked.
+    const primaryCategory = businessProfile.primaryCategory || 'other';
     const businessTypes = parseBusinessTypes(businessProfile.businessTypes, primaryCategory);
 
     // Get user's owned accounts

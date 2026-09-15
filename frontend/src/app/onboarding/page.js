@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getMe, getOnboarding, saveOnboarding } from '@/lib/api';
 import styles from './onboarding.module.css';
 
-import { BUSINESS_CATEGORIES, parseBusinessTypes, combineKnowledgeTemplates } from '@/lib/businessTemplates';
+import { BUSINESS_CATEGORIES, combineKnowledgeTemplates, toggleBusinessType } from '@/lib/businessTemplates';
 import Icon from '@/app/components/Icon';
 import { onboarding as t, settings as settingsCopy, common, errors } from '@/content/copy';
 import { TONE_ORDER, toneLabel } from '@/content/labels';
@@ -22,7 +22,10 @@ export default function OnboardingPage() {
   const [businessName, setBusinessName] = useState('');
 
   // Step 2: What do you do? (Multi-select)
-  const [selectedCategories, setSelectedCategories] = useState(['video_editor']);
+  // NOTHING is pre-selected — not a real type, not "Something else", not a
+  // previously saved answer. The user picks on this step, and cannot continue
+  // until they have picked at least one.
+  const [selectedCategories, setSelectedCategories] = useState([]);
   const [customCategory, setCustomCategory] = useState('');
   const [customPlaceholder] = useState(
     () => t.step2.customPlaceholders[Math.floor(Math.random() * t.step2.customPlaceholders.length)]
@@ -66,9 +69,9 @@ export default function OnboardingPage() {
         if (data.businessProfile) {
           const bp = data.businessProfile;
           setBusinessName(bp.businessName || data.user?.name || '');
-          const initialCats = parseBusinessTypes(bp.businessTypes, bp.primaryCategory);
-          setSelectedCategories(initialCats.length > 0 ? initialCats : ['video_editor']);
-
+          // The saved business types are deliberately NOT loaded into the
+          // selection: a new profile holds the "Something else" placeholder,
+          // which is not an answer the user gave. Saved facts still load below.
           if (bp.description) {
             setDescription(bp.description);
             setProductsServices(bp.productsServices || '');
@@ -79,12 +82,8 @@ export default function OnboardingPage() {
             setFaqData(bp.faqData || '');
             setAiInstructions(bp.aiInstructions || '');
             setTone(bp.tone || 'friendly');
-          } else {
-            // Apply default template for categories if profile has no saved description
-            applyCategoriesTemplates(initialCats, true);
           }
-        } else {
-          applyCategoriesTemplates(['video_editor'], true);
+          // No saved facts: starter content loads once the user picks a type.
         }
       } catch (err) {
         router.push('/login');
@@ -97,15 +96,10 @@ export default function OnboardingPage() {
 
   function handleCategoryToggle(catId) {
     setSelectedCategories((prev) => {
-      const exists = prev.includes(catId);
-      let updated;
-      if (exists) {
-        // Only remove if more than 1 selected
-        updated = prev.length > 1 ? prev.filter((id) => id !== catId) : prev;
-      } else {
-        updated = [...prev, catId];
-      }
-      applyCategoriesTemplates(updated, true);
+      // Plain add/remove — nothing is selected until the user picks, and
+      // turning off the last type leaves the step empty (see allowEmpty).
+      const updated = toggleBusinessType(prev, catId, { allowEmpty: true });
+      if (updated.length > 0) applyCategoriesTemplates(updated, true);
       return updated;
     });
   }
@@ -233,6 +227,9 @@ export default function OnboardingPage() {
               </span>
             </div>
             <p className={styles.stepDesc}>{t.step2.description}</p>
+            {selectedCategories.length === 0 && (
+              <p className={styles.formHint} role="status">{t.step2.pickOne}</p>
+            )}
 
             <div className={styles.categoryGrid}>
               {BUSINESS_CATEGORIES.map((cat) => {
@@ -269,7 +266,11 @@ export default function OnboardingPage() {
               <button className="btn btn-secondary btn-md" onClick={() => setCurrentStep(1)}>
                 <Icon name="arrowLeft" size={14} /> {common.back}
               </button>
-              <button className="btn btn-primary btn-md" onClick={() => setCurrentStep(3)}>
+              <button
+                className="btn btn-primary btn-md"
+                onClick={() => setCurrentStep(3)}
+                disabled={selectedCategories.length === 0}
+              >
                 {t.step2.next}
                 <Icon name="arrowRight" size={14} />
               </button>

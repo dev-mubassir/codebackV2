@@ -1671,3 +1671,17 @@
 
 
 
+
+/* An inbound message the AI never read — says why (Message.aiSkipReason). */
+.messageSkipped {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.unsortedBanner {
+  margin: 0 12px 10px;
+}

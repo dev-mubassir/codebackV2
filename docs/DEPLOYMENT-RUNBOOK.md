@@ -153,6 +153,33 @@ Any live-service credential rotation — `DATABASE_URL`, `RESEND_API_KEY`, `GOOG
    - `WEBHOOK_VERIFY_TOKEN` — trigger the Meta webhook handshake and confirm it 200s.
 4. **Only then finalize** — revoke or delete the old credential at the provider. Revoking before step 3 passes, with the new value turning out to be wrong, leaves the service with no working credential in either slot.
 
+### 2.6 Local dev — editing `backend/.env` requires a FULL restart
+
+**`npm run dev` will not pick up an edited `.env`. Stop the process and start it again.**
+
+`dotenv` reads the file once at startup, and the dev script is `node --watch src/index.js`. `--watch` watches the *module graph* — files that get `import`ed or `require`d. `.env` is read with `fs.readFileSync`, which the watcher never sees, so editing it restarts nothing and the process keeps serving the values it booted with.
+
+This is the same fact as step 2's "Northflank does not hot-reload env vars into a running container", and it fails the same silent way locally:
+
+> `BILLING_ENABLED=true` was set in `backend/.env` at 21:00. The backend had started at 20:52. `npm run billing:doctor` — a *fresh* process — reported `BILLING_ENABLED true`, while the running server still answered `GET /api/billing/plans` with **404**. Nothing in either output suggested the two disagreed.
+
+So when a flag "isn't working", check the process start time against the file's mtime before looking at code:
+
+```bash
+# Windows / PowerShell
+Get-Process -Id (Get-NetTCPConnection -LocalPort 5000 -State Listen).OwningProcess | Select-Object StartTime
+(Get-Item backend\.env).LastWriteTime
+```
+
+If the process is older than the file, that is the whole bug. Restart it:
+
+```bash
+# from backend/ — Ctrl+C the dev server first, then:
+npm run dev
+```
+
+`npm run billing:doctor` reads `.env` fresh every time, so it tells you what the file says — **never what the running server believes**. Agreement between the two is only guaranteed after a restart.
+
 ---
 
 ## PHASE 3 — Deploy
@@ -177,6 +204,59 @@ Manually, in the service shell. Never on container start, never via `npx`:
 ```bash
 ./node_modules/.bin/prisma migrate deploy
 ```
+
+### Required order for ANY migration-bearing deploy
+
+Code deploys automatically on push to `master`; migrations do not. For any
+deploy that carries a migration, the order is:
+
+1. **Merge to `master`.** Northflank builds and deploys the code.
+2. **Apply the migrations** in the service shell:
+   `./node_modules/.bin/prisma migrate deploy`
+3. **Verify** with `./node_modules/.bin/prisma migrate status` —
+   *"Database schema is up to date!"* and nothing pending.
+4. **Confirm the service boots** and `/health` answers 200.
+
+### A failed start after such a deploy means "run the migrations", NOT "roll back"
+
+Between steps 1 and 2 the new code is live against the old schema, and
+`backend/src/lib/migrationGuard.js` **deliberately refuses to start** in that
+window. This is the guard working, not a broken build.
+
+It exists because the alternative is worse and silent: Prisma Client SELECTs
+every column its schema declares, so a client ahead of its database makes
+full-row entitlement queries throw — which breaks **Instagram connect for
+every user**, with billing switched off, while `/health` still returns 200.
+This was observed on the development database during the billing work and
+presented exactly that way: connect broken, everything else apparently fine.
+
+**The log line to look for**, printed verbatim before the process exits:
+
+```
+[Server] FATAL: the database is BEHIND the code. Refusing to serve traffic.
+```
+
+It is followed by the names of the missing migrations and the
+`migrate deploy` command to run. If you see it: do step 2, then redeploy or
+restart. Do not roll back — rolling back the code "fixes" the symptom by
+returning to a build that matches the old schema, and then the migration
+still has not run.
+
+**What Northflank does with the exit(1).** The guard exits non-zero, which
+Northflank treats as a failed container and restarts per the service's
+restart policy — i.e. it will **crash-loop** until the migration is applied,
+with the FATAL line above repeating in the logs each cycle. That repeating
+line is the symptom to recognise; a crash-loop after a migration-bearing
+deploy is nearly always this and nothing else.
+
+> The exact restart/backoff policy is configured in the Northflank dashboard,
+> not in this repository (there is no `northflank.json`, Dockerfile, or
+> release command here), so confirm the policy there if the loop behaviour
+> matters operationally. The log line is fixed by the code regardless.
+
+A database that is merely *unreachable* at boot does **not** trigger this —
+that logs a warning and starts anyway, because a transient blip must not
+become an outage requiring a human.
 
 This migration is self-defending — preconditions abort the whole transaction rather than applying partially, and they name the offending rows. If it aborts, read the message; it tells you exactly what's wrong.
 

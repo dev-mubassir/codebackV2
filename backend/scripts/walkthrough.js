@@ -220,14 +220,14 @@ function req(method, path, body, { useJar = true } = {}) {
   record('connect Instagram: claim accepted', claim.ok === true);
   record('trial GRANTED on first connect', claim.trialGranted === true);
 
-  const subscription = await prisma.subscription.findUnique({ where: { userId: user.id } });
-  const trialDays = subscription
-    ? Math.round((subscription.trialEndsAt - subscription.trialStartedAt) / 86400000)
+  const entitlement = await prisma.entitlement.findUnique({ where: { userId: user.id } });
+  const trialDays = entitlement
+    ? Math.round((entitlement.validUntil - entitlement.cycleStartedAt) / 86400000)
     : null;
   record(
     'trial is TRIALING for 3 days',
-    subscription?.status === 'TRIALING' && trialDays === 3,
-    `status=${subscription?.status} days=${trialDays}`
+    entitlement?.status === 'TRIALING' && trialDays === 3,
+    `status=${entitlement?.status} days=${trialDays}`
   );
 
   const ledger = await prisma.instagramIdentity.findUnique({

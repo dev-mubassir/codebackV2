@@ -12,6 +12,7 @@ import {
 import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
 import Icon from '@/app/components/Icon';
 import InboxFilterList from './InboxFilterList';
+import UnsortedMessagesBanner from '@/app/components/billing/UnsortedMessagesBanner';
 import NavSidebar, { NAV_DRAWER_ID } from '@/app/components/NavSidebar';
 // Read-only: reused so the mobile header/drawer match AppShell's look.
 // This file must never be edited from here.
@@ -23,6 +24,7 @@ import {
   brandDealStatusLabel,
   replyModeSendsAutomatically,
   messageTypePreviewLabel,
+  skipReasonLabel,
 } from '@/content/labels';
 import { formatTime, formatTimeAgo, formatCurrency } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
@@ -753,6 +755,9 @@ function InboxPageContent() {
             </div>
           </div>
 
+          {/* Recent DMs the AI never read, and why — sorting must not stop silently. */}
+          {user?.features?.billing && <UnsortedMessagesBanner className={styles.unsortedBanner} />}
+
           <div className={styles.convPanelHeader}>
             <h3 className={styles.convPanelTitle}>{t.conversations}</h3>
             <span className={styles.convPanelBadge}>
@@ -1126,6 +1131,12 @@ function InboxPageContent() {
                       <span className={styles.messageTime}>
                         {formatTime(msg.igTimestamp || msg.createdAt)}
                       </span>
+                      {msg.direction === 'inbound' && msg.aiStatus === 'skipped' && (
+                        <span className={styles.messageSkipped}>
+                          <Icon name="info" size={11} /> {skipReasonLabel(msg.aiSkipReason).label} ·{' '}
+                          {skipReasonLabel(msg.aiSkipReason).description}
+                        </span>
+                      )}
                     </div>
                   ))
                 )}

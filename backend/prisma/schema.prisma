@@ -71,7 +71,7 @@ model User {
   notifications     Notification[]
   authTokens        AuthToken[]
   authIdentities    AuthIdentity[]
-  subscription      Subscription?
+  entitlement       Entitlement?
 
   @@map("users")
 }
@@ -291,6 +291,14 @@ model Message {
   igTimestamp    DateTime? @map("ig_timestamp") // Timestamp from Instagram
 
   aiStatus   String    @default("pending") @map("ai_status") // "pending", "processing", "completed", "failed", "skipped"
+  // The classification gate's reason when aiStatus is "skipped": "not_entitled",
+  // "cycle_cap" or "hourly_throttle". NULL otherwise, and for skips recorded
+  // before the column existed.
+  aiSkipReason  String?   @map("ai_skip_reason")
+  // Set when a skipped message is re-queued after an entitlement grant
+  // (services/skippedMessageRecovery.js). A recovered message may auto-reply
+  // only if it arrived within the last hour; older ones are classified only.
+  aiRecoveredAt DateTime? @map("ai_recovered_at")
   attempts   Int       @default(0)
   analyzedAt DateTime? @map("analyzed_at")
 
@@ -549,12 +557,6 @@ enum OAuthPurpose {
   INSTAGRAM_CONNECT
 }
 
-enum SubscriptionStatus {
-  NONE // default — no entitlement. Nothing can grant a trial by accident.
-  TRIALING
-  TRIAL_EXPIRED
-}
-
 enum DeletionRequestStatus {
   RECEIVED
   PROCESSING
@@ -671,6 +673,31 @@ model OAuthNonce {
 }
 
 // ============================================
+// Session store — created and managed at RUNTIME by connect-pg-simple
+// (lib/session.js), never by application code and never by a Prisma
+// migration's own logic. Modeled here only so Prisma stops treating it as
+// unexplained drift on every `migrate dev`; column shape confirmed against
+// the live table (`\d user_sessions`) and matches connect-pg-simple's own
+// default schema exactly.
+//
+// The migration that introduces this model is adopted via
+// `prisma migrate resolve --applied`, NOT a normal deploy, on any database
+// where connect-pg-simple has already created the table at runtime (local
+// dev, and almost certainly production — see FINDINGS.md F11 / the auth-
+// hardening baseline). A normal `migrate deploy` against such a database
+// would fail with "relation already exists". A database where the table
+// does not exist yet (a fresh test DB) applies it normally.
+// ============================================
+model UserSession {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("user_sessions")
+}
+
+// ============================================
 // Meta data-deletion callback bookkeeping.
 //
 // Meta requires us to return a confirmation code and host a status page for
@@ -731,28 +758,338 @@ model WebhookDelivery {
 }
 
 // ============================================
-// Trial-only subscription. No billing until after Meta approval.
+// BILLING — plan catalogue, per-region pricing, one-time orders, and the
+// credit/quota ledger for the feat/billing work. Inert on its own: nothing
+// reads or writes these tables until the entitlement service (Gate 2) and
+// BILLING_ENABLED exist. Reversible migration — see migration.sql.
 //
-// status defaults to NONE, and that is the safety property: creating a row
-// cannot accidentally grant a trial. TRIALING is only ever reached by the
-// explicit grant in the Instagram connect transaction, which in the same
-// transaction stamps InstagramIdentity.trialConsumedAt. A trial without that
-// stamp is the bug that makes the ledger pointless.
-//
-// Deliberately NO plan reference, no provider ids, no price fields — those
-// return with billing, not before.
+// NAMING NOTE, read before renaming anything below: the first (reverted)
+// Cashfree attempt's phantom migrations left an orphaned "plans" table (and
+// an old-shape "subscriptions") on any database that applied them and never
+// ran the cleanup in FINDINGS.md. `Plan` is therefore @@map'd to
+// "billing_plans", NOT "plans" — creating a table literally named "plans"
+// would fail outright on exactly the drifted databases that cleanup exists
+// to fix. Same reasoning WebhookDelivery used to avoid the name
+// "processed_webhook_events". "orders", "entitlements", "credit_ledger",
+// "plan_prices" and "addon_*"/"extra_ig_account_prices" have no such
+// history and are safe as named.
 // ============================================
-model Subscription {
-  id             String             @id @default(uuid())
-  userId         String             @unique @map("user_id")
-  status         SubscriptionStatus @default(NONE)
-  trialStartedAt DateTime?          @map("trial_started_at")
-  trialEndsAt    DateTime?          @map("trial_ends_at")
-  createdAt      DateTime           @default(now()) @map("created_at")
-  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+enum EntitlementStatus {
+  NONE // default — no entitlement. Carried over from Subscription's own safety property: creating a row cannot accidentally grant one.
+  TRIALING
+  ACTIVE
+  GRACE
+  EXPIRED
+}
+
+enum CreditLedgerType {
+  GRANT
+  SPEND
+  EXPIRE
+  ROLLOVER
+  CLASSIFY // a recorded classification event, not a credit movement — delta is always 0. See CreditLedger's messageId note.
+}
+
+enum OrderStatus {
+  CREATED
+  PAID
+  FAILED
+  EXPIRED // either Cashfree reported it FAILED/EXPIRED, or it aged past 7 days in CREATED and the nightly reconciliation job retired it — see billingReconciliationJob.js
+}
+
+// ============================================
+// How a payment's country was established, for the region lock. Ordered
+// from strongest to weakest evidence — never derived from currency alone,
+// which is circular (currency is the pricing hint WE showed the customer,
+// not evidence of where they actually are).
+// ============================================
+enum RegionSource {
+  RAIL_INFERRED // UPI/netbanking/wallet — India-only by construction, no country field needed
+  CARD_COUNTRY // card payment with a non-null payment_method.card.card_country
+  UNVERIFIED // card payment with a null card_country (Cashfree's own sample payloads show this is common) — plan is granted, region stays unlocked
+}
+
+// ============================================
+// One row per tenant — the live quota/expiry state the entitlement service
+// (Gate 2, src/services/entitlementService.js) reads and writes on every
+// classification/auto-reply attempt. Cascade-deletes with the user, same as
+// the trial-only Subscription model it replaces — this is OPERATIONAL
+// state, not a financial record (contrast Order/CreditLedger below), and
+// there is no ongoing entitlement to enforce for a deleted account.
+//
+// EXTENDS SUBSCRIPTION — Subscription (status/trialStartedAt/trialEndsAt)
+// has been folded in here rather than kept as a second per-tenant row:
+//   Subscription.status         -> status (NONE/TRIALING as-is; TRIAL_EXPIRED -> EXPIRED)
+//   Subscription.trialStartedAt -> cycleStartedAt (a trial IS a cycle — a free
+//                                  3-day one; Plan.cycleLengthDays=3 for TRIAL)
+//   Subscription.trialEndsAt    -> validUntil
+// See migration 20260914_merge_subscription_into_entitlement for the
+// data backfill. status still defaults to NONE — that is the safety
+// property Subscription had: creating a row cannot accidentally grant
+// anything. planCode/billingRegion/currency are nullable for exactly that
+// NONE state and for TRIALING, which locks neither region nor currency
+// (only a real payment does, per the region-lock requirement).
+//
+// EFFECTIVE STATUS IS LAZY, same philosophy hasActiveEntitlement() already
+// used for trial expiry: validUntil/graceUntil are the source of truth, and
+// the entitlement service derives TRIALING/ACTIVE -> GRACE -> EXPIRED from
+// them at read time rather than trusting the stored `status` column, which
+// only a periodic sweep (Gate 4) eventually catches up to. graceUntil is
+// set at grant time (validUntil + 3 days) for paid plans and left NULL for
+// TRIAL — a trial has no grace stage, so the same lazy computation that
+// derives GRACE for a paid plan falls straight through to EXPIRED for one.
+//
+// replyCreditsBanked = unspent credits rolled over from PRIOR cycles,
+// capped at the plan's bank cap when the cycle rolls.
+// replyCreditsCurrent = unspent credits granted THIS cycle (plan grant +
+// any consumable add-on top-ups bought during it).
+// FIFO spend drains banked (older) before current (newer). CreditLedger
+// below is the append-only trail of every change to either number.
+// ============================================
+model Entitlement {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  planCode      String?           @map("plan_code") // Plan.code — TRIAL, STARTER, PRO, ENTERPRISE; null until a trial/plan is granted
+  // billingRegion/currency are set ONLY from RAIL_INFERRED or CARD_COUNTRY
+  // evidence (see RegionSource below) — NEVER inferred from currency alone,
+  // which is circular: currency is what we showed the customer as a
+  // pricing hint, so treating it as region evidence is exactly the VPN
+  // arbitrage the lock exists to prevent. An UNVERIFIED payment still
+  // grants the plan normally but leaves both null/unset, so a later
+  // payment carrying real evidence can still set the lock.
+  billingRegion String?           @map("billing_region") // locked at first RAIL_INFERRED/CARD_COUNTRY payment — IN | INTL; null pre-payment or UNVERIFIED
+  currency      String? // locked together with billingRegion — INR | USD; null pre-payment or UNVERIFIED
+  regionSource  RegionSource?     @map("region_source") // how billingRegion (if set) was established
+  status        EntitlementStatus @default(NONE) // NONE default is deliberate — see the model note above
+
+  validUntil DateTime? @map("valid_until")
+  graceUntil DateTime? @map("grace_until") // validUntil + 3 days for paid plans; NULL for TRIAL (no grace stage)
+
+  replyCreditsCurrent Int @default(0) @map("reply_credits_current")
+  replyCreditsBanked  Int @default(0) @map("reply_credits_banked")
+
+  classificationCountCycle Int      @default(0) @map("classification_count_cycle") // burst guard, never rolls over
+  classificationCountHour  Int      @default(0) @map("classification_count_hour")
+  hourWindowStartedAt      DateTime @default(now()) @map("hour_window_started_at")
+  cycleStartedAt           DateTime @default(now()) @map("cycle_started_at")
+
+  extraIgAccounts Int @default(0) @map("extra_ig_accounts") // recurring add-on count; folded into next renewal's price
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([status, trialEndsAt])
-  @@map("subscriptions")
+  @@index([status, validUntil])
+  @@index([status, graceUntil])
+  @@map("entitlements")
+}
+
+// ============================================
+// Append-only. NEVER update or delete a row here — enforced by convention in
+// application code (Gate 2), not by the schema — this is the record shown to
+// a customer who disputes their own usage. A correction is a new row (e.g. a
+// compensating GRANT or EXPIRE entry), never an edit to an existing one.
+//
+// tenantId is a plain field, not a User relation, and deliberately does NOT
+// cascade on account deletion — see PRIVACY_NOTES.md "Retention 2": GST
+// rules require retaining invoice-linked transaction records independent of
+// the account that generated them, once billing is live. Same reasoning as
+// InstagramIdentity's deliberate non-relation to User.
+//
+// messageId + the (tenantId, messageId, type) unique constraint below are
+// what make a CLASSIFY entry idempotent — a retried Gemini call, or a
+// Gemini->xAI->OpenAI failover, all resolve to the SAME messageId, so
+// recordClassification()'s insert collides (P2002) on the second and third
+// attempt and is treated as a no-op rather than a second count. GRANT/
+// SPEND/EXPIRE/ROLLOVER rows leave messageId NULL, and Postgres unique
+// constraints never consider two NULLs equal, so those rows never collide
+// with each other or with a CLASSIFY row.
+// ============================================
+// ============================================
+// One row per renewal reminder actually sent.
+//
+// EXISTS PURELY AS AN IDEMPOTENCY GUARD. The renewal sequence runs on a
+// timer several times a day, and every run re-evaluates the same windows —
+// without this, a tenant three days from expiry would be emailed on every
+// single pass. The unique constraint below is what makes "send once per
+// cycle per reminder type" structural rather than a matter of getting the
+// scheduling arithmetic exactly right: the job inserts BEFORE sending and
+// treats a P2002 as "already sent, skip", the same pattern CreditLedger's
+// CLASSIFY rows use for classification.
+//
+// cycleStartedAt identifies WHICH cycle the reminder belongs to, rather
+// than a cycle number we would have to maintain. It is restamped by every
+// grantPlan() and every rollCycle(), so a renewed tenant automatically
+// becomes eligible for a fresh set of reminders with no cleanup step.
+//
+// tenantId is a plain field with no User relation, matching CreditLedger
+// and Order: deliberately NOT cascading, so the record of what was sent
+// survives the account it was sent to.
+// ============================================
+model RenewalReminder {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  cycleStartedAt DateTime @map("cycle_started_at")
+  reminderType   String   @map("reminder_type") // DAY_27 | DAY_29 | EXPIRY | GRACE_FINAL
+  sentAt         DateTime @default(now()) @map("sent_at")
+
+  @@unique([tenantId, cycleStartedAt, reminderType])
+  @@index([tenantId, sentAt])
+  @@map("renewal_reminders")
+}
+
+model CreditLedger {
+  id           String           @id @default(uuid())
+  tenantId     String           @map("tenant_id")
+  messageId    String?          @map("message_id") // set only for type=CLASSIFY; the idempotency key
+  delta        Int // positive = credited, negative = spent
+  type         CreditLedgerType
+  source       String // e.g. "plan_grant:starter", "addon:reply_credits_500", "auto_reply_spend", "cycle_rollover", "classification"
+  balanceAfter Int              @map("balance_after")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  @@unique([tenantId, messageId, type])
+  @@index([tenantId, createdAt])
+  @@map("credit_ledger")
+}
+
+// ============================================
+// One row per Cashfree order — plan purchases/renewals AND add-on
+// purchases. cashfreeOrderId's unique constraint is the idempotency guard
+// for the webhook (Gate 3): a replayed delivery hitting this constraint is
+// what stops a double-grant/double-extend, not an in-memory set — this is a
+// single-instance deployment with no row-level locking.
+//
+// tenantId does not cascade on account deletion — see CreditLedger's note
+// and PRIVACY_NOTES.md "Retention 2".
+//
+// Exactly one of planCode / addonCode is set, never both, never neither —
+// enforced in application code (Gate 3), not by the schema.
+// ============================================
+model Order {
+  id              String       @id @default(uuid())
+  cashfreeOrderId String       @unique @map("cashfree_order_id")
+  tenantId        String       @map("tenant_id")
+  planCode        String?      @map("plan_code")
+  addonCode       String?      @map("addon_code")
+  amount          Int // smallest currency unit — paise (INR) or cents (USD)
+  currency        String
+  status          OrderStatus  @default(CREATED)
+  paymentCountry  String?      @map("payment_country") // from the Cashfree webhook; raw value behind regionSource's classification
+  regionSource    RegionSource? @map("region_source") // how paymentCountry (if any) was established — see the enum's own comment
+  rawPayload      String?      @map("raw_payload") // last webhook payload received for this order, for reconciliation
+  createdAt       DateTime     @default(now()) @map("created_at")
+  paidAt          DateTime?    @map("paid_at")
+
+  @@index([tenantId, createdAt])
+  @@index([status])
+  @@map("orders")
+}
+
+// ============================================
+// Plan catalogue — prices live in PlanPrice, never in application code or
+// the frontend. @@map("billing_plans"), NOT "plans" — see the naming note
+// at the top of this section.
+// ============================================
+model Plan {
+  id   String @id @default(uuid())
+  code String @unique // TRIAL, STARTER, PRO, ENTERPRISE
+
+  name                          String
+  igAccountLimit                Int?    @map("ig_account_limit") // null = custom (Enterprise)
+  autoReplyCreditsPerCycle      Int?    @map("auto_reply_credits_per_cycle") // monthly grant; the trial's own TRIAL_AUTO_REPLY_CREDITS constant lives in code, not here
+  autoReplyBankCap              Int?    @map("auto_reply_bank_cap") // max banked (rolled-over) credits; excess discarded at renewal
+  classificationCapCycle        Int?    @map("classification_cap_cycle") // internal burst guard only — never advertised on marketing pages
+  classificationThrottlePerHour Int?    @map("classification_throttle_per_hour")
+  cycleLengthDays               Int     @default(30) @map("cycle_length_days") // 30-day purchases only — no multi-month packs by design
+  isActive                      Boolean @default(true) @map("is_active")
+  // Quoted, not checked out. ENTERPRISE carries real "from" prices in
+  // PlanPrice so the marketing card can render an amount from the catalogue
+  // rather than hardcoding one in a component — but it must show a contact
+  // CTA instead of a buy button. Without this flag the only way to tell the
+  // two apart would be "does it have a price row", which stops being true
+  // the moment a from-price exists.
+  isQuoteOnly                   Boolean @default(false) @map("is_quote_only")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  prices PlanPrice[]
+
+  @@map("billing_plans")
+}
+
+// ============================================
+// Per-region, per-currency price for one plan's 30-day cycle.
+// ============================================
+model PlanPrice {
+  id            String @id @default(uuid())
+  planId        String @map("plan_id")
+  billingRegion String @map("billing_region") // IN | INTL
+  currency      String // INR | USD
+  amount        Int // smallest currency unit — paise (INR) or cents (USD)
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, billingRegion])
+  @@map("plan_prices")
+}
+
+// ============================================
+// Consumable add-on: a one-time top-up of auto-reply credits. Once
+// purchased it is subject to the same bank-cap/expiry rules as the plan's
+// own grant — enforced by CreditLedger + Entitlement, not here.
+//
+// Kept as its own table rather than folded into a generic "Addon" table
+// with ExtraIgAccountPrice below — the brief is explicit that consumable
+// and recurring add-ons behave too differently to share one shape (this one
+// has a credit quantity and no ongoing effect; the other has no quantity
+// and persists for as long as the plan is active).
+// ============================================
+model AddonPack {
+  id           String  @id @default(uuid())
+  code         String  @unique // e.g. "reply_credits_500"
+  creditAmount Int     @map("credit_amount")
+  isActive     Boolean @default(true) @map("is_active")
+
+  prices AddonPackPrice[]
+
+  @@map("addon_packs")
+}
+
+// Priced per PURCHASING plan tier (Starter/Pro), not by region alone — the
+// brief prices this cheaper on Pro on purpose, as the lever that pulls a
+// Starter tenant toward upgrading.
+model AddonPackPrice {
+  id            String @id @default(uuid())
+  addonPackId   String @map("addon_pack_id")
+  planCode      String @map("plan_code") // which plan tier this price applies to — STARTER | PRO
+  billingRegion String @map("billing_region")
+  currency      String
+  amount        Int
+
+  addonPack AddonPack @relation(fields: [addonPackId], references: [id], onDelete: Cascade)
+
+  @@unique([addonPackId, planCode, billingRegion])
+  @@map("addon_pack_prices")
+}
+
+// ============================================
+// Recurring add-on: +1 IG account slot. No "pack" concept applies — a
+// tenant simply has N extra slots or doesn't — so pricing is keyed directly
+// on purchasing plan tier and region, same reasoning as AddonPackPrice.
+// The purchased count itself lives on Entitlement.extraIgAccounts, not here.
+// ============================================
+model ExtraIgAccountPrice {
+  id            String @id @default(uuid())
+  planCode      String @map("plan_code") // STARTER | PRO
+  billingRegion String @map("billing_region")
+  currency      String
+  amount        Int
+
+  @@unique([planCode, billingRegion])
+  @@map("extra_ig_account_prices")
 }

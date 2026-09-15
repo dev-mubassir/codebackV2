@@ -32,8 +32,11 @@ const brandDealRoutes = require('./routes/brandDeals');
 const notificationRoutes = require('./routes/notifications');
 const settingsRoutes = require('./routes/settings');
 const dataDeletionRoutes = require('./routes/dataDeletion');
+const billingRoutes = require('./routes/billing');
+const cashfreeWebhookRoutes = require('./routes/cashfreeWebhooks');
 
 const { setIO } = require('./lib/socket');
+const { assertMigrationsCurrent } = require('./lib/migrationGuard');
 const { startWorkers } = require('./jobs');
 const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
 
@@ -158,6 +161,19 @@ if (Buffer.from(process.env.TOKEN_ENCRYPTION_KEY.trim(), 'hex').length !== 32) {
 if (isProduction && !(process.env.RESEND_API_KEY || '').trim()) {
   console.warn('[Server] WARNING: RESEND_API_KEY is not set — password reset and verification');
   console.warn('[Server]          emails will be LOGGED TO THE CONSOLE instead of sent.');
+}
+
+// Not fatal (unlike the secrets above) — the billing routes themselves
+// already 404 while BILLING_ENABLED is false, and fail their own request
+// with a clear 502 if it's true but misconfigured. Crashing the whole
+// backend (blocking Instagram DMs) over a missing billing credential would
+// be disproportionate; a boot-time warning is enough to catch a
+// misconfigured deploy before a customer hits it.
+if (require('./lib/billingFlags').isBillingEnabled()) {
+  if (!(process.env.CASHFREE_APP_ID || '').trim() || !(process.env.CASHFREE_SECRET_KEY || '').trim()) {
+    console.warn('[Server] WARNING: BILLING_ENABLED is true but CASHFREE_APP_ID/CASHFREE_SECRET_KEY are not fully set —');
+    console.warn('[Server]          checkout and webhook signature verification will fail at request time.');
+  }
 }
 
 // An admin session can impersonate any tenant, so the admin credential is
@@ -436,12 +452,27 @@ app.use('/auth', authRoutes);
 app.use('/webhook', webhookRoutes);
 app.use('/webhooks/instagram', webhookRoutes);
 
+// Cashfree webhook — always mounted (route itself 404s while BILLING_ENABLED
+// is false, so its existence is not conditional on the flag being read
+// correctly at boot; see routes/cashfreeWebhooks.js).
+app.use('/webhooks/cashfree', cashfreeWebhookRoutes);
+
 // Meta Data Deletion Request Callback (unauthenticated by design — the
 // signed_request HMAC is the authentication). Review-critical surface.
 app.use('/data-deletion', dataDeletionRoutes);
 
 // Admin panel routes (must be mounted before /api)
 app.use('/api/admin', adminRoutes);
+
+// Billing checkout (must be mounted before /api, same reason as admin above
+// — apiRoutes' own blanket requireAuth would otherwise intercept every
+// /api/billing/* request with a 401 before it ever reached billingRoutes'
+// BILLING_ENABLED gate, turning "disabled feature, 404" into "exists, log
+// in". Confirmed by hand while building this route — every OTHER /api/*
+// sub-router below this point has the exact same latent shadowing, it's
+// just invisible there because both routers happen to demand the same
+// auth and return the same 401.
+app.use('/api/billing', billingRoutes);
 
 // API routes (conversations, messages, AI analysis, reply generation, reply)
 app.use('/api', apiRoutes);
@@ -470,6 +501,20 @@ app.use('/api', settingsRoutes);
 // Start Server
 // ============================================
 const protocol = server instanceof https.Server ? 'https' : 'http';
+
+/**
+ * Schema check BEFORE the socket opens.
+ *
+ * Deploys are automatic on push to master; migrations are run by hand in the
+ * service shell (DEPLOYMENT-RUNBOOK PHASE 4). So new code routinely goes live
+ * before the schema catches up, and a Prisma Client that is ahead of its
+ * database breaks Instagram connect for every user while /health still
+ * answers 200. See lib/migrationGuard.js for the full mechanism.
+ *
+ * Nothing is listening until this passes, so a behind-schema deploy fails
+ * loudly at boot instead of quietly at signup.
+ */
+assertMigrationsCurrent().then(() => {
 server.listen(PORT, () => {
   console.log('');
   console.log('='.repeat(50));
@@ -481,6 +526,7 @@ server.listen(PORT, () => {
   console.log(`  OAuth start:   ${protocol}://local.codeback.test:${PORT}/auth/instagram`);
   console.log('='.repeat(50));
   console.log('');
+});
 });
 
 // ============================================
