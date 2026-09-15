@@ -28,7 +28,10 @@
  * See docs/ENV-SETUP.md §5.5.
  */
 
-require('dotenv').config();
+// Load backend/.env from THIS file's location, not the working directory. Run
+// from anywhere else, a cwd-relative load finds no DATABASE_URL and the guard
+// below refuses — safe, but it made the documented command fail for no reason.
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 
 function refuse(message, code = 2) {
   console.error(`\n  REFUSED: ${message}\n`);
@@ -109,8 +112,21 @@ const { hashIgUserId } = require('../src/lib/igIdentity');
 
   if (deleteEntitlement) {
     for (const a of connected) {
-      const { count } = await prisma.entitlement.deleteMany({ where: { userId: a.userId } });
-      console.log(`  Deleted ${count} entitlement row(s) for user ${a.userId.slice(0, 8)}.`);
+      // Deleting a row that still holds credits would leave the ledger showing
+      // a balance nothing holds — exactly the drift billing:doctor reports.
+      // Write the discard first, then delete, in one transaction.
+      await prisma.$transaction(async (tx) => {
+        const e = await tx.entitlement.findUnique({ where: { userId: a.userId } });
+        if (!e) return;
+        const balance = e.replyCreditsCurrent + e.replyCreditsBanked;
+        if (balance > 0) {
+          await tx.creditLedger.create({
+            data: { tenantId: a.userId, delta: -balance, type: 'EXPIRE', source: 'expire:dev_reset_trial', balanceAfter: 0 },
+          });
+        }
+        await tx.entitlement.delete({ where: { userId: a.userId } });
+        console.log(`  Deleted the entitlement for user ${a.userId.slice(0, 8)}${balance > 0 ? ` (EXPIRE row written for ${balance} credits)` : ''}.`);
+      });
     }
   }
 

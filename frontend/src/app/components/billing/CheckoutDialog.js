@@ -34,6 +34,8 @@ export default function CheckoutDialog({
   formattedAmount,
   pending,
   error,
+  /** { title, body } when this purchase is a downgrade that has to wait — explained in place of the form. */
+  blocked = null,
   onSubmit,
   onClose,
 }) {
@@ -65,6 +67,29 @@ export default function CheckoutDialog({
   }, [open, pending, onClose]);
 
   if (!open) return null;
+
+  // A downgrade that must wait: say when, and offer nothing to pay. Not the
+  // red error box — this is not something that went wrong.
+  if (blocked) {
+    return (
+      <div
+        className={styles.dialogOverlay}
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+      >
+        <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={blocked.title}>
+          <h2 className={styles.dialogTitle}>{blocked.title}</h2>
+          <p className={styles.fieldHelp}>{blocked.body}</p>
+          <div className={styles.dialogActions}>
+            <button type="button" className="btn btn-primary" onClick={onClose}>
+              {billing.planChange.closeButton}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   function handleSubmit(event) {
     event.preventDefault();

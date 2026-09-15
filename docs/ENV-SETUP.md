@@ -263,6 +263,21 @@ FROM "users" u
 WHERE NOT EXISTS (SELECT 1 FROM "entitlements" e WHERE e."user_id" = u."id");
 ```
 
+**Then record those credits in the ledger.** No operation may change credits
+without a ledger row, and `npm run billing:doctor` fails on any entitlement
+whose balance differs from its ledger sum. This writes one GRANT row for each
+entitlement that holds credits but has no ledger history at all:
+
+```sql
+INSERT INTO "credit_ledger" ("id", "tenant_id", "delta", "type", "source", "balance_after")
+SELECT gen_random_uuid()::text, e."user_id",
+       e."reply_credits_current" + e."reply_credits_banked", 'GRANT', 'dev_grant',
+       e."reply_credits_current" + e."reply_credits_banked"
+FROM "entitlements" e
+WHERE e."reply_credits_current" + e."reply_credits_banked" > 0
+  AND NOT EXISTS (SELECT 1 FROM "credit_ledger" l WHERE l."tenant_id" = e."user_id");
+```
+
 `id` and `updated_at` have no database default — Prisma normally supplies both
 — so raw SQL must pass them or the INSERT fails on a NOT NULL violation.
 
@@ -297,9 +312,18 @@ watch the feature work, not enough to develop against for a week. When a tenant
 stops replying and `canAutoReply()` is the reason, top up rather than raising
 the constant:
 
+The top-up and its ledger row are one statement, so the two cannot come apart
+(a bare UPDATE would show up as drift in `billing:doctor`). This ADDS 500:
+
 ```sql
-UPDATE "entitlements" SET "reply_credits_current" = 500, "updated_at" = now()
-WHERE "user_id" = (SELECT "id" FROM "users" WHERE "email" = 'you@example.com');
+WITH topped AS (
+  UPDATE "entitlements"
+     SET "reply_credits_current" = "reply_credits_current" + 500, "updated_at" = now()
+   WHERE "user_id" = (SELECT "id" FROM "users" WHERE "email" = 'you@example.com')
+  RETURNING "user_id", "reply_credits_current" + "reply_credits_banked" AS balance
+)
+INSERT INTO "credit_ledger" ("id", "tenant_id", "delta", "type", "source", "balance_after")
+SELECT gen_random_uuid()::text, "user_id", 500, 'GRANT', 'dev_topup', balance FROM topped;
 ```
 
 Classification counters reset per cycle on their own, but if the burst guard
@@ -315,8 +339,13 @@ WHERE "user_id" = (SELECT "id" FROM "users" WHERE "email" = 'you@example.com');
 ### 5.4 Undoing all of it
 
 ```sql
+DELETE FROM "credit_ledger";
 DELETE FROM "entitlements";
 ```
+
+The ledger goes too: ledger rows have no foreign key and would otherwise
+outlive the entitlements, so the next grant to the same user would start from
+a ledger sum that no longer matches anything.
 
 Entitlements cascade from `users` and are rebuilt by connecting an Instagram
 account, so this is safe on a development database and destroys nothing else.

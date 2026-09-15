@@ -15,7 +15,7 @@ const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { isBillingEnabled, isUsdPricingEnabled, isMetaApproved } = require('../lib/billingFlags');
-const { effectiveStatus, LIVE_STATUSES } = require('../services/entitlementService');
+const { effectiveStatus, LIVE_STATUSES, downgradeBlock } = require('../services/entitlementService');
 const { hashIgUserId, TRIAL_OUTCOMES } = require('../lib/igIdentity');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
@@ -129,6 +129,11 @@ function frontendUrl() {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** "14 Oct 2026" in India time — the date a customer reads, not a UTC instant. */
+function customerDate(date) {
+  return new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(date);
+}
 
 /**
  * How many orders the billing page's history table shows. A tenant buying a
@@ -262,6 +267,17 @@ router.get('/summary', async (req, res) => {
       }
     }
 
+    // Plans this tenant cannot buy yet — computed with the SAME rule the
+    // checkout route enforces (entitlementService.downgradeBlock), so a plan
+    // card never offers a purchase the API will refuse.
+    const blocked = PURCHASABLE_PLAN_CODES.map((code) => ({ code, block: downgradeBlock(entitlement, code, now) })).filter(
+      (x) => x.block
+    );
+    const planChange = {
+      blockedPlanCodes: blocked.map((x) => x.code),
+      availableFrom: blocked.length ? blocked[0].block.availableFrom : null,
+    };
+
     // Credits SPENT since this cycle started, counted from the ledger rather
     // than inferred by subtracting the balance from the plan's grant. The
     // subtraction would be wrong for every tenant who carried a bank forward
@@ -380,6 +396,7 @@ router.get('/summary', async (req, res) => {
       },
       extraIgAccounts: entitlement?.extraIgAccounts ?? 0,
       trialStatus,
+      planChange,
       trial: trialPlan
         ? {
             days: trialPlan.cycleLengthDays,
@@ -429,6 +446,24 @@ router.post('/checkout/plan', async (req, res) => {
 
     if (!plan || !plan.isActive) {
       return res.status(404).json({ error: 'That plan is not currently available.' });
+    }
+
+    // DOWNGRADES WAIT FOR THE PAID PERIOD TO END. Enforced here, in the API,
+    // before any order exists — a UI-only block is one stale tab or one crafted
+    // request away from charging someone for a switch that cuts short time
+    // they already paid for. Refused with a machine-readable code and the date
+    // the switch opens, so the page can say exactly that.
+    const block = downgradeBlock(entitlement, planCode);
+    if (block) {
+      const current = await prisma.plan.findUnique({ where: { code: block.currentPlanCode }, select: { name: true } });
+      const date = customerDate(block.availableFrom);
+      return res.status(409).json({
+        code: 'PLAN_DOWNGRADE_BLOCKED',
+        error: `You are on ${current?.name || block.currentPlanCode} until ${date}, so you can switch to ${plan.name} from ${date}.`,
+        currentPlanCode: block.currentPlanCode,
+        requestedPlanCode: planCode,
+        availableFrom: block.availableFrom,
+      });
     }
 
     // Locked region wins outright; otherwise the hint (default IN).

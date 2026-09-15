@@ -284,6 +284,10 @@ module.exports = {
   sendBillingReconciliationMismatch: (to, { mismatches, checked }) =>
     deliver(to, 'billingReconciliationMismatch', templates.billingReconciliationMismatch({ mismatches, checked })),
 
+  // CRITICAL — internal ops alert: a downgrade was granted during an active
+  // paid plan, after the money was taken. See entitlementService.alertPlanAnomaly.
+  sendBillingPlanAnomaly: (to, details) => deliver(to, 'billingPlanAnomaly', templates.billingPlanAnomaly(details)),
+
   /**
    * The paid renewal sequence. MIXED TIER — this is the one sender whose
    * criticality depends on its argument, which is why it maps reminderType to

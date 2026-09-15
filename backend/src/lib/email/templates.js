@@ -213,6 +213,38 @@ const templates = {
    * A mismatch means a customer paid and a webhook was dropped; this is the
    * "money is unaccounted for" signal reaching a human.
    */
+  /**
+   * CRITICAL internal alert — a plan downgrade was GRANTED while the customer's
+   * paid plan was still active. Checkout refuses that purchase, so this is an
+   * order that pre-dates the block or a path that bypassed checkout, and the
+   * payment has already been taken. Not customer-facing.
+   */
+  billingPlanAnomaly({ tenantId, fromPlanCode, toPlanCode, paidUntil, newValidUntil, carriedBalance, discarded }) {
+    const iso = (d) => (d ? new Date(d).toISOString() : 'unknown');
+    const facts = [
+      `tenant: ${tenantId}`,
+      `plan change: ${fromPlanCode} -> ${toPlanCode}`,
+      `${fromPlanCode} was paid until: ${iso(paidUntil)}`,
+      `new validUntil: ${iso(newValidUntil)}`,
+      `credits carried into the bank: ${carriedBalance}`,
+      `credits discarded (EXPIRE row written): ${discarded}`,
+    ];
+    const lead =
+      `A ${fromPlanCode} -> ${toPlanCode} downgrade was granted while ${fromPlanCode} was still active. ` +
+      `Checkout refuses this purchase, so it came from an order that pre-dates the block or a path that bypassed checkout — and the payment has already been taken.`;
+    const next = `The customer is on ${toPlanCode} now. Check the order, then decide whether to refund it or restore ${fromPlanCode}.`;
+    return {
+      subject: `[Siffty billing] Downgrade granted during an active paid plan — tenant ${tenantId}`,
+      text: `${lead}\n\n${facts.join('\n')}\n\n${next}\n\nSiffty · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        'Downgrade granted during an active paid plan',
+        `<p style="margin:0;font-size:15px;line-height:1.5;">${lead}</p>
+         <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${facts.map((f) => `<li><code>${f}</code></li>`).join('')}</ul>
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${next}</p>`
+      ),
+    };
+  },
+
   billingReconciliationMismatch({ mismatches, checked }) {
     const rows = mismatches
       .map(

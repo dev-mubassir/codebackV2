@@ -21,6 +21,7 @@
 import { useCallback, useState } from 'react';
 import api from '@/lib/api';
 import { billing } from '@/content/billingCopy';
+import { PLAN_DOWNGRADE_BLOCKED } from '@/lib/planChange';
 
 const CASHFREE_SDK_SRC = 'https://sdk.cashfree.com/js/v3/cashfree.js';
 
@@ -89,6 +90,9 @@ async function openHostedCheckout(paymentSessionId) {
 export function useCheckout() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
+  // A refused downgrade is not a failure to retry — it is a rule with a date.
+  // Held apart from `error` so the dialog can explain it instead of showing red.
+  const [blocked, setBlocked] = useState(null);
 
   /**
    * @param {'plan'|'addon'} kind
@@ -97,6 +101,7 @@ export function useCheckout() {
   const start = useCallback(async (kind, body) => {
     setPending(true);
     setError(null);
+    setBlocked(null);
     try {
       const path = kind === 'plan' ? '/api/billing/checkout/plan' : '/api/billing/checkout/addon';
       const { data } = await api.post(path, body);
@@ -111,6 +116,11 @@ export function useCheckout() {
       // subscription); anything else is a generic failure the customer can
       // only retry.
       const serverMessage = err?.response?.data?.error;
+      if (err?.response?.data?.code === PLAN_DOWNGRADE_BLOCKED) {
+        setBlocked({ title: billing.planChange.blockedTitleGeneric, body: serverMessage });
+        setPending(false);
+        return null;
+      }
       const isCheckoutStart = Boolean(err?.response);
       setError(serverMessage || (isCheckoutStart ? billing.errors.startCheckout : billing.errors.openPaymentPage));
       setPending(false);
@@ -121,9 +131,10 @@ export function useCheckout() {
   const reset = useCallback(() => {
     setPending(false);
     setError(null);
+    setBlocked(null);
   }, []);
 
-  return { start, pending, error, reset };
+  return { start, pending, error, blocked, reset };
 }
 
 export default useCheckout;

@@ -75,6 +75,9 @@ const CRITICAL_TYPES = new Set([
   'passwordReset',
   'verification',
   'billingReconciliationMismatch',
+  // A money-taken anomaly: a downgrade GRANTED while the paid plan was still
+  // active. Same reasoning as a reconciliation mismatch — a human has to look.
+  'billingPlanAnomaly',
   'renewalExpiry',
   'renewalGraceFinal',
 ]);

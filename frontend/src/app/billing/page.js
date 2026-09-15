@@ -34,6 +34,8 @@ import { usePricing, formatPrice, priceFor, REGION_IN, REGION_INTL } from '@/lib
 import { common } from '@/content/copy';
 import { billing } from '@/content/billingCopy';
 import { getInstagramAuthUrl } from '@/lib/api';
+import { formatDate } from '@/content/format';
+import { planBlock } from '@/lib/planChange';
 
 import useBillingSummary from '@/app/components/billing/useBillingSummary';
 import useCheckout from '@/app/components/billing/useCheckout';
@@ -113,14 +115,27 @@ function BillingPageContent() {
       const plan = pricing.plans.find((p) => p.code === planCode);
       const price = priceFor(plan?.prices, region);
       if (!plan || !price) return null; // no price row, no dialog — never invent one
+      // A blocked downgrade opens the dialog in its explaining state — the
+      // same answer the checkout API would give, without the round trip.
+      const block = planBlock(summary, planCode);
       return {
         kind: 'plan',
         code: planCode,
         title: billing.checkout.title(plan.name),
         formattedAmount: formatPrice(price.amount, price.currency),
+        blocked: block
+          ? {
+              title: billing.planChange.blockedTitle(plan.name, formatDate(block.availableFrom)),
+              body: billing.planChange.blockedBody(
+                summary?.plan?.name,
+                plan.name,
+                formatDate(block.availableFrom)
+              ),
+            }
+          : null,
       };
     },
-    [pricing.plans, region]
+    [pricing.plans, region, summary]
   );
 
   const openPlanCheckout = useCallback(
@@ -351,6 +366,9 @@ function BillingPageContent() {
           <div className={styles.planGrid}>
             {purchasablePlans.map((plan) => {
               const isCurrent = summary.plan?.code === plan.code;
+              // A lower tier while a paid plan is active. Still clickable, so
+              // the explanation is one tap away rather than a dead button.
+              const block = planBlock(summary, plan.code);
               return (
                 <PlanCard
                   key={plan.code}
@@ -360,11 +378,15 @@ function BillingPageContent() {
                   action={
                     <button
                       type="button"
-                      className={`btn ${isCurrent ? 'btn-secondary' : 'btn-primary'}`}
+                      className={`btn ${isCurrent || block ? 'btn-secondary' : 'btn-primary'}`}
                       style={{ width: '100%' }}
                       onClick={() => openPlanCheckout(plan.code)}
                     >
-                      {isCurrent ? billing.renewal.renewButton : billing.renewal.buyButton}
+                      {block
+                        ? billing.planChange.blockedButton(formatDate(block.availableFrom))
+                        : isCurrent
+                          ? billing.renewal.renewButton
+                          : billing.renewal.buyButton}
                     </button>
                   }
                 />
@@ -396,6 +418,7 @@ function BillingPageContent() {
         formattedAmount={activeDialog?.formattedAmount || ''}
         pending={checkout.pending}
         error={checkout.error}
+        blocked={activeDialog?.blocked || checkout.blocked}
         onSubmit={submitCheckout}
         onClose={closeDialog}
       />

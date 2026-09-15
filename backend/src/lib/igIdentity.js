@@ -124,6 +124,8 @@ const ENTITLEMENT_CONNECT_FIELDS = {
   validUntil: true,
   cycleStartedAt: true,
   replyCreditsCurrent: true,
+  // Needed to write the trial grant's ledger row with a true balanceAfter.
+  replyCreditsBanked: true,
 };
 
 function trialEndDate(from = new Date()) {
@@ -222,6 +224,9 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
     // has an entitlement gets neither.
     if (!alreadyConsumed && emailVerified && !hadEntitlement) {
       const now = new Date();
+      // A NONE row should hold nothing. If it ever did, the trial grant below
+      // replaces that balance, and the replacement is recorded.
+      const priorCurrent = entitlement?.replyCreditsCurrent ?? 0;
       const trialFields = {
         planCode: 'TRIAL',
         status: 'TRIALING',
@@ -236,6 +241,29 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
         // Reached only with no row or a NONE row (hadEntitlement is false), so
         // lifting it cannot reset a real trial or plan.
         update: trialFields,
+      });
+
+      // The trial's credits go through the ledger like every other credit.
+      // This used to be the one grant with no row: 25 credits held, 0 recorded.
+      if (priorCurrent > 0) {
+        await tx.creditLedger.create({
+          data: {
+            tenantId: userId,
+            delta: -priorCurrent,
+            type: 'EXPIRE',
+            source: 'expire:trial_grant_replaced_balance',
+            balanceAfter: entitlement.replyCreditsBanked,
+          },
+        });
+      }
+      await tx.creditLedger.create({
+        data: {
+          tenantId: userId,
+          delta: TRIAL_AUTO_REPLY_CREDITS,
+          type: 'GRANT',
+          source: 'trial_grant',
+          balanceAfter: entitlement.replyCreditsCurrent + entitlement.replyCreditsBanked,
+        },
       });
 
       // The stamp and the grant are in the same transaction. This is the

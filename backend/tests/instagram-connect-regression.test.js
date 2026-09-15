@@ -151,8 +151,12 @@ describe('Instagram connect with BILLING_ENABLED off', () => {
     });
 
     expect(claim.entitlement).toBeTruthy();
+    // replyCreditsBanked joined the list deliberately: the trial grant now
+    // writes a ledger row, and that row's balanceAfter needs the true banked
+    // balance. A NAMED addition like this is the point of pinning — what this
+    // test forbids is a column becoming a connect dependency by accident.
     expect(Object.keys(claim.entitlement).sort()).toEqual(
-      ['cycleStartedAt', 'id', 'planCode', 'replyCreditsCurrent', 'status', 'userId', 'validUntil'].sort()
+      ['cycleStartedAt', 'id', 'planCode', 'replyCreditsBanked', 'replyCreditsCurrent', 'status', 'userId', 'validUntil'].sort()
     );
     expect(
       Object.keys(claim.entitlement),

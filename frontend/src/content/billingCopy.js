@@ -271,6 +271,20 @@ export const billing = {
     manageLink: 'Manage billing',
   },
 
+  /**
+   * A downgrade while a paid plan is active waits for that paid period to
+   * end. Enforced by the checkout API (PLAN_DOWNGRADE_BLOCKED); these are the
+   * words for it. A rule with a date, never phrased as an error.
+   */
+  planChange: {
+    blockedButton: (date) => `Available from ${date}`,
+    blockedTitle: (planName, date) => `You can switch to ${planName} from ${date}`,
+    blockedTitleGeneric: 'That plan change has to wait',
+    blockedBody: (currentName, planName, date) =>
+      `You are on ${currentName || 'your current plan'} until ${date}. Moving down to ${planName} before then would cut short time you have already paid for, so the switch opens on ${date}. Buy ${planName} on or after that date and it runs for 30 days from the end of your current period.`,
+    closeButton: 'Got it',
+  },
+
   noAutoDebit: {
     title: 'Nothing renews on its own',
     body: 'There is no auto-debit and no mandate on your account. You pay once, for 30 days, and you decide each time whether to continue.',

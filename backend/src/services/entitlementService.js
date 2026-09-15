@@ -22,6 +22,8 @@
  */
 
 const prisma = require('../lib/prisma');
+// Ops alerts only (see alertPlanAnomaly). Still no payment-provider import here.
+const mailer = require('../lib/email');
 
 const GRACE_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -227,6 +229,68 @@ function computeBankRollover(entitlement, plan) {
 }
 
 /**
+ * Purchasable tiers, lowest first. A plan's position is what makes a change an
+ * upgrade or a downgrade. TRIAL is deliberately absent: it is not a paid tier,
+ * so there is nothing to protect by blocking a move away from it.
+ */
+const PLAN_TIERS = Object.freeze({ STARTER: 1, PRO: 2, ENTERPRISE: 3 });
+
+function tierOf(planCode) {
+  return PLAN_TIERS[planCode] ?? 0;
+}
+
+/**
+ * Must a purchase of `targetPlanCode` wait? Returns
+ * { currentPlanCode, availableFrom } when it must, otherwise null.
+ *
+ * A downgrade is blocked only while a PAID plan is ACTIVE — i.e. before its
+ * validUntil. Moving down then would cut short time the customer already paid
+ * for at the higher tier (grantPlan switches the plan immediately), so the
+ * switch opens on validUntil. In GRACE the paid period is already over, and a
+ * trial is not a paid tier, so neither is blocked.
+ *
+ * The ONE copy of this rule: the checkout route enforces it and the billing
+ * summary reports it, so the page can never offer a purchase the API refuses.
+ */
+function downgradeBlock(entitlement, targetPlanCode, now = new Date()) {
+  if (!entitlement?.validUntil) return null;
+  if (effectiveStatus(entitlement, now) !== 'ACTIVE') return null;
+  const current = tierOf(entitlement.planCode);
+  if (!current || tierOf(targetPlanCode) >= current) return null;
+  return { currentPlanCode: entitlement.planCode, availableFrom: entitlement.validUntil };
+}
+
+/**
+ * A downgrade was GRANTED while the customer's paid plan was still ACTIVE.
+ *
+ * Checkout refuses that purchase, so reaching grantPlan with it means an order
+ * that pre-dates the block, or a path that bypassed checkout — and the money
+ * has already been taken. Completing the grant is right (refusing would leave
+ * a PAID order with nothing granted, which nothing retries), but a log line is
+ * not enough: it goes to a human through the CRITICAL email tier, to
+ * SUPPORT_EMAIL, the same path a reconciliation mismatch takes.
+ *
+ * Called AFTER the grant's transaction has committed, never inside it: an
+ * alert about a grant that then rolled back would be its own false record.
+ * Never throws — the grant has happened; a failed alert must not undo it or
+ * surface as a failed webhook. If the email cannot go, the full detail is
+ * logged as the fallback.
+ */
+async function alertPlanAnomaly(details) {
+  console.error('[Entitlement] ANOMALY — downgrade granted during an active paid plan:', JSON.stringify(details));
+  const to = (process.env.SUPPORT_EMAIL || '').trim();
+  if (!to) {
+    console.error('[Entitlement] SUPPORT_EMAIL is not set — the downgrade anomaly above reached no human.');
+    return;
+  }
+  try {
+    await mailer.sendBillingPlanAnomaly(to, details);
+  } catch (err) {
+    console.error('[Entitlement] Failed to send the downgrade anomaly alert — detail logged above:', err.message);
+  }
+}
+
+/**
  * Grant a plan — a first purchase OR a renewal, both go through here.
  * tenantId, planCode ('STARTER' | 'PRO' | 'ENTERPRISE' — never 'TRIAL',
  * which is granted only by igIdentity.claimInstagramIdentity), and
@@ -240,10 +304,27 @@ function computeBankRollover(entitlement, plan) {
  * Anyone else — no row yet, or fully EXPIRED past grace — is a cold start
  * and gets a fresh cycle from now.
  *
- * CREDIT BANK — a warm renewal rolls the ending cycle's pool into the bank
- * (capped, excess discarded) before granting the new cycle's credits, via
- * computeBankRollover. A cold start forfeits whatever was left, per "after
- * grace: credit bank is zeroed" — it simply never carries it forward.
+ * CREDIT BANK — one rule for every warm grant (renewal, upgrade, or a change
+ * reached in grace): the existing balance carries into the bank, capped at the
+ * LARGER of the old and new plan's bank caps, and the new cycle's credits are
+ * granted on top. Where two caps could apply, the customer's side wins: a
+ * same-plan renewal and an upgrade are unaffected (the new cap is equal or
+ * larger), and a downgrade keeps what was paid for under the old plan until
+ * the next cycle roll or renewal caps it to the new plan. A cold start
+ * forfeits whatever was left, per "after grace: credit bank is zeroed".
+ *
+ * A DOWNGRADE DURING AN ACTIVE PAID PLAN still completes (the money is taken),
+ * and raises a CRITICAL alert to SUPPORT_EMAIL once committed — see
+ * alertPlanAnomaly.
+ *
+ * NOTHING IS LOST WITHOUT A RECORD. Whatever does not survive — the excess
+ * over the cap, or a cold start's forfeited balance — is written as an EXPIRE
+ * row whose `source` names the reason, BEFORE the GRANT row. This used to be
+ * silent: the carried bank was capped at the OLD plan's cap and the excess
+ * simply vanished (517 credits on a Pro -> Starter sequence), which left the
+ * ledger unable to answer a disputed balance. tests/ledger-invariant.test.js
+ * pins "ledger sum === held balance" after every operation, and
+ * billing:doctor checks the same against the live database.
  *
  * REGION LOCK — billingRegion/currency/regionSource are set ONLY when
  * there was no existing lock (existing?.billingRegion is null/undefined).
@@ -258,7 +339,9 @@ async function grantPlan(tenantId, planCode, region) {
   const plan = await getPlan(planCode);
   if (!plan) throw new Error(`entitlementService.grantPlan: unknown plan code "${planCode}"`);
 
-  return prisma.$transaction(async (tx) => {
+  let anomaly = null; // set inside the transaction, alerted after it commits
+
+  const granted = await prisma.$transaction(async (tx) => {
     const existing = await tx.entitlement.findUnique({ where: { userId: tenantId } });
     const now = new Date();
     const isWarmRenewal = Boolean(existing && LIVE_STATUSES.includes(effectiveStatus(existing, now)) && existing.validUntil);
@@ -271,10 +354,41 @@ async function grantPlan(tenantId, planCode, region) {
     const currency = existing?.currency || region.currency;
     const regionSource = existing?.regionSource || region.regionSource;
 
+    const priorBalance = existing ? existing.replyCreditsBanked + existing.replyCreditsCurrent : 0;
     let carriedBank = 0;
+    let discard = null; // { amount, reason } — written as an EXPIRE row below
+
     if (isWarmRenewal) {
-      const oldPlan = await getPlan(existing.planCode);
-      carriedBank = computeBankRollover(existing, oldPlan).banked;
+      // WHERE TWO CAPS COULD APPLY, FAVOUR THE CUSTOMER. The carried balance is
+      // capped at the LARGER of the old and new plan's bank caps. A same-plan
+      // renewal and an upgrade are unaffected (the new cap is equal or larger).
+      // A downgrade keeps what was paid for under the old plan; the next cycle
+      // roll or renewal caps it to the new plan in the normal way.
+      const oldPlan = existing.planCode === planCode ? plan : await getPlan(existing.planCode);
+      const carryCap = Math.max(plan.autoReplyBankCap ?? 0, oldPlan?.autoReplyBankCap ?? 0);
+      carriedBank = Math.min(priorBalance, carryCap);
+      if (priorBalance > carriedBank) {
+        discard = {
+          amount: priorBalance - carriedBank,
+          reason: existing.planCode === planCode ? 'expire:renewal_bank_cap' : 'expire:plan_change_bank_cap',
+        };
+      }
+      if (downgradeBlock(existing, planCode, now)) {
+        // Checkout refuses this purchase, so reaching it means an order that
+        // pre-dates the block, or a caller that bypassed checkout. The money is
+        // already taken, so the grant proceeds — and a human is told once it
+        // has committed.
+        anomaly = {
+          tenantId,
+          fromPlanCode: existing.planCode,
+          toPlanCode: planCode,
+          paidUntil: existing.validUntil,
+          carriedBalance: carriedBank,
+          discarded: discard ? discard.amount : 0,
+        };
+      }
+    } else if (priorBalance > 0) {
+      discard = { amount: priorBalance, reason: 'expire:cold_start_forfeit' };
     }
 
     const grantCredits = plan.autoReplyCreditsPerCycle ?? 0;
@@ -301,6 +415,18 @@ async function grantPlan(tenantId, planCode, region) {
       update: shared,
     });
 
+    if (discard) {
+      await tx.creditLedger.create({
+        data: {
+          tenantId,
+          delta: -discard.amount,
+          type: 'EXPIRE',
+          source: discard.reason,
+          balanceAfter: priorBalance - discard.amount,
+        },
+      });
+    }
+
     await tx.creditLedger.create({
       data: {
         tenantId,
@@ -313,6 +439,9 @@ async function grantPlan(tenantId, planCode, region) {
 
     return updated;
   });
+
+  if (anomaly) await alertPlanAnomaly({ ...anomaly, newValidUntil: granted.validUntil });
+  return granted;
 }
 
 /**
@@ -392,7 +521,9 @@ async function rollCycle(tenantId) {
         tenantId,
         delta: -discarded,
         type: discarded > 0 ? 'EXPIRE' : 'ROLLOVER',
-        source: 'cycle_rollover',
+        // A discard names its reason; a pure rollover (nothing lost) keeps
+        // the neutral source.
+        source: discarded > 0 ? 'expire:cycle_bank_cap' : 'cycle_rollover',
         balanceAfter: updated.replyCreditsBanked + updated.replyCreditsCurrent,
       },
     });
@@ -408,6 +539,8 @@ module.exports = {
   // that drifted would make the billing page promise a date grantPlan()
   // does not produce.
   LIVE_STATUSES,
+  PLAN_TIERS,
+  downgradeBlock,
   effectiveStatus,
   getEntitlement,
   canClassify,
