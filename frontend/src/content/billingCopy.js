@@ -63,6 +63,16 @@ export const billing = {
     extraAccounts: (count) => (count === 1 ? '1 extra Instagram account' : `${count} extra Instagram accounts`),
     igAccountsIncluded: (count) => (count === 1 ? '1 Instagram account included' : `${count} Instagram accounts included`),
     regionLocked: (currency) => `Billed in ${currency}`,
+    /**
+     * Cancellation is a wording problem, not a feature. There is no auto-debit,
+     * so nothing can be cancelled — but a customer who cannot find a cancel
+     * button assumes they are trapped. These say plainly that they are not.
+     * Shown on /billing and /settings from one component (NoSubscriptionNote).
+     */
+    noSubscription: (date) =>
+      `Nothing renews automatically. Your plan ends on ${date} unless you choose to buy another cycle. There is no subscription to cancel.`,
+    noSubscriptionGrace: (date) =>
+      `Nothing renews automatically. Your plan ended on ${date}, and there is no subscription to cancel. Buy another cycle before your grace period ends if you want to keep your unused replies.`,
   },
 
   /**
@@ -203,10 +213,14 @@ export const billing = {
     columnStatus: 'Status',
     planItem: (planName) => `${planName} plan`,
     addonItem: (addonCode) => (addonCode === 'extra_ig_account' ? 'Extra Instagram account' : 'Reply credits'),
+    // Keyed by OrderHistory's outcomeOf(), not by the raw order status.
     status: {
       CREATED: 'Not completed',
+      ABANDONED: 'Not completed',
+      ATTEMPT_FAILED: 'Payment failed',
       PAID: 'Paid',
-      FAILED: 'Failed',
+      PARTIALLY_REFUNDED: 'Partly refunded',
+      REFUNDED: 'Refunded',
       EXPIRED: 'Expired',
     },
   },
@@ -258,7 +272,9 @@ export const billing = {
     blockedTitle: "This Instagram account can't start a free trial",
     blockedBody:
       'Your account is still connected and messages still arrive, but this Instagram account is not eligible for a free trial. If you think that is a mistake, contact us.',
-    blockedContact: (email) => `Email ${email}`,
+    // Links to /contact, which prints the address and has a form. The address
+    // stays in the label so it is visible without following the link.
+    blockedContact: (email) => `Contact support (${email})`,
     resending: 'Sending',
     resent: 'Confirmation email sent. Check your inbox.',
     resendFailed: "Couldn't send that email just now. Try again shortly.",
@@ -297,6 +313,13 @@ export const billing = {
     classifiedLabel: 'Sorted this cycle',
     noValue: '—',
     manageLink: 'Manage billing',
+    // Says exactly which emails the switch stops, and which it does not.
+    reminders: {
+      label: 'Email me reminders before my plan ends',
+      help:
+        'Two reminders: three days before and the day before. Turning them off does not stop the notice on the day your plan ends, or the one before your unused replies are cleared — those tell you your service has stopped.',
+      failed: "Couldn't save that. Try again.",
+    },
   },
 
   /**

@@ -407,6 +407,15 @@ export async function claimTrial() {
   return data;
 }
 
+/**
+ * Turn the two early renewal reminder emails on or off. The expiry-day and
+ * grace-final notices are not affected. Resolves with { nudgeEmails }.
+ */
+export async function setRenewalNudgeEmails(nudgeEmails) {
+  const { data } = await api.put('/api/billing/reminders', { nudgeEmails });
+  return data;
+}
+
 /** Attach an email to a legacy Instagram-created account that has none. */
 export async function addEmail(email) {
   const { data } = await api.post('/auth/add-email', { email });
@@ -416,6 +425,16 @@ export async function addEmail(email) {
 /** Add a password to a Google-only account. */
 export async function setPassword({ password, confirmPassword }) {
   const { data } = await api.post('/auth/set-password', { password, confirmPassword });
+  return data;
+}
+
+/**
+ * Send a message from /contact ('support') or /contact/enterprise ('enterprise').
+ * Works logged out; when a session exists the backend attaches the account.
+ */
+export async function sendContactEnquiry(kind, payload) {
+  if (kind !== 'support' && kind !== 'enterprise') throw new Error(`Unknown enquiry kind "${kind}"`);
+  const { data } = await api.post(`/api/contact/${kind}`, payload);
   return data;
 }
 

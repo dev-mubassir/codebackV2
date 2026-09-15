@@ -101,7 +101,7 @@ export default function PricingSection() {
               }
               action={
                 isQuoteOnly ? (
-                  <a className="btn btn-secondary" href="/support">
+                  <a className="btn btn-secondary" href="/contact/enterprise">
                     {marketing.pricing.contactCta}
                   </a>
                 ) : (
@@ -121,6 +121,9 @@ export default function PricingSection() {
       <div className={styles.noMandate}>
         <p className={styles.noMandateTitle}>{marketing.pricing.noMandateTitle}</p>
         <p className={styles.noMandateBody}>{marketing.pricing.noMandateBody}</p>
+        <p className={styles.noMandateBody}>
+          <a href="/refund-policy">{marketing.footer.refundPolicy}</a>
+        </p>
       </div>
 
       <TrustBadge metaApproved={metaApproved} />

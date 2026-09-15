@@ -35,6 +35,8 @@ export async function resetDb() {
   // silently suppresses the send a later test is asserting.
   await prisma.renewalReminder.deleteMany({});
   await prisma.creditLedger.deleteMany({});
+  await prisma.refund.deleteMany({});
+  await prisma.paymentAttempt.deleteMany({});
   await prisma.order.deleteMany({});
   await prisma.instagramIdentity.deleteMany({});
   await prisma.oAuthNonce.deleteMany({});

@@ -30,6 +30,15 @@ const RENEWAL_QUOTA_TYPES = {
   GRACE_FINAL: 'renewalGraceFinal',
 };
 
+/** Billing alert kind -> quota type. Every one is CRITICAL in quota.js. */
+const BILLING_ALERT_TYPES = Object.freeze({
+  paidAfterExpiry: 'billingPaidAfterExpiry',
+  staleOrdersExpired: 'billingStaleOrdersExpired',
+  partialRefund: 'billingPartialRefund',
+  refundOutsideSiffty: 'billingRefundOutsideSiffty',
+  refundSnapshotMissing: 'billingRefundSnapshotMissing',
+});
+
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@mail.siffty.com';
 const REPLY_TO_EMAIL = process.env.REPLY_TO_EMAIL || process.env.SUPPORT_EMAIL || undefined;
 
@@ -61,18 +70,21 @@ function createResendTransport(apiKey) {
   let client = null;
   return {
     name: 'resend',
-    async send({ to, subject, text, html }) {
+    async send({ to, subject, text, html, replyTo }) {
       if (!client) {
         const { Resend } = require('resend');
         client = new Resend(apiKey);
       }
+      // A per-message replyTo (a contact enquiry, so support can simply hit
+      // Reply) wins over the global default.
+      const effectiveReplyTo = replyTo || REPLY_TO_EMAIL;
       const { data, error } = await client.emails.send({
         from: FROM_EMAIL,
         to: [to],
         subject,
         text,
         html,
-        ...(REPLY_TO_EMAIL ? { replyTo: REPLY_TO_EMAIL } : {}),
+        ...(effectiveReplyTo ? { replyTo: effectiveReplyTo } : {}),
       });
       // The Resend SDK reports failures in the response body rather than by
       // throwing, so an unchecked call looks successful while sending nothing.
@@ -177,7 +189,7 @@ function degradedReason() {
 
 // Resolved per call rather than cached at module load, so tests can flip the
 // env var between cases without re-importing the module.
-async function deliver(to, type, { subject, text, html }) {
+async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
   if (!to || typeof to !== 'string') {
     throw new Error('email: refusing to send with no recipient');
   }
@@ -215,7 +227,7 @@ async function deliver(to, type, { subject, text, html }) {
 
   let result;
   try {
-    result = await transport.send({ to, subject, text, html });
+    result = await transport.send({ to, subject, text, html, replyTo });
   } catch (err) {
     // Log the FULL error server-side. This is the only place the provider's
     // own message survives, and it is usually the thing that names the cause
@@ -288,6 +300,15 @@ module.exports = {
   // paid plan, after the money was taken. See entitlementService.alertPlanAnomaly.
   sendBillingPlanAnomaly: (to, details) => deliver(to, 'billingPlanAnomaly', templates.billingPlanAnomaly(details)),
 
+  // CRITICAL — internal billing alerts (lib/billingAlerts.js). One quota type
+  // per kind, so a burst of one kind can never throttle a different one.
+  sendBillingOpsAlert: (to, { kind, details }) => {
+    const type = BILLING_ALERT_TYPES[kind];
+    if (!type) throw new Error(`email.sendBillingOpsAlert: unknown kind "${kind}"`);
+    return deliver(to, type, templates.billingOpsAlert({ kind, details }));
+  },
+  BILLING_ALERT_TYPES,
+
   /**
    * The paid renewal sequence. MIXED TIER — this is the one sender whose
    * criticality depends on its argument, which is why it maps reminderType to
@@ -315,6 +336,18 @@ module.exports = {
     // but it is passed for every stage so the sender has no per-stage special
     // case to get wrong.
     return deliver(to, type, templates.renewalReminder({ reminderType, unusedCredits, checkoutUrl, forfeitAt }));
+  },
+
+  /**
+   * DEFERRABLE — a visitor's message from the contact page, to SUPPORT_EMAIL.
+   * Two quota types, so Enterprise and support enquiries stay separable in the
+   * quota and the logs. Reply-To is the visitor's address, so answering is one
+   * click — that address is self-reported, which the template says outright.
+   */
+  sendContactEnquiry: (to, { kind, ...details }) => {
+    const type = { support: 'supportEnquiry', enterprise: 'enterpriseEnquiry' }[kind];
+    if (!type) throw new Error(`email.sendContactEnquiry: unknown kind "${kind}"`);
+    return deliver(to, type, templates.contactEnquiry({ kind, ...details }), { replyTo: details.fromEmail });
   },
 
   sendDeletionConfirmation: (to, { igUsername, accountDeleted, confirmationCode, statusUrl }) =>

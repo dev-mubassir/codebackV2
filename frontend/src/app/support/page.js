@@ -22,6 +22,9 @@ export default function SupportPage() {
           <p>
             Email <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>. {support.replyTime}
           </p>
+          <p>
+            {support.formPrompt} <Link href="/contact">{support.formLink}</Link>.
+          </p>
           <div className={styles.callout}>
             <p>{support.whatToInclude.title}:</p>
             <ul>
@@ -59,6 +62,8 @@ export default function SupportPage() {
           <Link href="/terms" className={styles.footerNavLink}>{legal.footerLinks.terms}</Link>
           <Link href="/data-deletion" className={styles.footerNavLink}>{legal.footerLinks.dataDeletion}</Link>
           <Link href="/support" className={styles.footerNavLink}>{legal.footerLinks.support}</Link>
+          <Link href="/contact" className={styles.footerNavLink}>{legal.footerLinks.contact}</Link>
+          <Link href="/refund-policy" className={styles.footerNavLink}>{legal.footerLinks.refundPolicy}</Link>
         </nav>
       </div>
     </main>

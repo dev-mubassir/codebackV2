@@ -33,6 +33,22 @@ export const STATUS_BADGE = {
   EXPIRED: 'badge-error',
 };
 
+/**
+ * "Nothing renews automatically … There is no subscription to cancel."
+ *
+ * One component for /billing and /settings, so the two places a customer looks
+ * for a cancel button say the same thing. Paid plans only: a trial already
+ * states when it ends, and once a plan has fully expired there is nothing left
+ * to reassure anyone about.
+ */
+export function NoSubscriptionNote({ summary, className }) {
+  const { plan, status, validUntil } = summary;
+  if (!plan || plan.code === 'TRIAL' || !validUntil) return null;
+  if (status === 'ACTIVE') return <p className={className}>{billing.plan.noSubscription(formatDate(validUntil))}</p>;
+  if (status === 'GRACE') return <p className={className}>{billing.plan.noSubscriptionGrace(formatDate(validUntil))}</p>;
+  return null;
+}
+
 export default function PlanStatusCard({ summary, onRenew }) {
   const { plan, status, validUntil, daysRemaining, renewal, extraIgAccounts, currency } = summary;
   // A trial renders in this same card as a paid plan; only the wording that
@@ -101,6 +117,7 @@ export default function PlanStatusCard({ summary, onRenew }) {
           </div>
 
           {extraIgAccounts > 0 && <p className={styles.help}>{billing.plan.extraAccounts(extraIgAccounts)}</p>}
+          <NoSubscriptionNote summary={summary} className={styles.help} />
           {isTrial && status === 'TRIALING' && validUntil && (
             <p className={styles.help}>{billing.trial.whenItEnds(formatDate(validUntil))}</p>
           )}

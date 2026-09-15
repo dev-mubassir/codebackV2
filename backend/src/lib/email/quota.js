@@ -50,6 +50,32 @@ const PER_RECIPIENT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 const PER_RECIPIENT_MAX = 3;
 
 /**
+ * Per-type overrides of PER_RECIPIENT_MAX.
+ *
+ * The per-recipient throttle stops one requester flooding one mailbox. Contact
+ * enquiries break its assumption: every one of them goes to the SAME address,
+ * SUPPORT_EMAIL, from different people — so a shared limit of 3 an hour would
+ * silently drop the fourth genuine enquiry. Their flood protection is instead
+ * the contact route's per-IP limiter plus the daily cap, and both types are
+ * DEFERRABLE, so no volume of enquiries can eat the password-reset reserve.
+ */
+const PER_RECIPIENT_MAX_BY_TYPE = Object.freeze({
+  supportEnquiry: 30,
+  enterpriseEnquiry: 30,
+  // Billing alerts all go to SUPPORT_EMAIL too, and each one is an event a
+  // human must see — three an hour must not silently swallow the fourth.
+  billingPaidAfterExpiry: 20,
+  billingStaleOrdersExpired: 20,
+  billingPartialRefund: 20,
+  billingRefundOutsideSiffty: 20,
+  billingRefundSnapshotMissing: 20,
+});
+
+function perRecipientMax(type) {
+  return PER_RECIPIENT_MAX_BY_TYPE[type] ?? PER_RECIPIENT_MAX;
+}
+
+/**
  * Which sends are critical. Anything not listed is treated as deferrable.
  *
  * billingReconciliationMismatch: a mismatch means a customer paid and the
@@ -78,6 +104,13 @@ const CRITICAL_TYPES = new Set([
   // A money-taken anomaly: a downgrade GRANTED while the paid plan was still
   // active. Same reasoning as a reconciliation mismatch — a human has to look.
   'billingPlanAnomaly',
+  // lib/billingAlerts.js — money taken with nothing granted, a safety net that
+  // should never fire, or money refunded while access stays. All need a human.
+  'billingPaidAfterExpiry',
+  'billingStaleOrdersExpired',
+  'billingPartialRefund',
+  'billingRefundOutsideSiffty',
+  'billingRefundSnapshotMissing',
   'renewalExpiry',
   'renewalGraceFinal',
 ]);
@@ -160,11 +193,12 @@ function check(type, recipient) {
 
   const key = `${type}:${String(recipient).toLowerCase()}`;
   const entry = perRecipient.get(key);
-  if (entry && Date.now() <= entry.resetAt && entry.count >= PER_RECIPIENT_MAX) {
+  const max = perRecipientMax(type);
+  if (entry && Date.now() <= entry.resetAt && entry.count >= max) {
     return {
       ok: false,
       reason: 'per_recipient',
-      detail: `${type}: ${PER_RECIPIENT_MAX} per hour per recipient already sent`,
+      detail: `${type}: ${max} per hour per recipient already sent`,
     };
   }
 
@@ -216,6 +250,7 @@ module.exports = {
   _reset,
   CRITICAL_TYPES,
   PER_RECIPIENT_MAX,
+  PER_RECIPIENT_MAX_BY_TYPE,
   DEFAULT_DAILY_CAP,
   DEFAULT_CRITICAL_RESERVE,
 };

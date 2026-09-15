@@ -33,20 +33,53 @@ const prisma = require('../lib/prisma');
 const { getOrder, getPaymentsForOrder } = require('../lib/cashfreeOrders');
 const { fulfillPaidOrder } = require('../services/billingFulfillment');
 const mailer = require('../lib/email');
+const { alertBillingOps } = require('../lib/billingAlerts');
 
 const LOOKBACK_HOURS = 48;
 const MAX_ORDERS_PER_RUN = 200;
 const EXPIRE_AFTER_DAYS = 7;
 
-/** CREATED orders old enough that they will never be checked again — retire them so the main loop stays bounded. */
+/** Cashfree order states that mean "will never be paid". */
+const CASHFREE_TERMINAL_UNPAID = ['EXPIRED', 'TERMINATED'];
+
+/** CREATED -> EXPIRED for one order, only if still CREATED (a webhook may have just paid it). Returns 1 or 0. */
+async function retireOrder(order, why) {
+  const { count } = await prisma.order.updateMany({
+    where: { id: order.id, status: 'CREATED' },
+    data: { status: 'EXPIRED' },
+  });
+  if (count) console.log(`[BillingReconciliation] Order ${order.cashfreeOrderId} expired (${why}).`);
+  return count;
+}
+
+/**
+ * THE 7-DAY SAFETY NET. Cashfree orders are created with a 60-minute
+ * order_expiry_time (lib/cashfreeOrders.js), and this job marks an order
+ * EXPIRED as soon as Cashfree reports it expired. So an order still CREATED
+ * after 7 days means reconciliation never resolved it — the job was not
+ * running, or every check failed. That is retired here so the loop stays
+ * bounded, and a human is alerted, because it should never happen.
+ */
 async function expireStaleOrders({ expireAfterDays = EXPIRE_AFTER_DAYS } = {}) {
   const cutoff = new Date(Date.now() - expireAfterDays * 24 * 60 * 60 * 1000);
-  const { count } = await prisma.order.updateMany({
+  const stale = await prisma.order.findMany({
     where: { status: 'CREATED', createdAt: { lt: cutoff } },
+    select: { id: true, cashfreeOrderId: true, tenantId: true, createdAt: true },
+    take: 500,
+  });
+  if (stale.length === 0) return 0;
+
+  const { count } = await prisma.order.updateMany({
+    where: { id: { in: stale.map((o) => o.id) }, status: 'CREATED' },
     data: { status: 'EXPIRED' },
   });
   if (count > 0) {
-    console.log(`[BillingReconciliation] Expired ${count} stale CREATED order(s) older than ${expireAfterDays} days.`);
+    console.error(`[BillingReconciliation] SAFETY NET — expired ${count} CREATED order(s) older than ${expireAfterDays} days.`);
+    await alertBillingOps('staleOrdersExpired', {
+      count,
+      expireAfterDays,
+      orders: stale.slice(0, 20).map((o) => `${o.cashfreeOrderId} (tenant ${o.tenantId}, created ${o.createdAt.toISOString()})`),
+    });
   }
   return count;
 }
@@ -82,6 +115,8 @@ async function reconcileRecentOrders({ lookbackHours = LOOKBACK_HOURS, maxPerRun
 
   const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
   const pending = await prisma.order.findMany({
+    // CREATED is every order without a successful payment — including one whose
+    // attempts failed, since a failed attempt never changes the order.
     where: { status: 'CREATED', createdAt: { gte: cutoff } },
     orderBy: { createdAt: 'asc' }, // oldest first — closest to aging out of the window unreconciled
     take: maxPerRun,
@@ -89,6 +124,7 @@ async function reconcileRecentOrders({ lookbackHours = LOOKBACK_HOURS, maxPerRun
 
   let checked = 0;
   let checkFailures = 0;
+  let expiredAtCashfree = 0;
   const mismatches = []; // collected for ONE digest, not sent per-mismatch
 
   for (const order of pending) {
@@ -97,6 +133,13 @@ async function reconcileRecentOrders({ lookbackHours = LOOKBACK_HOURS, maxPerRun
     try {
       cfOrder = await getOrder(order.cashfreeOrderId);
     } catch (err) {
+      if (err.response?.status === 404) {
+        // Cashfree has no such order: checkout failed before creating it (or
+        // it was never sent). It can never be paid, so it is expired — the
+        // same terminal state as any other order that cannot be paid.
+        expiredAtCashfree += await retireOrder(order, 'not found at Cashfree');
+        continue;
+      }
       checkFailures += 1;
       console.error(
         `[BillingReconciliation] Could not fetch order ${order.cashfreeOrderId} from Cashfree — will retry next run:`,
@@ -105,8 +148,13 @@ async function reconcileRecentOrders({ lookbackHours = LOOKBACK_HOURS, maxPerRun
       continue;
     }
 
+    if (CASHFREE_TERMINAL_UNPAID.includes(cfOrder.order_status)) {
+      expiredAtCashfree += await retireOrder(order, `Cashfree order_status ${cfOrder.order_status}`);
+      continue;
+    }
+
     if (cfOrder.order_status !== 'PAID') {
-      continue; // genuinely still unpaid/expired — nothing to reconcile
+      continue; // still ACTIVE at Cashfree (within its 60-minute window) — nothing to reconcile yet
     }
 
     console.error(
@@ -132,6 +180,7 @@ async function reconcileRecentOrders({ lookbackHours = LOOKBACK_HOURS, maxPerRun
         cashfreeOrderId: order.cashfreeOrderId,
         payment,
         rawPayload: JSON.stringify({ reconciledFrom: 'nightly_job', cfOrder, payment }),
+        eventType: 'RECONCILIATION',
       });
       healed = result.outcome === 'granted';
     } catch (err) {
@@ -151,14 +200,22 @@ async function reconcileRecentOrders({ lookbackHours = LOOKBACK_HOURS, maxPerRun
     await sendMismatchDigest(mismatches, checked);
   }
 
-  if (mismatches.length > 0 || checkFailures > 0 || expired > 0) {
+  if (mismatches.length > 0 || checkFailures > 0 || expired > 0 || expiredAtCashfree > 0) {
     console.log(
       `[BillingReconciliation] Checked ${checked} pending order(s): ${mismatches.length} mismatch(es) ` +
-        `(${mismatches.filter((m) => m.healed).length} healed), ${checkFailures} check failure(s), ${expired} expired.`
+        `(${mismatches.filter((m) => m.healed).length} healed), ${checkFailures} check failure(s), ` +
+        `${expiredAtCashfree} expired at Cashfree, ${expired} expired by the 7-day safety net.`
     );
   }
 
-  return { checked, mismatches: mismatches.length, healed: mismatches.filter((m) => m.healed).length, checkFailures, expired };
+  return {
+    checked,
+    mismatches: mismatches.length,
+    healed: mismatches.filter((m) => m.healed).length,
+    checkFailures,
+    expired,
+    expiredAtCashfree,
+  };
 }
 
 module.exports = { reconcileRecentOrders, expireStaleOrders, LOOKBACK_HOURS, MAX_ORDERS_PER_RUN, EXPIRE_AFTER_DAYS };

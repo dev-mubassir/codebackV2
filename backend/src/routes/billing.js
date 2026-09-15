@@ -340,6 +340,35 @@ router.get('/summary', async (req, res) => {
         })
       : 0;
 
+    // Payment history states each order's OUTCOME, not only its status. An
+    // unpaid order is still CREATED after a failed or abandoned attempt (the
+    // customer could retry it), so the latest attempt is joined in to say so;
+    // a paid order says how much of it has been refunded. Attempts and refunds
+    // are their own rows (PaymentAttempt, Refund).
+    const orderIds = orders.map((o) => o.cashfreeOrderId);
+    const [attempts, successfulRefunds] = orderIds.length
+      ? await Promise.all([
+          prisma.paymentAttempt.findMany({
+            where: { cashfreeOrderId: { in: orderIds } },
+            orderBy: { createdAt: 'desc' },
+            select: { cashfreeOrderId: true, status: true },
+          }),
+          prisma.refund.findMany({
+            where: { cashfreeOrderId: { in: orderIds }, status: 'SUCCESS' },
+            select: { cashfreeOrderId: true, amount: true },
+          }),
+        ])
+      : [[], []];
+    const lastAttemptStatus = {};
+    for (const a of attempts) if (!(a.cashfreeOrderId in lastAttemptStatus)) lastAttemptStatus[a.cashfreeOrderId] = a.status;
+    const refundedAmount = {};
+    for (const r of successfulRefunds) refundedAmount[r.cashfreeOrderId] = (refundedAmount[r.cashfreeOrderId] || 0) + r.amount;
+    const orderHistory = orders.map((o) => ({
+      ...o,
+      lastAttemptStatus: lastAttemptStatus[o.cashfreeOrderId] ?? null,
+      refundedAmount: refundedAmount[o.cashfreeOrderId] ?? 0,
+    }));
+
     return res.json({
       plan: plan
         ? {
@@ -406,7 +435,14 @@ router.get('/summary', async (req, res) => {
       },
       paidAddonOrders,
       replyCreditPacksThisCycle,
-      orders,
+      orders: orderHistory,
+      // The one control a customer has over renewals: whether the two early
+      // reminder emails are sent. See PUT /reminders.
+      reminders: {
+        nudgeEmails:
+          (await prisma.user.findUnique({ where: { id: tenantId }, select: { renewalNudgeEmails: true } }))
+            ?.renewalNudgeEmails ?? true,
+      },
     });
   } catch (error) {
     console.error('[Billing] Failed to load the billing summary:', error.message);
@@ -462,6 +498,25 @@ router.post('/trial/claim', trialClaimLimiter, async (req, res) => {
 });
 
 /**
+ * A checkout that failed while creating its Cashfree order is terminal at once:
+ * EXPIRED, the only terminal state. Nothing waits for reconciliation to find an
+ * order that never existed.
+ *
+ * Safe even when Cashfree DID create the order and only the response was lost:
+ * the browser never received a payment_session_id, so that order cannot be
+ * paid, and it expires at Cashfree within its 60 minutes anyway. Only THIS
+ * order is touched — never the tenant's other in-flight checkouts.
+ */
+async function retireUnstartedOrder(orderId) {
+  if (!orderId) return;
+  try {
+    await prisma.order.updateMany({ where: { cashfreeOrderId: orderId, status: 'CREATED' }, data: { status: 'EXPIRED' } });
+  } catch (err) {
+    console.error(`[Billing] Could not expire unstarted order ${orderId}; reconciliation will:`, err.message);
+  }
+}
+
+/**
  * POST /api/billing/checkout/plan
  * body: { planCode: 'STARTER'|'PRO', billingRegionHint?: 'IN'|'INTL', customerPhone: string }
  *
@@ -472,6 +527,7 @@ router.post('/trial/claim', trialClaimLimiter, async (req, res) => {
  */
 router.post('/checkout/plan', async (req, res) => {
   const { planCode, billingRegionHint, customerPhone } = req.body || {};
+  let orderId = null;
 
   if (!PURCHASABLE_PLAN_CODES.includes(planCode)) {
     return res.status(400).json({ error: 'Unknown or non-purchasable plan code.' });
@@ -518,7 +574,7 @@ router.post('/checkout/plan', async (req, res) => {
       return res.status(404).json({ error: `No price configured for ${planCode} in region ${billingRegion}.` });
     }
 
-    const orderId = generateOrderId();
+    orderId = generateOrderId();
     await prisma.order.create({
       data: {
         cashfreeOrderId: orderId,
@@ -548,7 +604,7 @@ router.post('/checkout/plan', async (req, res) => {
     });
   } catch (error) {
     console.error('[Billing] Plan checkout failed:', error.response?.data || error.message);
-    await prisma.order.updateMany({ where: { tenantId: req.userId, planCode, status: 'CREATED' }, data: { status: 'FAILED' } }).catch(() => {});
+    await retireUnstartedOrder(orderId);
     return res.status(502).json({ error: "Couldn't start checkout. Try again." });
   }
 });
@@ -564,6 +620,7 @@ router.post('/checkout/plan', async (req, res) => {
  */
 router.post('/checkout/addon', async (req, res) => {
   const { addonCode, customerPhone } = req.body || {};
+  let orderId = null;
 
   if (!addonCode) {
     return res.status(400).json({ error: 'addonCode is required.' });
@@ -603,7 +660,7 @@ router.post('/checkout/addon', async (req, res) => {
       return res.status(404).json({ error: `No price configured for "${addonCode}" on your plan/region.` });
     }
 
-    const orderId = generateOrderId();
+    orderId = generateOrderId();
     await prisma.order.create({
       data: {
         cashfreeOrderId: orderId,
@@ -633,8 +690,39 @@ router.post('/checkout/addon', async (req, res) => {
     });
   } catch (error) {
     console.error('[Billing] Add-on checkout failed:', error.response?.data || error.message);
-    await prisma.order.updateMany({ where: { tenantId: req.userId, addonCode, status: 'CREATED' }, data: { status: 'FAILED' } }).catch(() => {});
+    await retireUnstartedOrder(orderId);
     return res.status(502).json({ error: "Couldn't start checkout. Try again." });
+  }
+});
+
+/**
+ * PUT /api/billing/reminders — { nudgeEmails: boolean }
+ *
+ * CANCELLATION IS A WORDING PROBLEM, NOT A FEATURE. Nothing renews
+ * automatically, so there is no subscription to cancel: not buying another
+ * cycle is cancelling. The only thing a customer could actually want to stop
+ * is being reminded, and this is that switch.
+ *
+ * It covers the two early nudges only. The expiry-day and grace-final notices
+ * describe service stopping and credits being cleared, so they keep sending —
+ * the settings copy next to the switch says exactly that.
+ */
+router.put('/reminders', async (req, res) => {
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const keys = Object.keys(body);
+  if (typeof body.nudgeEmails !== 'boolean' || keys.length !== 1) {
+    return res.status(400).json({ error: 'Send { "nudgeEmails": true } or { "nudgeEmails": false }.' });
+  }
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.userId },
+      data: { renewalNudgeEmails: body.nudgeEmails },
+      select: { renewalNudgeEmails: true },
+    });
+    return res.json({ nudgeEmails: user.renewalNudgeEmails });
+  } catch (error) {
+    console.error('[Billing] Failed to save the renewal reminder preference:', error.message);
+    return res.status(500).json({ error: "Couldn't save that. Try again." });
   }
 });
 

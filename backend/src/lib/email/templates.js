@@ -29,6 +29,22 @@ function wrap(heading, bodyHtml) {
 </html>`;
 }
 
+/**
+ * Escape text for HTML. Every other template here renders values this server
+ * produced itself; the contact enquiry is the first to carry text a visitor
+ * typed, and that text lands in a support inbox where an injected link or form
+ * would look like it came from us.
+ */
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+/** A single line for a subject: no CR/LF (header injection), bounded length. */
+function oneLine(value, max = 80) {
+  const flat = String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
 function button(url, label) {
   return `<p style="margin:24px 0;">
       <a href="${url}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;">${label}</a>
@@ -241,6 +257,98 @@ const templates = {
         `<p style="margin:0;font-size:15px;line-height:1.5;">${lead}</p>
          <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${facts.map((f) => `<li><code>${f}</code></li>`).join('')}</ul>
          <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${next}</p>`
+      ),
+    };
+  },
+
+  /**
+   * A visitor's message from /contact or /contact/enterprise, delivered to
+   * SUPPORT_EMAIL. Not customer-facing.
+   *
+   * The two kinds get different subject prefixes so an Enterprise enquiry is
+   * identifiable in the inbox at a glance rather than mixed into support.
+   *
+   * IDENTITY IS STATED, NOT ASSUMED. `account` is set only from the server-side
+   * session; the typed email address is self-reported, and the message says
+   * which of the two it is looking at — a reply that acts on someone's account
+   * must be based on the first, never the second.
+   */
+  contactEnquiry({ kind, name, fromEmail, company = null, igAccounts = null, message, account = null, submittedAt = new Date() }) {
+    const isEnterprise = kind === 'enterprise';
+    const label = isEnterprise ? 'enterprise' : 'support';
+    const identity = account
+      ? `Signed in as ${account.email || '(no email)'} — account ${account.userId}. Verified by session.`
+      : 'Not signed in. The email address below is self-reported and unverified.';
+    const facts = [
+      ['Name', name],
+      ['Email (reply-to)', fromEmail],
+      ...(isEnterprise ? [['Company', company], ['Instagram accounts', igAccounts]] : []),
+      ['Submitted', new Date(submittedAt).toISOString()],
+    ].filter(([, v]) => v != null && v !== '');
+
+    const subjectTail = isEnterprise ? oneLine(company || name) : oneLine(message, 60);
+    return {
+      subject: `[Siffty ${label}] ${subjectTail || 'New enquiry'}`,
+      text:
+        `New ${label} enquiry from the contact page.\n\n${identity}\n\n` +
+        `${facts.map(([k, v]) => `${k}: ${oneLine(v, 300)}`).join('\n')}\n\n` +
+        `Message:\n${String(message)}\n`,
+      html: wrap(
+        `New ${label} enquiry`,
+        `<p style="margin:0 0 12px;font-size:14px;line-height:1.5;"><strong>${escapeHtml(identity)}</strong></p>
+         <ul style="margin:0 0 16px;padding-left:20px;font-size:14px;line-height:1.6;">${facts
+           .map(([k, v]) => `<li>${escapeHtml(k)}: ${escapeHtml(oneLine(v, 300))}</li>`)
+           .join('')}</ul>
+         <p style="margin:0;font-size:15px;line-height:1.5;white-space:pre-wrap;">${escapeHtml(message)}</p>`
+      ),
+    };
+  },
+
+  /**
+   * CRITICAL internal billing alerts (lib/billingAlerts.js). Not customer-facing.
+   * One template, a heading and lead per kind, and every detail listed — the
+   * reader needs the ids to act, not a summary of them.
+   */
+  billingOpsAlert({ kind, details = {} }) {
+    const copy = {
+      paidAfterExpiry: {
+        heading: 'Payment received on an expired order',
+        lead: 'Cashfree confirmed a payment on an order Siffty had already expired. Nothing was granted, but the money was taken.',
+        next: 'Refund the payment, or grant the plan/add-on by hand.',
+      },
+      staleOrdersExpired: {
+        heading: '7-day order expiry safety net fired',
+        lead: 'Orders sat unpaid and unresolved for 7 days. Cashfree orders expire after 60 minutes and reconciliation should have resolved these long before, so something is not checking them.',
+        next: 'Check the reconciliation job logs and confirm none of these orders was actually paid at Cashfree.',
+      },
+      partialRefund: {
+        heading: 'Partial refund succeeded — access unchanged',
+        lead: 'A partial refund completed at Cashfree. Partial refunds do not revoke anything automatically, so the customer keeps everything the order granted.',
+        next: 'Decide whether any access or credits should be adjusted by hand.',
+      },
+      refundOutsideSiffty: {
+        heading: 'Refund initiated outside Siffty',
+        lead: 'A refund Siffty did not initiate (for example from the Cashfree dashboard) reached the webhook. It has been recorded and processed like any other.',
+        next: 'Confirm the refund was intended, and who issued it.',
+      },
+      refundSnapshotMissing: {
+        heading: 'Refund revoked without a grant snapshot',
+        lead: 'A fully refunded order was fulfilled before grant snapshots were recorded, so its revocation used a best estimate (one cycle of validity and the plan or pack credit amount).',
+        next: "Check the tenant's plan dates and credits against what the order actually granted.",
+      },
+    }[kind] || { heading: `Billing alert: ${kind}`, lead: 'An unrecognised billing alert kind was raised.', next: 'Check the server logs.' };
+
+    const show = (v) => (v instanceof Date ? v.toISOString() : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
+    const facts = Object.entries(details).map(([k, v]) => `${k}: ${show(v)}`);
+
+    return {
+      subject: `[Siffty billing] ${copy.heading}`,
+      text: `${copy.lead}\n\n${facts.join('\n')}\n\n${copy.next}\n\nSiffty · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        escapeHtml(copy.heading),
+        `<p style="margin:0;font-size:15px;line-height:1.5;">${escapeHtml(copy.lead)}</p>
+         <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${facts.map((f) => `<li><code>${escapeHtml(f)}</code></li>`).join('')}</ul>
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${escapeHtml(copy.next)}</p>`
       ),
     };
   },

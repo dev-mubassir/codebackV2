@@ -17,6 +17,7 @@ const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
 const { disconnectUserSockets } = require('../lib/socket');
 const { createRateLimiter } = require('../lib/rateLimit');
+const { recordInstagramSlotUsage } = require('../services/entitlementService');
 const { startAuthenticatedSession, saveSession } = require('../lib/session');
 const { logAdminAction } = require('../lib/auditLogger');
 const { hashPassword, verifyPassword, burnEquivalentWork } = require('../lib/password');
@@ -1258,6 +1259,9 @@ router.get('/instagram/callback', async (req, res) => {
       });
       user = await prisma.user.findUnique({ where: { id: targetUserId } });
       console.log('[Auth] Reconnected existing account for igUserId:', igUserId);
+      // A connect can put a purchased extra-account slot into use, which closes
+      // its refund window. Never throws.
+      await recordInstagramSlotUsage(targetUserId);
     } else if (currentUserId) {
       // User is logged in and connecting an additional Instagram account
       user = await prisma.user.findUnique({ where: { id: currentUserId } });
@@ -1273,6 +1277,7 @@ router.get('/instagram/callback', async (req, res) => {
         },
       });
       console.log('[Auth] Linked new account to existing user, igUserId:', igUserId);
+      await recordInstagramSlotUsage(currentUserId); // see the reconnect branch above
     } else {
       // INSTAGRAM IS CONNECT-ONLY. It is not a signup method.
       //

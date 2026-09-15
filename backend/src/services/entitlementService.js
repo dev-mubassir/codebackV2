@@ -30,10 +30,40 @@ const HOUR_MS = 60 * 60 * 1000;
 
 const LIVE_STATUSES = ['TRIALING', 'ACTIVE', 'GRACE'];
 
+/**
+ * Run `fn` inside the caller's transaction when one is supplied, otherwise in a
+ * new one. Prisma interactive transactions do not nest, so a grant that must
+ * commit or roll back TOGETHER with its caller's own writes (billingFulfillment
+ * marking an order PAID) has to be handed that caller's client.
+ */
+function inTransaction(outerTx, fn) {
+  return outerTx ? fn(outerTx) : prisma.$transaction(fn);
+}
+
+/**
+ * Anything a grant does "after commit" (an email) cannot run inside a caller's
+ * transaction, which has not committed yet. A caller passing `tx` must also
+ * pass `afterCommit` and run those callbacks once it has committed — otherwise
+ * an alert could describe a grant that then rolled back.
+ */
+function assertAfterCommit(outerTx, afterCommit, name) {
+  if (outerTx && !Array.isArray(afterCommit)) {
+    throw new Error(`entitlementService.${name}: a caller-supplied tx requires an afterCommit array`);
+  }
+}
+
 /** Plan row for a code, or null. Cached per-process would be premature — this table changes rarely and is tiny. */
-async function getPlan(planCode) {
+/**
+ * Pass `db` — the transaction client — whenever this is called inside a
+ * transaction. Reading through the global client there needs a SECOND pool
+ * connection while the transaction already holds one; under a retry storm every
+ * other connection is held by transactions queued behind this one's row lock,
+ * so that second connection never comes and the grant times out. Reproduced
+ * with connection_limit=3 (tests/cashfree-webhook-edge-cases.test.js, 9.6).
+ */
+async function getPlan(planCode, db = prisma) {
   if (!planCode) return null;
-  return prisma.plan.findUnique({ where: { code: planCode } });
+  return db.plan.findUnique({ where: { code: planCode } });
 }
 
 /**
@@ -335,13 +365,14 @@ async function alertPlanAnomaly(details) {
  * unlocked tenant unlocked (null || null = null) rather than ever locking
  * from weak/absent evidence — the plan is still granted normally either way.
  */
-async function grantPlan(tenantId, planCode, region) {
-  const plan = await getPlan(planCode);
+async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit } = {}) {
+  const plan = await getPlan(planCode, outerTx || prisma);
   if (!plan) throw new Error(`entitlementService.grantPlan: unknown plan code "${planCode}"`);
+  assertAfterCommit(outerTx, afterCommit, 'grantPlan');
 
   let anomaly = null; // set inside the transaction, alerted after it commits
 
-  const granted = await prisma.$transaction(async (tx) => {
+  const granted = await inTransaction(outerTx, async (tx) => {
     const existing = await tx.entitlement.findUnique({ where: { userId: tenantId } });
     const now = new Date();
     const isWarmRenewal = Boolean(existing && LIVE_STATUSES.includes(effectiveStatus(existing, now)) && existing.validUntil);
@@ -364,7 +395,7 @@ async function grantPlan(tenantId, planCode, region) {
       // renewal and an upgrade are unaffected (the new cap is equal or larger).
       // A downgrade keeps what was paid for under the old plan; the next cycle
       // roll or renewal caps it to the new plan in the normal way.
-      const oldPlan = existing.planCode === planCode ? plan : await getPlan(existing.planCode);
+      const oldPlan = existing.planCode === planCode ? plan : await getPlan(existing.planCode, tx);
       const carryCap = Math.max(plan.autoReplyBankCap ?? 0, oldPlan?.autoReplyBankCap ?? 0);
       carriedBank = Math.min(priorBalance, carryCap);
       if (priorBalance > carriedBank) {
@@ -440,7 +471,11 @@ async function grantPlan(tenantId, planCode, region) {
     return updated;
   });
 
-  if (anomaly) await alertPlanAnomaly({ ...anomaly, newValidUntil: granted.validUntil });
+  if (anomaly) {
+    const alert = () => alertPlanAnomaly({ ...anomaly, newValidUntil: granted.validUntil });
+    if (afterCommit) afterCommit.push(alert);
+    else await alert();
+  }
   return granted;
 }
 
@@ -454,18 +489,19 @@ async function grantPlan(tenantId, planCode, region) {
  *   - the recurring extra-IG-account add-on has no per-unit code; it just
  *     increments Entitlement.extraIgAccounts by one.
  */
-async function grantAddon(tenantId, addonCode) {
+async function grantAddon(tenantId, addonCode, { tx: outerTx } = {}) {
   if (addonCode === 'extra_ig_account') {
-    return prisma.entitlement.update({
+    return (outerTx || prisma).entitlement.update({
       where: { userId: tenantId },
       data: { extraIgAccounts: { increment: 1 } },
     });
   }
 
-  const pack = await prisma.addonPack.findUnique({ where: { code: addonCode } });
+  // Through the caller's transaction when there is one — see getPlan.
+  const pack = await (outerTx || prisma).addonPack.findUnique({ where: { code: addonCode } });
   if (!pack) throw new Error(`entitlementService.grantAddon: unknown addon code "${addonCode}"`);
 
-  return prisma.$transaction(async (tx) => {
+  return inTransaction(outerTx, async (tx) => {
     const updated = await tx.entitlement.update({
       where: { userId: tenantId },
       data: { replyCreditsCurrent: { increment: pack.creditAmount } },
@@ -503,7 +539,7 @@ async function rollCycle(tenantId) {
     const entitlement = await tx.entitlement.findUnique({ where: { userId: tenantId } });
     if (!entitlement) return null;
 
-    const plan = await getPlan(entitlement.planCode);
+    const plan = await getPlan(entitlement.planCode, tx);
     const { banked, discarded } = computeBankRollover(entitlement, plan);
 
     const updated = await tx.entitlement.update({
@@ -532,6 +568,271 @@ async function rollCycle(tenantId) {
   });
 }
 
+const DAY_MS = 24 * HOUR_MS;
+
+const sameInstant = (a, b) => Boolean(a && b && new Date(a).getTime() === new Date(b).getTime());
+
+/**
+ * How many of the credits ONE order granted have been consumed.
+ *
+ * Spend is FIFO: banked (older) credits drain before current, and a top-up joins
+ * the back of the queue. So credits the tenant already held at the grant — the
+ * carried bank for a plan, the whole balance for a top-up — burn first, and this
+ * order's own credits are only touched once those are gone:
+ *
+ *   used = clamp(spent since payment − creditsAheadAtGrant, 0, granted)
+ *
+ * Counting every reply since payment instead (the first version) charged an
+ * early renewer for spending the credits they carried over.
+ *
+ * KNOWN SIMPLIFICATION, in the customer's favour: credits ahead that leave
+ * without being spent (a bank-cap discard, another order's refund) are not
+ * subtracted from the queue, so this can undercount — never overcount — use.
+ * Orders fulfilled before creditsAheadAtGrant was recorded fall back to all
+ * spends since payment, and say so in `measure`.
+ */
+async function creditsUsedFromOrder(order, { db = prisma } = {}) {
+  const snap = order.grantSnapshot || {};
+  let granted = snap.grantedCredits;
+  if (granted == null) {
+    if (order.planCode) granted = (await getPlan(order.planCode, db))?.autoReplyCreditsPerCycle ?? 0;
+    else if (order.addonCode && order.addonCode !== 'extra_ig_account') {
+      granted = (await db.addonPack.findUnique({ where: { code: order.addonCode } }))?.creditAmount ?? 0;
+    } else granted = 0;
+  }
+
+  const hasAhead = typeof snap.creditsAheadAtGrant === 'number';
+  const ahead = hasAhead ? snap.creditsAheadAtGrant : 0;
+  const spend = order.paidAt
+    ? await db.creditLedger.aggregate({
+        where: { tenantId: order.tenantId, type: 'SPEND', createdAt: { gte: order.paidAt } },
+        _sum: { delta: true },
+      })
+    : { _sum: { delta: 0 } };
+  const spentSincePayment = -(spend._sum.delta ?? 0);
+
+  return {
+    granted,
+    creditsAheadAtGrant: hasAhead ? ahead : null,
+    spentSincePayment,
+    usedFromOrder: Math.min(granted, Math.max(0, spentSincePayment - ahead)),
+    measure: hasAhead ? 'fifo_from_purchase' : 'all_spends_since_payment',
+  };
+}
+
+/**
+ * Mark extra-Instagram-account slots as used (orders.slot_used_at).
+ *
+ * A slot's refund window closes for good once an Instagram account is connected
+ * using it. There is no per-account slot assignment, so the rule is counted: the
+ * tenant's plan includes `igAccountLimit` accounts, and the k-th held extra slot
+ * (oldest purchase first) is in use whenever `igAccountLimit + k` or more
+ * accounts are connected. A stamp is never removed — "ever connected" survives a
+ * disconnect.
+ *
+ * Only the `extraIgAccounts` most recent paid, unrevoked slot orders are the
+ * ones currently held; older ones belong to a lapsed period that a cold start
+ * reset.
+ *
+ * Called after every Instagram connect or reconnect and after a slot purchase.
+ * NEVER THROWS: a connect must not fail over refund bookkeeping.
+ *
+ * @returns {Promise<number>} slots newly stamped
+ */
+async function recordInstagramSlotUsage(tenantId, { now = new Date() } = {}) {
+  try {
+    const e = await prisma.entitlement.findUnique({ where: { userId: tenantId } });
+    if (!e?.planCode || !e.extraIgAccounts) return 0;
+    const plan = await getPlan(e.planCode);
+    if (plan?.igAccountLimit == null) return 0;
+
+    const paidSlots = await prisma.order.findMany({
+      where: { tenantId, status: 'PAID', addonCode: 'extra_ig_account' },
+      orderBy: { paidAt: 'desc' },
+      select: { id: true, cashfreeOrderId: true, slotUsedAt: true },
+    });
+    const revoked = new Set(
+      (
+        await prisma.refund.findMany({
+          where: { cashfreeOrderId: { in: paidSlots.map((o) => o.cashfreeOrderId) }, revokedAt: { not: null } },
+          select: { cashfreeOrderId: true },
+        })
+      ).map((r) => r.cashfreeOrderId)
+    );
+    const held = paidSlots.filter((o) => !revoked.has(o.cashfreeOrderId)).slice(0, e.extraIgAccounts).reverse();
+
+    const connected = await prisma.instagramAccount.count({ where: { userId: tenantId, connectionStatus: 'CONNECTED' } });
+    let stamped = 0;
+    for (let k = 0; k < held.length; k += 1) {
+      if (connected < plan.igAccountLimit + k + 1) break;
+      if (held[k].slotUsedAt) continue;
+      const { count } = await prisma.order.updateMany({ where: { id: held[k].id, slotUsedAt: null }, data: { slotUsedAt: now } });
+      stamped += count;
+    }
+    if (stamped) console.log(`[Entitlement] ${stamped} extra Instagram account slot(s) now in use for tenant ${tenantId}.`);
+    return stamped;
+  } catch (err) {
+    console.error(`[Entitlement] Could not record Instagram slot usage for tenant ${tenantId}:`, err.message);
+    return 0;
+  }
+}
+
+/**
+ * Undo what one fully refunded order granted (Gate 11c). A refund without
+ * revocation is free service. Runs inside the refund's transaction
+ * (services/refundService.js), which has already locked the order and made sure
+ * this happens once per order.
+ *
+ * VALIDITY (plan orders), from the grant snapshot billingFulfillment wrote:
+ *   - nothing stacked on top: restore the plan, validUntil and graceUntil the
+ *     purchase replaced
+ *   - a later plan purchase extended from this one's validUntil: shift validUntil
+ *     and graceUntil back by this order's cycle length instead — restoring the
+ *     old dates would also erase time the later order paid for
+ *   - a later purchase cold-started after this one had lapsed: this order's time
+ *     is already gone, so there is nothing to shift
+ *   - no snapshot (paid before snapshots existed): shift back by one cycle, and
+ *     report snapshotMissing so the caller alerts a human
+ *
+ * CREDITS (plan and reply-pack orders): remove what the order granted, but
+ * never below zero. Taken from current first, then banked. The EXPIRE row
+ * (source expire:refund) always records granted / removed / shortfall in its
+ * note, including a removal of zero — so the ledger invariant holds and a
+ * disputed balance can be explained.
+ *
+ * The extra-IG-account add-on removes one slot. Credits discarded by the
+ * original grant (cold-start forfeit, bank cap) are NOT restored, and the
+ * region lock stays: the payment evidence behind it was real.
+ *
+ * STATUS is recomputed from the resulting dates and written, so an ACTIVE row
+ * can never outlive the paid time behind it.
+ *
+ * @returns {Promise<object>} a JSON-safe summary, stored on the refund row
+ */
+async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null } = {}) {
+  if (!tx) throw new Error('entitlementService.revokeOrderGrant must run inside the refund transaction');
+
+  const tenantId = order.tenantId;
+  const snap = order.grantSnapshot || null;
+  const summary = {
+    cashfreeOrderId: order.cashfreeOrderId,
+    item: order.planCode || order.addonCode,
+    snapshotMissing: !snap,
+    validity: null,
+    credits: null,
+    extraIgAccounts: null,
+    statusBefore: null,
+    statusAfter: null,
+  };
+
+  const e = await tx.entitlement.findUnique({ where: { userId: tenantId } });
+  if (!e) {
+    summary.validity = { mode: 'no_entitlement' };
+    return summary;
+  }
+  summary.statusBefore = effectiveStatus(e, now);
+
+  const data = {};
+
+  if (order.planCode) {
+    const grantedDays = snap?.grantedDays ?? (await getPlan(order.planCode, tx))?.cycleLengthDays ?? 30;
+    const laterPaid = await tx.order.findMany({
+      where: { tenantId, status: 'PAID', planCode: { not: null }, paidAt: { gt: order.paidAt } },
+      orderBy: { paidAt: 'asc' },
+      select: { cashfreeOrderId: true, grantSnapshot: true },
+    });
+    // A later order that was itself fully refunded has already been unwound.
+    const revokedLater = laterPaid.length
+      ? new Set(
+          (
+            await tx.refund.findMany({
+              where: { cashfreeOrderId: { in: laterPaid.map((o) => o.cashfreeOrderId) }, revokedAt: { not: null } },
+              select: { cashfreeOrderId: true },
+            })
+          ).map((r) => r.cashfreeOrderId)
+        )
+      : new Set();
+    const nextLater = laterPaid.find((o) => !revokedLater.has(o.cashfreeOrderId)) || null;
+
+    const shiftBack = () => {
+      const shiftMs = grantedDays * DAY_MS;
+      if (e.validUntil) data.validUntil = new Date(e.validUntil.getTime() - shiftMs);
+      if (e.graceUntil) data.graceUntil = new Date(e.graceUntil.getTime() - shiftMs);
+    };
+
+    if (!nextLater && snap) {
+      data.planCode = snap.priorPlanCode ?? null;
+      data.validUntil = snap.priorValidUntil ? new Date(snap.priorValidUntil) : null;
+      data.graceUntil = snap.priorGraceUntil ? new Date(snap.priorGraceUntil) : null;
+      summary.validity = { mode: 'restored_prior' };
+    } else if (nextLater && snap && sameInstant(nextLater.grantSnapshot?.priorValidUntil, snap.grantedValidUntil)) {
+      shiftBack();
+      summary.validity = { mode: 'shifted_back', days: grantedDays, stackedUnder: nextLater.cashfreeOrderId };
+    } else if (nextLater && snap) {
+      summary.validity = { mode: 'already_superseded', supersededBy: nextLater.cashfreeOrderId };
+    } else {
+      shiftBack();
+      summary.validity = { mode: 'shifted_back_estimate', days: grantedDays };
+    }
+    summary.validity.validUntilBefore = e.validUntil?.toISOString() ?? null;
+    summary.validity.validUntilAfter = ('validUntil' in data ? data.validUntil : e.validUntil)?.toISOString() ?? null;
+  }
+
+  if (order.addonCode === 'extra_ig_account') {
+    data.extraIgAccounts = Math.max(0, e.extraIgAccounts - 1);
+    summary.extraIgAccounts = { before: e.extraIgAccounts, after: data.extraIgAccounts };
+  } else {
+    // Only what is LEFT of this purchase's own credits can be taken back:
+    // granted minus what was consumed from it (FIFO — see creditsUsedFromOrder).
+    // Taking back more would eat credits from purchases behind it in the queue.
+    const usage = await creditsUsedFromOrder(order, { db: tx });
+    const granted = usage.granted;
+    const balance = e.replyCreditsCurrent + e.replyCreditsBanked;
+    const removed = Math.min(granted - usage.usedFromOrder, balance);
+    const fromCurrent = Math.min(removed, e.replyCreditsCurrent);
+    const fromBanked = removed - fromCurrent;
+    const shortfall = granted - removed;
+    data.replyCreditsCurrent = e.replyCreditsCurrent - fromCurrent;
+    data.replyCreditsBanked = e.replyCreditsBanked - fromBanked;
+
+    await tx.creditLedger.create({
+      data: {
+        tenantId,
+        delta: -removed,
+        type: 'EXPIRE',
+        source: 'expire:refund',
+        balanceAfter: balance - removed,
+        note:
+          `refund${refundId ? ` ${refundId}` : ''} of order ${order.cashfreeOrderId}: granted ${granted}, ` +
+          `used ${usage.usedFromOrder}, removed ${removed}` +
+          (shortfall > 0 ? `, shortfall ${shortfall} (already spent; balance clamped at zero)` : ''),
+      },
+    });
+    summary.credits = {
+      granted,
+      usedFromOrder: usage.usedFromOrder,
+      removed,
+      shortfall,
+      measure: usage.measure,
+      balanceBefore: balance,
+      balanceAfter: balance - removed,
+    };
+  }
+
+  // Honest status from the resulting dates.
+  const nextPlan = 'planCode' in data ? data.planCode : e.planCode;
+  const nextValid = 'validUntil' in data ? data.validUntil : e.validUntil;
+  const nextGrace = 'graceUntil' in data ? data.graceUntil : e.graceUntil;
+  if (!nextPlan || !nextValid) data.status = 'NONE';
+  else if (now < nextValid) data.status = nextPlan === 'TRIAL' ? 'TRIALING' : 'ACTIVE';
+  else if (nextGrace && now < nextGrace) data.status = 'GRACE';
+  else data.status = 'EXPIRED';
+
+  const updated = await tx.entitlement.update({ where: { userId: tenantId }, data });
+  summary.statusAfter = effectiveStatus(updated, now);
+  return summary;
+}
+
 module.exports = {
   GRACE_PERIOD_MS,
   // Exported because routes/billing.js needs the SAME list to tell a
@@ -551,4 +852,7 @@ module.exports = {
   grantPlan,
   grantAddon,
   rollCycle,
+  revokeOrderGrant,
+  creditsUsedFromOrder,
+  recordInstagramSlotUsage,
 };
