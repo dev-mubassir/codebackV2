@@ -11,4 +11,6 @@ export {
   getCategoryMetadata,
   parseBusinessTypes,
   combineKnowledgeTemplates,
+  DEFAULT_BUSINESS_TYPE,
+  toggleBusinessType,
 } from '@/content/templates';

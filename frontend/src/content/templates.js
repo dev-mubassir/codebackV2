@@ -414,7 +414,42 @@ export function getCategoryMetadata(catId) {
   };
 }
 
-export function parseBusinessTypes(businessTypes, primaryCategory = 'other') {
+/**
+ * What a profile holds before anyone has chosen a business type: "Something
+ * else". Matches the backend's DEFAULT_PROFILE (businessProfileService.js).
+ *
+ * It is a PLACEHOLDER, not a choice. Pre-selecting a real type instead — the
+ * onboarding wizard used to start on "Video editor" — puts a business type on
+ * the profile that the user never picked, loads that type's starter prices and
+ * services, and quotes them to real customers.
+ */
+export const DEFAULT_BUSINESS_TYPE = 'other';
+
+/**
+ * The selection after tapping one business-type card — the ONE rule the
+ * onboarding wizard and Settings share, so the two cannot drift.
+ *
+ *   - Tapping a type while only the placeholder is on REPLACES the placeholder,
+ *     so picking "Real estate" gives exactly ["real_estate"], not a silent
+ *     "Something else" riding along.
+ *   - Tapping a type that is on turns it off. Turning off the last one falls
+ *     back to the placeholder instead of refusing the tap.
+ *   - Otherwise the tap adds the type: a business can be several things,
+ *     including "Something else" alongside real types.
+ */
+export function toggleBusinessType(current, catId) {
+  const selected = Array.isArray(current) ? current.filter(Boolean) : [];
+  if (selected.includes(catId)) {
+    const next = selected.filter((id) => id !== catId);
+    return next.length > 0 ? next : [DEFAULT_BUSINESS_TYPE];
+  }
+  const onlyPlaceholder =
+    selected.length === 0 || (selected.length === 1 && selected[0] === DEFAULT_BUSINESS_TYPE);
+  if (onlyPlaceholder) return [catId];
+  return [...selected, catId];
+}
+
+export function parseBusinessTypes(businessTypes, primaryCategory = DEFAULT_BUSINESS_TYPE) {
   if (Array.isArray(businessTypes) && businessTypes.length > 0) return businessTypes;
   if (typeof businessTypes === 'string' && businessTypes.trim()) {
     try {

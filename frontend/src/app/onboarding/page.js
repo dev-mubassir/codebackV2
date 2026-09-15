@@ -5,7 +5,13 @@ import { useRouter } from 'next/navigation';
 import { getMe, getOnboarding, saveOnboarding } from '@/lib/api';
 import styles from './onboarding.module.css';
 
-import { BUSINESS_CATEGORIES, parseBusinessTypes, combineKnowledgeTemplates } from '@/lib/businessTemplates';
+import {
+  BUSINESS_CATEGORIES,
+  DEFAULT_BUSINESS_TYPE,
+  parseBusinessTypes,
+  combineKnowledgeTemplates,
+  toggleBusinessType,
+} from '@/lib/businessTemplates';
 import Icon from '@/app/components/Icon';
 import { onboarding as t, settings as settingsCopy, common, errors } from '@/content/copy';
 import { TONE_ORDER, toneLabel } from '@/content/labels';
@@ -22,7 +28,9 @@ export default function OnboardingPage() {
   const [businessName, setBusinessName] = useState('');
 
   // Step 2: What do you do? (Multi-select)
-  const [selectedCategories, setSelectedCategories] = useState(['video_editor']);
+  // Starts on the "Something else" placeholder, never a real type the user did
+  // not pick — see DEFAULT_BUSINESS_TYPE.
+  const [selectedCategories, setSelectedCategories] = useState([DEFAULT_BUSINESS_TYPE]);
   const [customCategory, setCustomCategory] = useState('');
   const [customPlaceholder] = useState(
     () => t.step2.customPlaceholders[Math.floor(Math.random() * t.step2.customPlaceholders.length)]
@@ -67,7 +75,7 @@ export default function OnboardingPage() {
           const bp = data.businessProfile;
           setBusinessName(bp.businessName || data.user?.name || '');
           const initialCats = parseBusinessTypes(bp.businessTypes, bp.primaryCategory);
-          setSelectedCategories(initialCats.length > 0 ? initialCats : ['video_editor']);
+          setSelectedCategories(initialCats.length > 0 ? initialCats : [DEFAULT_BUSINESS_TYPE]);
 
           if (bp.description) {
             setDescription(bp.description);
@@ -84,7 +92,7 @@ export default function OnboardingPage() {
             applyCategoriesTemplates(initialCats, true);
           }
         } else {
-          applyCategoriesTemplates(['video_editor'], true);
+          applyCategoriesTemplates([DEFAULT_BUSINESS_TYPE], true);
         }
       } catch (err) {
         router.push('/login');
@@ -97,14 +105,9 @@ export default function OnboardingPage() {
 
   function handleCategoryToggle(catId) {
     setSelectedCategories((prev) => {
-      const exists = prev.includes(catId);
-      let updated;
-      if (exists) {
-        // Only remove if more than 1 selected
-        updated = prev.length > 1 ? prev.filter((id) => id !== catId) : prev;
-      } else {
-        updated = [...prev, catId];
-      }
+      // Shared with Settings: picking a type replaces the placeholder, and
+      // turning off the last type falls back to it.
+      const updated = toggleBusinessType(prev, catId);
       applyCategoriesTemplates(updated, true);
       return updated;
     });

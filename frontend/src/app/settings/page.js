@@ -18,6 +18,8 @@ import {
   getCategoryMetadata,
   parseBusinessTypes,
   combineKnowledgeTemplates,
+  DEFAULT_BUSINESS_TYPE,
+  toggleBusinessType,
 } from '@/lib/businessTemplates';
 import AppShell from '@/app/components/AppShell';
 import PlanSummaryPanel from '@/app/components/billing/PlanSummaryPanel';
@@ -110,16 +112,13 @@ function SettingsPageContent() {
 
   function handleToggleCategory(catId) {
     const current = parseBusinessTypes(businessProfile?.businessTypes, businessProfile?.primaryCategory);
-    let next;
-    if (current.includes(catId)) {
-      next = current.length > 1 ? current.filter((id) => id !== catId) : current;
-    } else {
-      next = [...current, catId];
-    }
+    // Shared with onboarding: picking a type replaces the "Something else"
+    // placeholder, and turning off the last type falls back to it.
+    const next = toggleBusinessType(current, catId);
     setBusinessProfile((prev) => ({
       ...prev,
       businessTypes: JSON.stringify(next),
-      primaryCategory: next[0] || 'other',
+      primaryCategory: next[0] || DEFAULT_BUSINESS_TYPE,
     }));
     setSaved(false);
   }
