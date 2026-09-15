@@ -34,19 +34,36 @@ Every plan period and every add-on is a **one-time Cashfree order**. There is no
 Subscriptions API, no mandate, no autopay, and no stored card anywhere in the
 codebase.
 
-- **Why.** The billing brief made auto-debit a hard constraint: no recurring
-  charge the customer did not initiate. `cashfreeOrders.js` and the Cashfree
-  webhook route both state it, and neither calls the Subscriptions API.
-- **What that buys.** No mandate authorisation flow, no failed-debit retries or
-  dunning, and nothing that can charge a customer who stopped meaning to pay.
-  Checkout is Cashfree's hosted flow via `payment_session_id`, so card data
-  never touches this server.
-- **What it costs, and how that is paid for.** A renewal is a decision
-  someone has to make, on a date they will not remember. So
-  `jobs/renewalReminderJob.js` sends four reminders: day 27, day 29, expiry day,
-  and grace day 2. There is also a 3-day grace period
-  ([§3](#3-entitlement-lifecycle-and-what-each-state-allows)), so a plan lapses
-  by choice rather than by inattention.
+- **Why: conversion over retention, deliberately.** Mandate registration is the
+  single largest drop-off in Indian SaaS checkout. Removing it trades
+  retention for conversion, and before launch that is the right trade: a
+  customer who never gets through checkout never has the chance to renew.
+- **What else it removes.** No Subscriptions API, no e-mandate approval flow, no
+  pre-debit notification rules, and no mandate-maximum screen at checkout. It
+  also avoids recurring mandates on foreign cards through an Indian
+  aggregator. `cashfreeOrders.js` and the Cashfree webhook route never call the
+  Subscriptions API, and must not start.
+- **Also:** no failed-debit retries or dunning, and nothing that can charge a
+  customer who stopped meaning to pay. Checkout is Cashfree's hosted flow via
+  `payment_session_id`, so card data never touches this server.
+- **The cost is real and large: manual-renewal churn.** Every renewal is a
+  decision someone has to make, on a date they will not remember, and some
+  fraction will simply not make it. Two things push back on that:
+  - **Rollover credits give the renewal email a concrete hook.** Unspent
+    credits carry into the next cycle (up to the plan's bank cap), but only
+    for a tenant who renews before grace ends. So the reminder can say *"You
+    have N unused credits. Renew before the grace period ends and they carry
+    over"* (`lib/email/templates.js`), a specific loss rather than a
+    generic nudge. The final grace email names the exact moment the balance
+    is cleared.
+  - **The reminder sequence:** `jobs/renewalReminderJob.js` sends at day 27,
+    day 29, expiry day, and grace day 2, the last one a day before the
+    3-day grace window closes
+    ([§3](#3-entitlement-lifecycle-and-what-each-state-allows)).
+
+  If renewal churn turns out to cost more than mandate drop-off, revisit this
+  trade. That is a measurement question, not a reason to add mandates
+  pre-launch.
 - **Renewing early never loses days.** A purchase made while a plan is live
   extends from the current `validUntil`, not from today.
   `/api/billing/summary` returns the exact resulting dates (`renewal.validUntilByPlan`),
