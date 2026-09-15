@@ -19,6 +19,10 @@
  *   EMAIL_UNVERIFIED        confirm your email first, with a resend button
  *   TRIAL_CLAIMABLE         connected and eligible, never started — "Start my trial"
  *                           (POST /api/billing/trial/claim; no disconnect needed)
+ *   ACCOUNT_BLOCKED         this Instagram account cannot have a trial — contact support, or see plans
+ *
+ * lib/trialState chooses on TWO axes — entitlement and Instagram connected — so a
+ * connected user is never shown the connect card.
  *
  * Every number comes from summary.trial (the TRIAL catalogue row).
  */
@@ -29,6 +33,7 @@ import Icon from '@/app/components/Icon';
 import { formatCount, formatDate } from '@/content/format';
 import { billing } from '@/content/billingCopy';
 import { claimTrial, resendVerification } from '@/lib/api';
+import { SUPPORT_EMAIL } from '@/content/contact';
 import { TRIAL_CARD } from '@/lib/trialState';
 import styles from './billing.module.css';
 
@@ -169,7 +174,24 @@ function Claimable({ trial, onClaimed }) {
   );
 }
 
-function EmailUnverified() {
+function Blocked({ plansHref }) {
+  const t = billing.trial;
+  return (
+    <Shell icon="alertTriangle" title={t.blockedTitle}>
+      <p className={styles.help}>{t.blockedBody}</p>
+      <div className={styles.planActions}>
+        <a href={`mailto:${SUPPORT_EMAIL}`} className="btn btn-secondary">
+          {t.blockedContact(SUPPORT_EMAIL)}
+        </a>
+        <Link href={plansHref} className="btn btn-primary">
+          {t.plansButton}
+        </Link>
+      </div>
+    </Shell>
+  );
+}
+
+function EmailUnverified({ connected }) {
   const t = billing.trial;
   const [state, setState] = useState('idle'); // idle | sending | sent | failed
   const [failure, setFailure] = useState('');
@@ -190,7 +212,7 @@ function EmailUnverified() {
 
   return (
     <Shell icon="alertTriangle" title={t.unverifiedTitle}>
-      <p className={styles.help}>{t.unverifiedBody}</p>
+      <p className={styles.help}>{connected ? t.unverifiedBodyConnected : t.unverifiedBody}</p>
       <div className={styles.planActions}>
         {state === 'sent' ? (
           <p className={styles.help} role="status">
@@ -230,8 +252,10 @@ export default function TrialStateCard({
       return <Granted summary={summary} usageHref={usageHref} />;
     case TRIAL_CARD.ALREADY_CONSUMED:
       return <AlreadyConsumed plansHref={plansHref} />;
+    case TRIAL_CARD.BLOCKED:
+      return <Blocked plansHref={plansHref} />;
     case TRIAL_CARD.EMAIL_UNVERIFIED:
-      return <EmailUnverified />;
+      return <EmailUnverified connected={summary.instagramConnected === true} />;
     default:
       return null;
   }

@@ -381,6 +381,11 @@ router.get('/summary', async (req, res) => {
       },
       extraIgAccounts: entitlement?.extraIgAccounts ?? 0,
       trialStatus,
+      // The second axis of the pre-payment state. "No trial" and "no Instagram
+      // connected" are different situations; a page that only had trialStatus
+      // told a connected user to go and connect an account.
+      instagramConnected:
+        (await prisma.instagramAccount.count({ where: { userId: tenantId, connectionStatus: 'CONNECTED' } })) > 0,
       planChange,
       trial: trialPlan
         ? {

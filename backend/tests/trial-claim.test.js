@@ -242,3 +242,43 @@ describe('concurrency — exactly one trial', () => {
     expect(connect.ok, 'the connect itself still succeeds').toBe(true);
   });
 });
+
+describe('the second axis — instagramConnected — and a blocked account', () => {
+  it('the summary says whether Instagram is connected, so a page can tell "no trial" from "nothing connected"', async () => {
+    const connected = await connectedWithoutTrial();
+    const bare = await createUser({ withTrial: false, emailVerified: true });
+
+    const a = await (await loginAgent(connected.user.email, connected.password)).get('/api/billing/summary');
+    expect(a.body.instagramConnected).toBe(true);
+
+    const b = await (await loginAgent(bare.user.email, bare.password)).get('/api/billing/summary');
+    expect(b.body.instagramConnected).toBe(false);
+    expect(b.body.trialStatus).toBe(TRIAL_OUTCOMES.TRIAL_NOT_STARTED);
+  });
+
+  it('a disconnected account does not count as connected', async () => {
+    const { user, password } = await connectedWithoutTrial();
+    await prisma.instagramAccount.updateMany({ where: { userId: user.id }, data: { connectionStatus: 'DISCONNECTED' } });
+
+    const res = await (await loginAgent(user.email, password)).get('/api/billing/summary');
+    expect(res.body.instagramConnected).toBe(false);
+    expect(res.body.trialStatus).toBe(TRIAL_OUTCOMES.TRIAL_NOT_STARTED);
+  });
+
+  it('a connected, blocked identity: the summary reports ACCOUNT_BLOCKED and a claim is refused with 403', async () => {
+    const { user, password, igUserIdHash } = await connectedWithoutTrial();
+    await prisma.instagramIdentity.update({ where: { igUserIdHash }, data: { blockedAt: new Date() } });
+    const agent = await loginAgent(user.email, password);
+
+    const summary = await agent.get('/api/billing/summary');
+    expect(summary.body.trialStatus).toBe(TRIAL_OUTCOMES.ACCOUNT_BLOCKED);
+    expect(summary.body.instagramConnected).toBe(true);
+
+    const claim = await agent.post('/api/billing/trial/claim');
+    expect(claim.status).toBe(403);
+    expect(claim.body.trialOutcome).toBe(TRIAL_OUTCOMES.ACCOUNT_BLOCKED);
+    expect(await prisma.entitlement.findUnique({ where: { userId: user.id } })).toBeNull();
+    const identity = await prisma.instagramIdentity.findUnique({ where: { igUserIdHash } });
+    expect(identity.trialConsumedAt, 'a refusal stamps nothing').toBeNull();
+  });
+});

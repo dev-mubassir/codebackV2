@@ -72,6 +72,56 @@ describe('trialCardState — which card a page renders', () => {
   });
 });
 
+describe('two axes — entitlement x Instagram connected', () => {
+  const unconnected = (trialStatus) => ({ status: 'NONE', plan: null, trialStatus, instagramConnected: false });
+  const connected = (trialStatus) => ({ status: 'NONE', plan: null, trialStatus, instagramConnected: true });
+
+  it('none + not connected -> the connect card', () => {
+    expect(trialCardState(unconnected('TRIAL_NOT_STARTED'))).toBe(TRIAL_CARD.NOT_STARTED);
+  });
+
+  it('none + not connected + unconfirmed email -> EMAIL_UNVERIFIED', () => {
+    expect(trialCardState(unconnected('EMAIL_UNVERIFIED'))).toBe(TRIAL_CARD.EMAIL_UNVERIFIED);
+  });
+
+  it.each(['TRIAL_CLAIMABLE', 'TRIAL_ALREADY_CONSUMED', 'EMAIL_UNVERIFIED', 'ACCOUNT_BLOCKED'])(
+    'none + connected + %s -> that card, replacing the plan panels',
+    (reason) => {
+      const state = trialCardState(connected(reason));
+      expect(state).toBe(reason);
+      expect(replacesPlanPanels(state)).toBe(true);
+    }
+  );
+
+  it('none + connected NEVER renders the connect card — not for a contradictory, missing or unknown reason', () => {
+    for (const reason of ['TRIAL_NOT_STARTED', undefined, null, 'SOME_FUTURE_CODE']) {
+      const state = trialCardState(connected(reason));
+      expect(state, String(reason)).not.toBe(TRIAL_CARD.NOT_STARTED);
+      expect(state, String(reason)).toBe(TRIAL_CARD.CLAIMABLE);
+    }
+  });
+
+  it('trialing + connected -> the usage panels, no card', () => {
+    expect(trialCardState({ ...trialing, instagramConnected: true })).toBeNull();
+  });
+
+  it('paid + connected -> the usage panels, no card', () => {
+    expect(trialCardState({ ...active, instagramConnected: true })).toBeNull();
+  });
+});
+
+describe('the connected-state copy', () => {
+  it('EMAIL_UNVERIFIED for a connected user says to come back here, not to connect or reconnect', () => {
+    expect(billing.trial.unverifiedBodyConnected).toBeTruthy();
+    expect(billing.trial.unverifiedBodyConnected).not.toMatch(/reconnect|then connect/i);
+  });
+
+  it('ACCOUNT_BLOCKED states the fact and names a contact', () => {
+    expect(billing.trial.blockedTitle).toMatch(/can't start a free trial/);
+    expect(billing.trial.blockedContact('help@example.com')).toContain('help@example.com');
+  });
+});
+
 describe('the claim copy', () => {
   it('CLAIMABLE offers "Start my trial" and never asks to connect', () => {
     expect(billing.trial.claimButton).toBe('Start my trial');

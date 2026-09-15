@@ -247,7 +247,18 @@ export const billing = {
     unverifiedTitle: 'Confirm your email to start your free trial',
     unverifiedBody:
       'A free trial needs a confirmed email address, so we can reach you if your Instagram connection ever breaks. Confirm it, then connect (or reconnect) Instagram to start.',
+    // The same state for a user whose Instagram is ALREADY connected: once the
+    // address is confirmed they start the trial here, with no reconnect.
+    unverifiedBodyConnected:
+      'A free trial needs a confirmed email address, so we can reach you if your Instagram connection ever breaks. Confirm it, then come back here to start your trial — your Instagram account stays connected.',
     resendButton: 'Resend email',
+
+    // ACCOUNT_BLOCKED — the connected Instagram account is blocked from trials.
+    // States the fact and a route to a human; it never guesses at a reason.
+    blockedTitle: "This Instagram account can't start a free trial",
+    blockedBody:
+      'Your account is still connected and messages still arrive, but this Instagram account is not eligible for a free trial. If you think that is a mistake, contact us.',
+    blockedContact: (email) => `Email ${email}`,
     resending: 'Sending',
     resent: 'Confirmation email sent. Check your inbox.',
     resendFailed: "Couldn't send that email just now. Try again shortly.",
