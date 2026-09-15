@@ -474,3 +474,91 @@ describe('GET /api/billing/summary — tenants with nothing yet', () => {
     expect(res.body.renewal.validUntilByPlan.STARTER).toBeTruthy();
   });
 });
+
+describe('GET /api/billing/summary — trial terms', () => {
+  /**
+   * The TRIAL catalogue row. Upserted because an earlier file may have cleared
+   * the catalogue, and asserted against by READING IT BACK — so these tests pin
+   * "the response mirrors the row", not today's particular numbers.
+   */
+  async function trialPlanRow() {
+    return prisma.plan.upsert({
+      where: { code: 'TRIAL' },
+      update: {},
+      create: {
+        code: 'TRIAL',
+        name: 'Trial',
+        igAccountLimit: 1,
+        autoReplyCreditsPerCycle: 25,
+        autoReplyBankCap: 25,
+        classificationCapCycle: 100,
+        classificationThrottlePerHour: 100,
+        cycleLengthDays: 3,
+      },
+    });
+  }
+
+  const termsOf = (row) => ({
+    days: row.cycleLengthDays,
+    classificationLimit: row.classificationCapCycle,
+    autoReplyCredits: row.autoReplyCreditsPerCycle,
+  });
+
+  it('tells a tenant with no entitlement what connecting would get them', async () => {
+    const row = await trialPlanRow();
+    const { user, password } = await createUser({ withTrial: false });
+    const agent = await loginAgent(user.email, password);
+
+    const res = await agent.get('/api/billing/summary');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('NONE');
+    expect(res.body.trial).toEqual(termsOf(row));
+  });
+
+  it('gives a trialing tenant the trial limit next to their own usage', async () => {
+    const row = await trialPlanRow();
+    const { user, password } = await createUser(); // an ACTIVE trial
+    await prisma.entitlement.update({
+      where: { userId: user.id },
+      data: { classificationCountCycle: 37, replyCreditsCurrent: 20 },
+    });
+    const agent = await loginAgent(user.email, password);
+
+    const res = await agent.get('/api/billing/summary');
+    expect(res.body.status).toBe('TRIALING');
+    expect(res.body.plan.code).toBe('TRIAL');
+    expect(res.body.trial).toEqual(termsOf(row));
+    expect(res.body.usage.classificationsThisCycle).toBe(37);
+    expect(res.body.credits.remaining).toBe(20);
+    expect(res.body.daysRemaining).toBeGreaterThan(0);
+  });
+
+  it('drops the trial terms once the trial has lapsed', async () => {
+    await trialPlanRow();
+    const { user, password } = await createUser();
+    await prisma.entitlement.update({
+      where: { userId: user.id },
+      data: { validUntil: new Date(Date.now() - DAY_MS) },
+    });
+    const agent = await loginAgent(user.email, password);
+
+    const res = await agent.get('/api/billing/summary');
+    expect(res.body.status).toBe('EXPIRED');
+    expect(res.body.trial).toBeNull();
+  });
+
+  it('sends a PAYING tenant no classification limit of any kind', async () => {
+    await trialPlanRow();
+    const { user, password } = await createUser();
+    await putOnStarter(user.id, { classifications: 812 });
+    const agent = await loginAgent(user.email, password);
+
+    const res = await agent.get('/api/billing/summary');
+    expect(res.body.status).toBe('ACTIVE');
+    expect(res.body.trial).toBeNull();
+    const serialized = JSON.stringify(res.body);
+    expect(serialized).not.toContain('classificationLimit');
+    expect(serialized).not.toContain('classificationCapCycle');
+    expect(serialized).not.toContain('classificationThrottlePerHour');
+  });
+});

@@ -33,12 +33,14 @@ import PlanCard from '@/app/components/pricing/PlanCard';
 import { usePricing, formatPrice, priceFor, REGION_IN, REGION_INTL } from '@/lib/pricing';
 import { common } from '@/content/copy';
 import { billing } from '@/content/billingCopy';
+import { getInstagramAuthUrl } from '@/lib/api';
 
 import useBillingSummary from '@/app/components/billing/useBillingSummary';
 import useCheckout from '@/app/components/billing/useCheckout';
 import CheckoutDialog from '@/app/components/billing/CheckoutDialog';
 import BillingBanners from '@/app/components/billing/BillingBanners';
 import PlanStatusCard from '@/app/components/billing/PlanStatusCard';
+import TrialStateCard, { isTrialState } from '@/app/components/billing/TrialStateCard';
 import CreditsCard from '@/app/components/billing/CreditsCard';
 import UsageStrip from '@/app/components/billing/UsageStrip';
 import AddonShelf from '@/app/components/billing/AddonShelf';
@@ -306,12 +308,23 @@ function BillingPageContent() {
       />
 
       <div className={styles.stack}>
-        <div className={styles.topGrid}>
-          <PlanStatusCard summary={summary} onRenew={openPlanCheckout} />
-          <CreditsCard summary={summary} />
-        </div>
+        {/* Before a first payment the plan, credits and usage panels have
+            nothing true to say: "not on a plan", three zeros, and a rollover
+            rule that does not apply. That combination is what read as an empty
+            page. A tenant with no entitlement, or on a live trial, gets the one
+            card that describes where they actually are. */}
+        {isTrialState(summary) ? (
+          <TrialStateCard summary={summary} connectHref={getInstagramAuthUrl()} />
+        ) : (
+          <>
+            <div className={styles.topGrid}>
+              <PlanStatusCard summary={summary} onRenew={openPlanCheckout} />
+              <CreditsCard summary={summary} />
+            </div>
 
-        <UsageStrip summary={summary} />
+            <UsageStrip summary={summary} />
+          </>
+        )}
 
         {!upsellDismissed && (
           <ProUpgradeCallout

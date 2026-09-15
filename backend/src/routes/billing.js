@@ -175,6 +175,15 @@ function daysUntil(date, now) {
  * internal burst guard and are not advertised as a number anywhere
  * customer-facing (see Plan.classificationCapCycle's schema comment).
  *
+ * ONE EXCEPTION, scoped tightly: `trial`. For a tenant with no entitlement
+ * yet, or on a live TRIAL, the response carries the TRIAL catalogue row's
+ * length, sorting limit and auto-reply allowance. A trial's limits are what
+ * the trial IS — the no-entitlement page has to say what connecting gets you,
+ * and a trialing tenant who reaches the limit needs to know why sorting
+ * stopped. Marketing pages never receive it (this route needs a session), and
+ * a paying tenant gets `trial: null` and no limit of any kind. The test file
+ * pins both halves.
+ *
  * Order rows are SELECTED field by field rather than returned whole:
  * `rawPayload` is a stored Cashfree webhook body, and `paymentCountry` /
  * `regionSource` are the region lock's internal provenance. None of the
@@ -207,6 +216,15 @@ router.get('/summary', async (req, res) => {
 
     const status = effectiveStatus(entitlement, now);
     const plan = entitlement?.planCode ? await prisma.plan.findUnique({ where: { code: entitlement.planCode } }) : null;
+
+    // The trial's own terms — see `trial` in the route doc above. Reuses the
+    // plan row when the tenant is ON the trial rather than reading it twice.
+    const showsTrialTerms = status === 'NONE' || (status === 'TRIALING' && plan?.code === 'TRIAL');
+    const trialPlan = !showsTrialTerms
+      ? null
+      : plan?.code === 'TRIAL'
+        ? plan
+        : await prisma.plan.findUnique({ where: { code: 'TRIAL' } });
 
     // Credits SPENT since this cycle started, counted from the ledger rather
     // than inferred by subtracting the balance from the plan's grant. The
@@ -325,6 +343,13 @@ router.get('/summary', async (req, res) => {
         autoRepliesThisCycle: spentThisCycle,
       },
       extraIgAccounts: entitlement?.extraIgAccounts ?? 0,
+      trial: trialPlan
+        ? {
+            days: trialPlan.cycleLengthDays,
+            classificationLimit: trialPlan.classificationCapCycle,
+            autoReplyCredits: trialPlan.autoReplyCreditsPerCycle,
+          }
+        : null,
       renewal: {
         extendsFromValidUntil: isWarmRenewal,
         anchor,

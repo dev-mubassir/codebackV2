@@ -206,6 +206,52 @@ export const billing = {
     },
   },
 
+  /**
+   * The two pre-payment states (TrialStateCard). Every number is an argument:
+   * they come from summary.trial, which the server reads from the TRIAL
+   * catalogue row, so the trial can change without touching this file.
+   */
+  trial: {
+    noneTitle: (days) =>
+      days
+        ? `Connect an Instagram account to start your ${days}-day free trial`
+        : 'Connect an Instagram account to start your free trial',
+    noneBody:
+      'Your trial starts the moment you connect, not before, so none of it runs out while you are still setting up. No payment details needed.',
+    includesHeading: 'Your trial includes',
+    includesDays: (days) => (days === 1 ? '1 day of full access' : `${days} days of full access`),
+    includesClassified: (limit) => `${limit} messages read and sorted`,
+    includesAutoReplies: (count) => (count === 1 ? '1 auto-reply sent for you' : `${count} auto-replies sent for you`),
+    connectButton: 'Connect Instagram',
+    activeTitle: 'Your free trial',
+    endsLabel: 'Trial ends',
+    classifiedLabel: 'Messages sorted',
+    autoRepliesLabel: 'Auto-replies left',
+    ofLimit: (value, limit) => `${value} of ${limit}`,
+    sortingLimitReached: (limit) =>
+      `You have used all ${limit} trial message sorts. New messages still arrive, but they are not sorted or answered until you pick a plan.`,
+    autoRepliesUsedUp: 'You have used every trial auto-reply. Messages are still being sorted until your trial ends.',
+    whenItEndsHeading: 'When the trial ends:',
+    whenItEnds: (date) =>
+      `on ${date}, Siffty stops sorting and answering new messages. They still arrive in your inbox, and nothing is charged — there is no card on file. Pick a plan to switch everything back on.`,
+  },
+
+  /** The plan panel on /settings (PlanSummaryPanel). */
+  settingsPanel: {
+    heading: 'Plan',
+    description: 'What you are on, and what is left this cycle.',
+    planLabel: 'Plan',
+    statusLabel: 'Status',
+    timeLeftLabel: 'Time left',
+    currentLabel: 'Replies this cycle',
+    bankedLabel: 'Banked replies',
+    classifiedLabel: 'Sorted this cycle',
+    noPlan: 'No plan yet',
+    noValue: '—',
+    manageLink: 'Manage billing',
+    noneHint: 'Connect an Instagram account from your dashboard to start your free trial.',
+  },
+
   noAutoDebit: {
     title: 'Nothing renews on its own',
     body: 'There is no auto-debit and no mandate on your account. You pay once, for 30 days, and you decide each time whether to continue.',

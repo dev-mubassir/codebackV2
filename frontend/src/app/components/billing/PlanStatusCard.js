@@ -25,7 +25,7 @@ import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
 
 /** effectiveStatus -> the globals.css badge class that reads right for it. */
-const STATUS_BADGE = {
+export const STATUS_BADGE = {
   NONE: 'badge-default',
   TRIALING: 'badge-info',
   ACTIVE: 'badge-success',

@@ -8,6 +8,8 @@ import { getMe, getAccounts, getInstagramAuthUrl, disconnectAccount, getDashboar
 import AppShell from '@/app/components/AppShell';
 import Icon from '@/app/components/Icon';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
+import TrialStateCard from '@/app/components/billing/TrialStateCard';
+import useBillingSummary from '@/app/components/billing/useBillingSummary';
 import { dashboard as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
 import { categoryLabel, replyModeLabel, replyModeSendsAutomatically, tokenStatusLabel, connectionStatusLabel } from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
@@ -259,6 +261,10 @@ export default function DashboardPage() {
           {accounts.length > 0 ? t.addAccount : t.connectInstagram}
         </a>
       </div>
+
+      {/* Mounted only with billing on, so pre-launch the dashboard never
+          calls the billing summary at all. */}
+      {user?.features?.billing && <TrialPrompt onConnect={handleConnect} />}
 
       {loadError && (
         <div className={styles.alertBanner} role="alert">
@@ -587,6 +593,25 @@ export default function DashboardPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+/**
+ * The no-entitlement prompt, for someone who reaches the dashboard before
+ * connecting an account. Status NONE only: once a trial or a plan exists the
+ * billing page is where that state lives, and repeating it above the metrics
+ * would just push the inbox numbers down.
+ *
+ * Uses the dashboard's own handleConnect, so the unverified-email check still
+ * runs before anyone is sent through Instagram's consent screen.
+ */
+function TrialPrompt({ onConnect }) {
+  const { summary } = useBillingSummary();
+  if (summary?.status !== 'NONE') return null;
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <TrialStateCard summary={summary} connectHref={getInstagramAuthUrl()} onConnect={onConnect} />
+    </div>
   );
 }
 

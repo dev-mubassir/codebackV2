@@ -20,6 +20,7 @@ import {
   combineKnowledgeTemplates,
 } from '@/lib/businessTemplates';
 import AppShell from '@/app/components/AppShell';
+import PlanSummaryPanel from '@/app/components/billing/PlanSummaryPanel';
 import Icon from '@/app/components/Icon';
 import { settings as t, common, errors, empty, confirm as confirmCopy, toast } from '@/content/copy';
 import {
@@ -65,11 +66,15 @@ function SettingsPageContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // From /auth/me. Gates the plan panel so that, pre-launch, settings makes no
+  // billing request at all rather than one that 404s.
+  const [billingEnabled, setBillingEnabled] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
-        await getMe();
+        const me = await getMe();
+        setBillingEnabled(Boolean(me?.features?.billing));
         const [settingsData, profileData, chatsData] = await Promise.all([
           getAISettings().catch(() => ({})),
           getBusinessProfile().catch(() => ({})),
@@ -248,6 +253,8 @@ function SettingsPageContent() {
           {/* TAB 1: business profile */}
           {activeTab === 'profile' && (
             <>
+              {billingEnabled && <PlanSummaryPanel />}
+
               <div className={styles.card}>
                 <div className={styles.cardHeader}>
                   <h2 className={styles.cardTitle}>{t.businessProfile.title}</h2>

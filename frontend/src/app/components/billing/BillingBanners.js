@@ -50,6 +50,13 @@ function Banner({ tone, icon, title, body, action }) {
 export default function BillingBanners({ summary, onRenew, onTopUp }) {
   if (!summary) return null;
 
+  // No banners on a live trial. TrialStateCard already states the days and
+  // replies left, and both banner actions assume a paid plan a trial does not
+  // have: a trial is at most three days long, so the "expires in N days —
+  // Renew now" banner would fire from the first minute, reading as a demand
+  // for money on day one of something free.
+  if (summary.status === 'TRIALING' && summary.plan?.code === 'TRIAL') return null;
+
   const { status, credits, daysRemaining, graceDaysRemaining } = summary;
   const banners = [];
 

@@ -1,0 +1,81 @@
+'use client';
+
+/**
+ * The plan at a glance, for /settings.
+ *
+ * READS GET /api/billing/summary THROUGH useBillingSummary — the same hook the
+ * billing page uses, and nothing else. Settings deliberately owns no
+ * entitlement logic: the status is the server's effectiveStatus, the days are
+ * the server's daysRemaining, the credits are the server's split. Deriving any
+ * of that here would be a second source of truth for "is this account paid
+ * up", and the first time the two disagreed a customer would read one answer
+ * on /settings and another on /billing.
+ *
+ * The caller mounts this only when features.billing is on, so pre-launch
+ * settings makes no billing request at all.
+ */
+
+import Link from 'next/link';
+import useBillingSummary from './useBillingSummary';
+import { STATUS_BADGE } from './PlanStatusCard';
+import { formatCount } from '@/content/format';
+import { billing } from '@/content/billingCopy';
+import styles from './billing.module.css';
+
+function Item({ label, children }) {
+  return (
+    <div className={styles.metaItem}>
+      <span className={styles.label}>{label}</span>
+      <span className={styles.metaValue}>{children}</span>
+    </div>
+  );
+}
+
+export default function PlanSummaryPanel() {
+  const { summary, error } = useBillingSummary();
+
+  // Nothing while loading or on failure. This panel is a convenience on a page
+  // that has its own job; a spinner or an error box here would compete with
+  // the settings form. /billing carries the full state and the retry.
+  if (error || !summary) return null;
+
+  return <PlanSummaryPanelView summary={summary} />;
+}
+
+/** The panel itself, for a given summary — split from the fetch so it renders identically for any summary handed to it. */
+export function PlanSummaryPanelView({ summary }) {
+  const t = billing.settingsPanel;
+  const { plan, status, daysRemaining, credits, usage, trial } = summary;
+  const sorted = formatCount(usage.classificationsThisCycle);
+  // A limit is only ever shown for a trial — see TrialStateCard.
+  const sortLimit = plan?.code === 'TRIAL' ? trial?.classificationLimit : null;
+
+  return (
+    <section className={styles.panel} aria-label={t.heading}>
+      <div className={styles.panelHeader}>
+        <div>
+          <h2 className={styles.panelTitle}>{t.heading}</h2>
+          <p className={styles.help}>{t.description}</p>
+        </div>
+        <Link href="/billing" className="btn btn-secondary btn-sm">
+          {t.manageLink}
+        </Link>
+      </div>
+
+      <div className={styles.planMetaRow}>
+        <Item label={t.planLabel}>{plan?.name || t.noPlan}</Item>
+        <Item label={t.statusLabel}>
+          <span className={`badge ${STATUS_BADGE[status] || 'badge-default'}`}>{billing.status[status] || status}</span>
+        </Item>
+        <Item label={t.timeLeftLabel}>{daysRemaining > 0 ? billing.plan.daysLeft(daysRemaining) : t.noValue}</Item>
+        <Item label={t.currentLabel}>{formatCount(credits.current)}</Item>
+        <Item label={t.bankedLabel}>{formatCount(credits.banked)}</Item>
+        <Item label={t.classifiedLabel}>
+          {sortLimit != null ? billing.trial.ofLimit(sorted, formatCount(sortLimit)) : sorted}
+        </Item>
+      </div>
+
+      {status === 'NONE' && <p className={styles.help}>{t.noneHint}</p>}
+    </section>
+  );
+}
