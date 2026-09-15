@@ -121,6 +121,9 @@ export default function PricingSection() {
       <div className={styles.noMandate}>
         <p className={styles.noMandateTitle}>{marketing.pricing.noMandateTitle}</p>
         <p className={styles.noMandateBody}>{marketing.pricing.noMandateBody}</p>
+        <p className={styles.noMandateBody}>
+          <a href="/refund-policy">{marketing.footer.refundPolicy}</a>
+        </p>
       </div>
 
       <TrustBadge metaApproved={metaApproved} />

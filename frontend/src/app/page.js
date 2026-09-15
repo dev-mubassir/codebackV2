@@ -202,6 +202,7 @@ function LandingPageContent() {
             <a href="/data-deletion" className={styles.footerLink}>{marketing.footer.dataDeletion}</a>
             <a href="/support" className={styles.footerLink}>{marketing.footer.support}</a>
             <a href="/contact" className={styles.footerLink}>{marketing.footer.contact}</a>
+            <a href="/refund-policy" className={styles.footerLink}>{marketing.footer.refundPolicy}</a>
           </nav>
           <p className={styles.footerCopy}>
             &copy; {new Date().getFullYear()} {common.productName}. All rights reserved.

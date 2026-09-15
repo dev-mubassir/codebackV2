@@ -529,6 +529,7 @@ export const marketing = {
     dataDeletion: 'Delete your data',
     support: 'Support',
     contact: 'Contact',
+    refundPolicy: 'Refund policy',
   },
 };
 
@@ -942,6 +943,7 @@ export const meta = {
   support: { title: 'Support — Siffty', description: 'Get help with your Siffty account and connected Instagram accounts.' },
   contact: { title: 'Contact — Siffty', description: 'Email Siffty support or send us a message.' },
   contactEnterprise: { title: 'Enterprise enquiries — Siffty', description: 'Ask about Siffty Enterprise: several Instagram accounts and custom limits.' },
+  refundPolicy: { title: 'Refund policy — Siffty', description: 'When a Siffty plan or top-up is refunded, and how to ask for one.' },
 };
 
 export const legal = {
@@ -951,12 +953,14 @@ export const legal = {
   termsTitle: 'Terms of service',
   dataDeletionTitle: 'Delete your data',
   supportTitle: 'Support',
+  refundPolicyTitle: 'Refund policy',
   footerLinks: {
     privacy: 'Privacy',
     terms: 'Terms',
     dataDeletion: 'Data deletion',
     support: 'Support',
     contact: 'Contact',
+    refundPolicy: 'Refunds',
   },
 };
 

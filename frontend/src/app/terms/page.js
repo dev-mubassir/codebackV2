@@ -185,6 +185,7 @@ export default function TermsPage() {
           <Link href="/data-deletion" className={styles.footerNavLink}>{legal.footerLinks.dataDeletion}</Link>
           <Link href="/support" className={styles.footerNavLink}>{legal.footerLinks.support}</Link>
           <Link href="/contact" className={styles.footerNavLink}>{legal.footerLinks.contact}</Link>
+          <Link href="/refund-policy" className={styles.footerNavLink}>{legal.footerLinks.refundPolicy}</Link>
         </nav>
       </div>
     </main>
