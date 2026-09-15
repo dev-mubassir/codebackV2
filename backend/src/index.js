@@ -34,6 +34,7 @@ const settingsRoutes = require('./routes/settings');
 const dataDeletionRoutes = require('./routes/dataDeletion');
 const billingRoutes = require('./routes/billing');
 const cashfreeWebhookRoutes = require('./routes/cashfreeWebhooks');
+const contactRoutes = require('./routes/contact');
 
 const { setIO } = require('./lib/socket');
 const { assertMigrationsCurrent } = require('./lib/migrationGuard');
@@ -460,6 +461,11 @@ app.use('/webhooks/cashfree', cashfreeWebhookRoutes);
 // Meta Data Deletion Request Callback (unauthenticated by design — the
 // signed_request HMAC is the authentication). Review-critical surface.
 app.use('/data-deletion', dataDeletionRoutes);
+
+// Contact and Enterprise enquiries. Public and session-optional, and NOT behind
+// BILLING_ENABLED — support cannot depend on a billing flag. Mounted before
+// /api, whose blanket requireAuth would otherwise 401 a logged-out visitor.
+app.use('/api/contact', contactRoutes);
 
 // Admin panel routes (must be mounted before /api)
 app.use('/api/admin', adminRoutes);

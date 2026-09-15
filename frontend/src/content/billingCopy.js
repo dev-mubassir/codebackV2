@@ -258,7 +258,9 @@ export const billing = {
     blockedTitle: "This Instagram account can't start a free trial",
     blockedBody:
       'Your account is still connected and messages still arrive, but this Instagram account is not eligible for a free trial. If you think that is a mistake, contact us.',
-    blockedContact: (email) => `Email ${email}`,
+    // Links to /contact, which prints the address and has a form. The address
+    // stays in the label so it is visible without following the link.
+    blockedContact: (email) => `Contact support (${email})`,
     resending: 'Sending',
     resent: 'Confirmation email sent. Check your inbox.',
     resendFailed: "Couldn't send that email just now. Try again shortly.",

@@ -1,0 +1,43 @@
+.form {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+  max-width: 560px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.sent {
+  margin-top: 16px;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.failed {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-error);
+}
+
+/* Off-screen rather than display:none — some bots skip hidden fields. */
+.honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

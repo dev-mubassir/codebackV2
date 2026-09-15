@@ -29,6 +29,22 @@ function wrap(heading, bodyHtml) {
 </html>`;
 }
 
+/**
+ * Escape text for HTML. Every other template here renders values this server
+ * produced itself; the contact enquiry is the first to carry text a visitor
+ * typed, and that text lands in a support inbox where an injected link or form
+ * would look like it came from us.
+ */
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+/** A single line for a subject: no CR/LF (header injection), bounded length. */
+function oneLine(value, max = 80) {
+  const flat = String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
 function button(url, label) {
   return `<p style="margin:24px 0;">
       <a href="${url}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;">${label}</a>
@@ -241,6 +257,49 @@ const templates = {
         `<p style="margin:0;font-size:15px;line-height:1.5;">${lead}</p>
          <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${facts.map((f) => `<li><code>${f}</code></li>`).join('')}</ul>
          <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${next}</p>`
+      ),
+    };
+  },
+
+  /**
+   * A visitor's message from /contact or /contact/enterprise, delivered to
+   * SUPPORT_EMAIL. Not customer-facing.
+   *
+   * The two kinds get different subject prefixes so an Enterprise enquiry is
+   * identifiable in the inbox at a glance rather than mixed into support.
+   *
+   * IDENTITY IS STATED, NOT ASSUMED. `account` is set only from the server-side
+   * session; the typed email address is self-reported, and the message says
+   * which of the two it is looking at — a reply that acts on someone's account
+   * must be based on the first, never the second.
+   */
+  contactEnquiry({ kind, name, fromEmail, company = null, igAccounts = null, message, account = null, submittedAt = new Date() }) {
+    const isEnterprise = kind === 'enterprise';
+    const label = isEnterprise ? 'enterprise' : 'support';
+    const identity = account
+      ? `Signed in as ${account.email || '(no email)'} — account ${account.userId}. Verified by session.`
+      : 'Not signed in. The email address below is self-reported and unverified.';
+    const facts = [
+      ['Name', name],
+      ['Email (reply-to)', fromEmail],
+      ...(isEnterprise ? [['Company', company], ['Instagram accounts', igAccounts]] : []),
+      ['Submitted', new Date(submittedAt).toISOString()],
+    ].filter(([, v]) => v != null && v !== '');
+
+    const subjectTail = isEnterprise ? oneLine(company || name) : oneLine(message, 60);
+    return {
+      subject: `[Siffty ${label}] ${subjectTail || 'New enquiry'}`,
+      text:
+        `New ${label} enquiry from the contact page.\n\n${identity}\n\n` +
+        `${facts.map(([k, v]) => `${k}: ${oneLine(v, 300)}`).join('\n')}\n\n` +
+        `Message:\n${String(message)}\n`,
+      html: wrap(
+        `New ${label} enquiry`,
+        `<p style="margin:0 0 12px;font-size:14px;line-height:1.5;"><strong>${escapeHtml(identity)}</strong></p>
+         <ul style="margin:0 0 16px;padding-left:20px;font-size:14px;line-height:1.6;">${facts
+           .map(([k, v]) => `<li>${escapeHtml(k)}: ${escapeHtml(oneLine(v, 300))}</li>`)
+           .join('')}</ul>
+         <p style="margin:0;font-size:15px;line-height:1.5;white-space:pre-wrap;">${escapeHtml(message)}</p>`
       ),
     };
   },

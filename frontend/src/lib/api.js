@@ -419,6 +419,16 @@ export async function setPassword({ password, confirmPassword }) {
   return data;
 }
 
+/**
+ * Send a message from /contact ('support') or /contact/enterprise ('enterprise').
+ * Works logged out; when a session exists the backend attaches the account.
+ */
+export async function sendContactEnquiry(kind, payload) {
+  if (kind !== 'support' && kind !== 'enterprise') throw new Error(`Unknown enquiry kind "${kind}"`);
+  const { data } = await api.post(`/api/contact/${kind}`, payload);
+  return data;
+}
+
 /** Where to send the browser to start Google sign-in. */
 export function getGoogleAuthUrl() {
   return `${BACKEND_URL}/auth/google`;

@@ -179,7 +179,8 @@ backend.
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `SUPPORT_EMAIL` | backend | Recipient for the reconciliation mismatch digest (a mismatch means money is unaccounted for). Without it the digest degrades to a log line. |
+| `SUPPORT_EMAIL` | backend | Recipient for the reconciliation mismatch digest (a mismatch means money is unaccounted for), the plan-anomaly alert, and every `/contact` and `/contact/enterprise` enquiry. Without it the alerts degrade to log lines and the contact form answers 503 ("email us directly"). |
+| `NEXT_PUBLIC_BUSINESS_CITY` | frontend **build-time** | The registered city printed on `/contact` ("Who we are"). Never guessed: unset, the page names the country only. Set it to the city on the business registration. |
 | `FRONTEND_URL` | backend | Builds the prefilled renewal checkout links. Already fatal in production if unset or pointing at localhost. |
 | `BACKEND_URL` | backend | Becomes the `notify_url` given to Cashfree — where webhooks are delivered. |
 

@@ -35,3 +35,15 @@ export const SUPPORT_EMAIL = configured || 'support@siffty.com';
 
 /** True only when a real address is configured. */
 export const HAS_SUPPORT_EMAIL = Boolean(configured);
+
+/**
+ * The business as registered, for /contact.
+ *
+ * The operator name matches /terms and /privacy. The CITY is not recorded
+ * anywhere in this repository, so it comes from the owner through
+ * NEXT_PUBLIC_BUSINESS_CITY and is never guessed: unset, the page states the
+ * country alone rather than publishing an address that might be wrong.
+ */
+export const BUSINESS_NAME = 'Siffty (proprietor: Mubassir Shah)';
+export const BUSINESS_CITY = process.env.NEXT_PUBLIC_BUSINESS_CITY?.trim() || null;
+export const BUSINESS_COUNTRY = 'India';

@@ -180,9 +180,9 @@ function Blocked({ plansHref }) {
     <Shell icon="alertTriangle" title={t.blockedTitle}>
       <p className={styles.help}>{t.blockedBody}</p>
       <div className={styles.planActions}>
-        <a href={`mailto:${SUPPORT_EMAIL}`} className="btn btn-secondary">
+        <Link href="/contact" className="btn btn-secondary">
           {t.blockedContact(SUPPORT_EMAIL)}
-        </a>
+        </Link>
         <Link href={plansHref} className="btn btn-primary">
           {t.plansButton}
         </Link>

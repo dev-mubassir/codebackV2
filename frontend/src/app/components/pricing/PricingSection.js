@@ -101,7 +101,7 @@ export default function PricingSection() {
               }
               action={
                 isQuoteOnly ? (
-                  <a className="btn btn-secondary" href="/support">
+                  <a className="btn btn-secondary" href="/contact/enterprise">
                     {marketing.pricing.contactCta}
                   </a>
                 ) : (

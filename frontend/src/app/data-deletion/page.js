@@ -119,6 +119,7 @@ export default function DataDeletionPage() {
           <Link href="/terms" className={styles.footerNavLink}>{legal.footerLinks.terms}</Link>
           <Link href="/data-deletion" className={styles.footerNavLink}>{legal.footerLinks.dataDeletion}</Link>
           <Link href="/support" className={styles.footerNavLink}>{legal.footerLinks.support}</Link>
+          <Link href="/contact" className={styles.footerNavLink}>{legal.footerLinks.contact}</Link>
         </nav>
       </div>
     </main>

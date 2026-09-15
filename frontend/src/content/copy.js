@@ -528,6 +528,7 @@ export const marketing = {
     terms: 'Terms of service',
     dataDeletion: 'Delete your data',
     support: 'Support',
+    contact: 'Contact',
   },
 };
 
@@ -939,6 +940,8 @@ export const meta = {
   terms: { title: 'Terms of service — Siffty', description: 'The terms governing use of Siffty.' },
   dataDeletion: { title: 'Delete your data — Siffty', description: 'How to permanently delete your Siffty and Instagram data.' },
   support: { title: 'Support — Siffty', description: 'Get help with your Siffty account and connected Instagram accounts.' },
+  contact: { title: 'Contact — Siffty', description: 'Email Siffty support or send us a message.' },
+  contactEnterprise: { title: 'Enterprise enquiries — Siffty', description: 'Ask about Siffty Enterprise: several Instagram accounts and custom limits.' },
 };
 
 export const legal = {
@@ -953,6 +956,45 @@ export const legal = {
     terms: 'Terms',
     dataDeletion: 'Data deletion',
     support: 'Support',
+    contact: 'Contact',
+  },
+};
+
+/**
+ * /contact and /contact/enterprise. The reply-time promise is NOT restated
+ * here: both pages print support.replyTime, so there is one promise to keep
+ * true, not two that can drift apart.
+ */
+export const contactPage = {
+  title: 'Contact',
+  intro: 'Questions about your account, your plan, or your data. A person reads every message.',
+  emailTitle: 'Email',
+  emailLead: 'Write to',
+  formTitle: 'Send a message',
+  enterpriseTitle: 'Enterprise',
+  enterpriseBody: 'Asking about Enterprise — several Instagram accounts, or custom limits?',
+  enterpriseLink: 'Use the Enterprise enquiry form',
+  whoTitle: 'Who we are',
+
+  enterprise: {
+    title: 'Enterprise enquiries',
+    intro: 'Running several Instagram accounts, or need limits the standard plans do not cover? Tell us what you need and we will reply with a quote.',
+    supportBody: 'Need help with an existing account instead?',
+    supportLink: 'Use the support form',
+  },
+
+  form: {
+    name: 'Your name',
+    email: 'Email address',
+    emailHint: 'We reply to this address.',
+    message: 'Message',
+    company: 'Company or brand',
+    igAccounts: 'How many Instagram accounts? (optional)',
+    honeypot: 'Leave this field empty',
+    submit: 'Send message',
+    sending: 'Sending…',
+    sent: 'Message sent. We will reply to the email address you gave.',
+    failed: (email) => `Your message could not be sent. Please email ${email} directly.`,
   },
 };
 
@@ -960,6 +1002,8 @@ export const support = {
   intro: 'Get help with your Siffty account, your connected Instagram accounts, or your data.',
   contactTitle: 'Contact us',
   replyTime: 'We usually reply within 24–48 hours. Some requests can take up to 7 days.',
+  formPrompt: 'Prefer a form?',
+  formLink: 'Send us a message',
   whatToInclude: {
     title: 'What to include',
     items: [
