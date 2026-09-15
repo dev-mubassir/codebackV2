@@ -30,6 +30,15 @@ const RENEWAL_QUOTA_TYPES = {
   GRACE_FINAL: 'renewalGraceFinal',
 };
 
+/** Billing alert kind -> quota type. Every one is CRITICAL in quota.js. */
+const BILLING_ALERT_TYPES = Object.freeze({
+  paidAfterExpiry: 'billingPaidAfterExpiry',
+  staleOrdersExpired: 'billingStaleOrdersExpired',
+  partialRefund: 'billingPartialRefund',
+  refundOutsideSiffty: 'billingRefundOutsideSiffty',
+  refundSnapshotMissing: 'billingRefundSnapshotMissing',
+});
+
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@mail.siffty.com';
 const REPLY_TO_EMAIL = process.env.REPLY_TO_EMAIL || process.env.SUPPORT_EMAIL || undefined;
 
@@ -290,6 +299,15 @@ module.exports = {
   // CRITICAL — internal ops alert: a downgrade was granted during an active
   // paid plan, after the money was taken. See entitlementService.alertPlanAnomaly.
   sendBillingPlanAnomaly: (to, details) => deliver(to, 'billingPlanAnomaly', templates.billingPlanAnomaly(details)),
+
+  // CRITICAL — internal billing alerts (lib/billingAlerts.js). One quota type
+  // per kind, so a burst of one kind can never throttle a different one.
+  sendBillingOpsAlert: (to, { kind, details }) => {
+    const type = BILLING_ALERT_TYPES[kind];
+    if (!type) throw new Error(`email.sendBillingOpsAlert: unknown kind "${kind}"`);
+    return deliver(to, type, templates.billingOpsAlert({ kind, details }));
+  },
+  BILLING_ALERT_TYPES,
 
   /**
    * The paid renewal sequence. MIXED TIER — this is the one sender whose

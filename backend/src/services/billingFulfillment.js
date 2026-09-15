@@ -8,6 +8,12 @@
  * Both must reach the exact same idempotent outcome, so the logic lives
  * here once rather than being duplicated.
  *
+ * ORDER STATE IS "HAS A SUCCESSFUL PAYMENT OR NOT". An order is CREATED until a
+ * payment succeeds (PAID) or it expires (EXPIRED, the only terminal state). A
+ * failed or abandoned ATTEMPT never changes the order — Cashfree lets a
+ * customer retry on the same order — and is recorded as a PaymentAttempt row
+ * instead (recordPaymentAttempt below).
+ *
  * IDEMPOTENCY. The guard is the conditional UPDATE below (`status: 'CREATED'`
  * in the WHERE clause), not an in-memory set — this is a single-instance
  * deployment with no row-level locking, and the brief is explicit that the
@@ -19,6 +25,7 @@
 const prisma = require('../lib/prisma');
 const entitlementService = require('./entitlementService');
 const { recoverSkippedMessages } = require('./skippedMessageRecovery');
+const { alertBillingOps } = require('../lib/billingAlerts');
 
 /**
  * Payment methods that are India-only by construction — UPI, netbanking,
@@ -67,16 +74,6 @@ function countryToBillingRegion(country) {
 }
 
 /**
- * Order statuses a confirmed payment may still claim.
- *
- * FAILED is here on purpose. It records that a payment ATTEMPT failed, not that
- * the order is dead: Cashfree lets a customer retry payment on the same order,
- * and if FAILED were terminal that retry would take money and grant nothing.
- * EXPIRED is the terminal state — see the paid-after-expiry branch below.
- */
-const CLAIMABLE_STATUSES = ['CREATED', 'FAILED'];
-
-/**
  * Generous bounds for the fulfilment transaction. A retry storm queues every
  * concurrent delivery behind the first one's row lock on the order, and each
  * waiter needs a pooled connection meanwhile; Prisma's defaults (2s wait, 5s
@@ -85,15 +82,64 @@ const CLAIMABLE_STATUSES = ['CREATED', 'FAILED'];
  */
 const FULFILMENT_TX_OPTIONS = { maxWait: 15_000, timeout: 20_000 };
 
+/** A bounded string from an untrusted payload field, or null. */
+function text(value, max) {
+  return typeof value === 'string' && value.length > 0 ? value.slice(0, max) : null;
+}
+
+/** The PaymentAttempt row for one reported attempt outcome. */
+function attemptRow({ cashfreeOrderId, eventType, payment, rawPayload }) {
+  const cfPaymentId = payment?.cf_payment_id;
+  return {
+    cashfreeOrderId,
+    cfPaymentId: typeof cfPaymentId === 'string' || typeof cfPaymentId === 'number' ? String(cfPaymentId).slice(0, 64) : null,
+    status: text(payment?.payment_status, 40) || 'UNKNOWN',
+    eventType: text(eventType, 64) || 'UNKNOWN',
+    paymentGroup: text(payment?.payment_group, 40),
+    failureReason: text(payment?.payment_message, 500) || text(payment?.error_details?.error_description, 500),
+    rawPayload: typeof rawPayload === 'string' ? rawPayload : null,
+  };
+}
+
+/**
+ * Record an attempt outcome (FAILED, USER_DROPPED, ...) WITHOUT touching the
+ * order. `createMany({ skipDuplicates })` — ON CONFLICT DO NOTHING — makes a
+ * replayed webhook a no-op, and never aborts a surrounding transaction the way
+ * a caught unique violation would on Postgres.
+ *
+ * @returns {Promise<{ recorded: boolean, reason?: 'not_found'|'duplicate' }>}
+ */
+async function recordPaymentAttempt({ cashfreeOrderId, eventType, payment, rawPayload }, db = prisma) {
+  const order = await db.order.findUnique({ where: { cashfreeOrderId }, select: { id: true } });
+  if (!order) {
+    console.warn(`[Billing] ${eventType} for unknown order ${cashfreeOrderId} — not recorded.`);
+    return { recorded: false, reason: 'not_found' };
+  }
+  const { count } = await db.paymentAttempt.createMany({
+    data: [attemptRow({ cashfreeOrderId, eventType, payment, rawPayload })],
+    skipDuplicates: true,
+  });
+  console.log(
+    `[Billing] ${eventType} for order ${cashfreeOrderId}: attempt ${count ? 'recorded' : 'already recorded'}; order unchanged.`
+  );
+  return count ? { recorded: true } : { recorded: false, reason: 'duplicate' };
+}
+
 /**
  * Mark an Order PAID and grant its plan/add-on, exactly once, ever.
  *
- * ONE TRANSACTION. Marking the order PAID and granting what it bought commit or
- * roll back together. They used to be two separate writes: a failure between
- * them left the order PAID with nothing granted, the webhook returned 500, and
- * Cashfree's retry then found the order already PAID and granted nothing —
- * money taken, nothing delivered, and nothing left that would ever retry it.
- * tests/cashfree-webhook-edge-cases.test.js (Gate 9.5) pins this.
+ * ONE TRANSACTION. Marking the order PAID, recording the successful attempt,
+ * granting what it bought, and snapshotting what that grant changed all commit
+ * or roll back together. They used to be separate writes: a failure between
+ * marking PAID and granting left the order PAID with nothing granted, the
+ * webhook returned 500, and Cashfree's retry then found the order already PAID
+ * and granted nothing. tests/cashfree-webhook-edge-cases.test.js (Gate 9.5)
+ * pins this.
+ *
+ * THE GRANT SNAPSHOT (Gate 11c). What the entitlement looked like before the
+ * grant, and what the grant added, is stored on the order in the same
+ * transaction. A refund needs exactly that to revoke the purchase — "set
+ * validUntil back to what it was before the order" cannot be computed later.
  *
  * Emails and skipped-message recovery run only AFTER the commit: neither may
  * describe or act on a grant that then rolled back.
@@ -101,9 +147,10 @@ const FULFILMENT_TX_OPTIONS = { maxWait: 15_000, timeout: 20_000 };
  * @param {string} cashfreeOrderId  our own merchant order_id
  * @param {object} payment          the webhook/order-fetch `payment` object, for region evidence (may be partial or absent)
  * @param {string} rawPayload       raw JSON to store on the Order row for reconciliation/audit
+ * @param {string} [eventType]      what reported the payment, for the attempt row
  * @returns {{ outcome: 'granted'|'already_processed'|'not_found'|'paid_after_expiry', order?: object }}
  */
-async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
+async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventType = 'PAYMENT_SUCCESS_WEBHOOK' }) {
   const existing = await prisma.order.findUnique({ where: { cashfreeOrderId } });
   if (!existing) {
     console.warn(`[Billing] Fulfillment requested for unknown order ${cashfreeOrderId} — ignoring.`);
@@ -114,11 +161,19 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
   const afterCommit = [];
 
   const result = await prisma.$transaction(async (tx) => {
+    // The successful attempt is recorded whatever happens next — a replay of a
+    // success on an already-PAID order is still that same attempt, and
+    // skipDuplicates makes the second write a no-op.
+    await tx.paymentAttempt.createMany({
+      data: [attemptRow({ cashfreeOrderId, eventType, payment: { payment_status: 'SUCCESS', ...payment }, rawPayload })],
+      skipDuplicates: true,
+    });
+
     // The conditional update IS the idempotency guard. Concurrent deliveries
     // block on this row until the first transaction commits, then match zero
     // rows.
     const claimed = await tx.order.updateMany({
-      where: { cashfreeOrderId, status: { in: CLAIMABLE_STATUSES } },
+      where: { cashfreeOrderId, status: 'CREATED' },
       data: {
         status: 'PAID',
         paidAt: new Date(),
@@ -131,6 +186,7 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
     if (claimed.count === 0) return { outcome: 'already_processed' };
 
     const order = await tx.order.findUnique({ where: { cashfreeOrderId } });
+    const before = await tx.entitlement.findUnique({ where: { userId: order.tenantId } });
 
     // UNVERIFIED carries no billingRegion/currency at all — grantPlan's own
     // `existing?.x || region.x` merge then leaves an unlocked tenant unlocked
@@ -140,15 +196,24 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
     const billingRegion = source === 'UNVERIFIED' ? null : countryToBillingRegion(country);
     const currency = billingRegion ? order.currency : null;
 
+    let granted;
+    let grantedCredits;
+    let grantedDays = null;
     if (order.planCode) {
-      await entitlementService.grantPlan(
+      granted = await entitlementService.grantPlan(
         order.tenantId,
         order.planCode,
         { billingRegion, currency, regionSource: source },
         { tx, afterCommit }
       );
+      const plan = await tx.plan.findUnique({ where: { code: order.planCode } });
+      grantedCredits = plan?.autoReplyCreditsPerCycle ?? 0;
+      grantedDays = plan?.cycleLengthDays ?? null;
     } else if (order.addonCode) {
-      await entitlementService.grantAddon(order.tenantId, order.addonCode, { tx });
+      granted = await entitlementService.grantAddon(order.tenantId, order.addonCode, { tx });
+      const pack =
+        order.addonCode === 'extra_ig_account' ? null : await tx.addonPack.findUnique({ where: { code: order.addonCode } });
+      grantedCredits = pack?.creditAmount ?? 0;
     } else {
       // Schema allows neither to be set only through a bug elsewhere — the
       // checkout path (routes/billing.js) always sets exactly one. Fail loud,
@@ -158,20 +223,43 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
       throw new Error(`Order ${cashfreeOrderId} has no planCode or addonCode to grant`);
     }
 
-    return { outcome: 'granted', order };
+    const snapshotted = await tx.order.update({
+      where: { cashfreeOrderId },
+      data: {
+        grantSnapshot: {
+          priorPlanCode: before?.planCode ?? null,
+          priorStatus: before?.status ?? null,
+          priorValidUntil: before?.validUntil?.toISOString() ?? null,
+          priorGraceUntil: before?.graceUntil?.toISOString() ?? null,
+          grantedValidUntil: granted?.validUntil?.toISOString() ?? null,
+          grantedGraceUntil: granted?.graceUntil?.toISOString() ?? null,
+          grantedDays,
+          grantedCredits,
+        },
+      },
+    });
+
+    return { outcome: 'granted', order: snapshotted };
   }, FULFILMENT_TX_OPTIONS);
 
   if (result.outcome === 'already_processed') {
     const current = await prisma.order.findUnique({ where: { cashfreeOrderId } });
     if (current?.status === 'EXPIRED') {
-      // A confirmed payment on an order the reconciliation job already retired.
-      // Nothing is granted — EXPIRED is terminal — but money has been taken, so
-      // this is not a quiet no-op. A human has to refund or grant by hand.
+      // A confirmed payment on an order already retired. Nothing is granted —
+      // EXPIRED is terminal — but money has been taken, so a human is told.
       console.error(
         `[Billing] PAID AFTER EXPIRY — order ${cashfreeOrderId} (tenant ${current.tenantId}, ` +
           `${current.planCode || current.addonCode}) received a confirmed payment after it was expired. ` +
           'Nothing was granted. MANUAL ACTION: refund it, or grant it by hand.'
       );
+      await alertBillingOps('paidAfterExpiry', {
+        cashfreeOrderId,
+        tenantId: current.tenantId,
+        item: current.planCode || current.addonCode,
+        amount: current.amount,
+        currency: current.currency,
+        cfPaymentId: payment?.cf_payment_id ?? null,
+      });
       return { outcome: 'paid_after_expiry', order: current };
     }
     console.log(`[Billing] Order ${cashfreeOrderId} already fulfilled — no-op.`);
@@ -192,35 +280,10 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload }) {
   return { outcome: 'granted', order };
 }
 
-/**
- * Record a failed payment attempt: CREATED -> FAILED, never anything else.
- *
- * Only CREATED moves. A late PAYMENT_FAILED_WEBHOOK for an order that has since
- * been paid (an earlier attempt failed, a retry succeeded, and the webhooks
- * arrived out of order) must not overwrite PAID. The payload is stored so the
- * reconciliation job can tell a real Cashfree attempt from a checkout that
- * failed before reaching Cashfree at all (routes/billing.js also writes FAILED,
- * with no payload).
- *
- * @returns {Promise<{ updated: boolean }>}
- */
-async function markPaymentFailed({ cashfreeOrderId, rawPayload }) {
-  const { count } = await prisma.order.updateMany({
-    where: { cashfreeOrderId, status: 'CREATED' },
-    data: { status: 'FAILED', rawPayload },
-  });
-  console.log(
-    `[Billing] Payment attempt failed for order ${cashfreeOrderId} — ` +
-      (count ? 'recorded as FAILED (a later successful attempt still grants).' : 'order not CREATED, left unchanged.')
-  );
-  return { updated: count === 1 };
-}
-
 module.exports = {
   fulfillPaidOrder,
-  markPaymentFailed,
+  recordPaymentAttempt,
   inferPaymentCountry,
   countryToBillingRegion,
-  CLAIMABLE_STATUSES,
   DOMESTIC_ONLY_PAYMENT_GROUPS,
 };

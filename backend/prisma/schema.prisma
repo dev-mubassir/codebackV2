@@ -795,11 +795,13 @@ enum CreditLedgerType {
   CLASSIFY // a recorded classification event, not a credit movement — delta is always 0. See CreditLedger's messageId note.
 }
 
+// "Has a successful payment or not." A failed or abandoned ATTEMPT is not an
+// order state — it is a PaymentAttempt row — because Cashfree lets a customer
+// retry on the same order. See migration 20260915190000_payment_attempts_order_state.
 enum OrderStatus {
-  CREATED
+  CREATED // no successful payment yet; still payable until it expires
   PAID
-  FAILED
-  EXPIRED // either Cashfree reported it FAILED/EXPIRED, or it aged past 7 days in CREATED and the nightly reconciliation job retired it — see billingReconciliationJob.js
+  EXPIRED // the ONLY terminal state, and only from expiry: Cashfree reported the order expired/terminated/unknown, or the reconciliation job's 7-day safety net fired (which alerts) — see billingReconciliationJob.js
 }
 
 // ============================================
@@ -953,6 +955,7 @@ model CreditLedger {
   type         CreditLedgerType
   source       String // e.g. "plan_grant:starter", "addon:reply_credits_500", "auto_reply_spend", "cycle_rollover", "classification"
   balanceAfter Int              @map("balance_after")
+  note         String? // detail for the row; a refund revocation records granted / removed / shortfall here
   createdAt    DateTime         @default(now()) @map("created_at")
 
   @@unique([tenantId, messageId, type])
@@ -985,12 +988,98 @@ model Order {
   paymentCountry  String?      @map("payment_country") // from the Cashfree webhook; raw value behind regionSource's classification
   regionSource    RegionSource? @map("region_source") // how paymentCountry (if any) was established — see the enum's own comment
   rawPayload      String?      @map("raw_payload") // last webhook payload received for this order, for reconciliation
+  // What the grant changed, written in the fulfilment transaction (Gate 11c):
+  // { priorPlanCode, priorStatus, priorValidUntil, priorGraceUntil,
+  //   grantedValidUntil, grantedGraceUntil, grantedDays, grantedCredits }.
+  // A refund's revocation reads it — "validUntil before the order" cannot be
+  // reconstructed afterwards. NULL for orders paid before it existed.
+  grantSnapshot   Json?        @map("grant_snapshot")
   createdAt       DateTime     @default(now()) @map("created_at")
   paidAt          DateTime?    @map("paid_at")
 
   @@index([tenantId, createdAt])
   @@index([status])
   @@map("orders")
+}
+
+// ============================================
+// One row per payment attempt outcome Cashfree reported for an order — the
+// attempt-level record that keeps "one try failed" out of the order's own
+// state. Written by the webhook (SUCCESS / FAILED / USER_DROPPED) and by
+// fulfilment, including a reconciliation heal.
+//
+// Replays are harmless: (cashfreeOrderId, cfPaymentId, status) is unique and
+// writes use skipDuplicates. A payload with no cf_payment_id stores NULL,
+// which Postgres never treats as equal, so such rows are kept rather than lost.
+//
+// No relation to Order or User, matching Order/CreditLedger: a financial
+// trail that outlives the account.
+// ============================================
+model PaymentAttempt {
+  id              String   @id @default(uuid())
+  cashfreeOrderId String   @map("cashfree_order_id")
+  cfPaymentId     String?  @map("cf_payment_id")
+  status          String // Cashfree payment_status: SUCCESS | FAILED | USER_DROPPED | ...
+  eventType       String   @map("event_type") // the webhook type, or RECONCILIATION for a heal
+  paymentGroup    String?  @map("payment_group")
+  failureReason   String?  @map("failure_reason")
+  rawPayload      String?  @map("raw_payload")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([cashfreeOrderId, cfPaymentId, status])
+  @@index([cashfreeOrderId, createdAt])
+  @@map("payment_attempts")
+}
+
+// ============================================
+// Refunds (Gates 11b/11c). Admin-initiated only — there is no self-serve
+// refund. status ONLY ever comes from Cashfree: the create response, the
+// REFUND_STATUS_WEBHOOK, or an admin re-sync. REQUESTED means the row exists
+// but Cashfree has not answered, so it is never mistaken for a success.
+// ============================================
+enum RefundStatus {
+  REQUESTED // written before the Cashfree call; resolved by its answer or a re-sync
+  PENDING
+  ONHOLD
+  SUCCESS // terminal
+  CANCELLED // terminal
+  FAILED // terminal
+}
+
+// A partial refund is a row whose amount is less than the order's. Revocation
+// (services/refundService.js) runs once, when SUCCESS refunds on an order reach
+// its full amount; a partial SUCCESS revokes nothing and alerts a human.
+//
+// No relation to Order or User, matching Order/CreditLedger: a financial record
+// that outlives the account.
+model Refund {
+  id                String       @id @default(uuid())
+  refundId          String       @unique @map("refund_id") // ours, sent to Cashfree as refund_id and the idempotency key
+  cashfreeOrderId   String       @map("cashfree_order_id")
+  tenantId          String       @map("tenant_id")
+  amount            Int // smallest currency unit
+  currency          String
+  reason            String
+  status            RefundStatus @default(REQUESTED)
+  cfRefundId        String?      @map("cf_refund_id")
+  arn               String? // bank reference, once Cashfree has one
+  statusDescription String?      @map("status_description")
+  initiatedBy       String       @map("initiated_by") // admin user id, or "cashfree:external" for a refund issued outside Siffty
+  overridePolicy    Boolean      @default(false) @map("override_policy") // true only when issued outside the refund policy
+  overrideReason    String?      @map("override_reason") // mandatory whenever overridePolicy is true
+  policyCheck       Json?        @map("policy_check") // eligibility and the usage numbers it was decided on, at initiation
+  revokedAt         DateTime?    @map("revoked_at") // set once, when this refund completed the order's full refund
+  revocation        Json? // what revocation changed: validity, credits removed, shortfall, status
+  lastError         String?      @map("last_error")
+  rawPayload        String?      @map("raw_payload") // last Cashfree payload for this refund
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  processedAt       DateTime?    @map("processed_at")
+
+  @@index([cashfreeOrderId])
+  @@index([tenantId, createdAt])
+  @@index([status])
+  @@map("refunds")
 }
 
 // ============================================

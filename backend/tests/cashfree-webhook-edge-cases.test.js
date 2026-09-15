@@ -7,11 +7,15 @@
  * route with a real HMAC over the exact bytes sent:
  *
  *   1. PAYMENT_FAILED_WEBHOOK
- *   2. an abandoned checkout, retired by the reconciliation job's 7-day rule
+ *   2. an abandoned checkout, and how orders reach their terminal state
  *   3. a success webhook arriving AFTER reconciliation already healed the order
  *   4. malformed payloads carrying a valid signature
  *   5. a database failure between marking PAID and granting
  *   6. the same payload delivered 10 times concurrently
+ *
+ * ORDER STATE IS "HAS A SUCCESSFUL PAYMENT OR NOT". A failed or abandoned
+ * attempt is a PaymentAttempt row and never changes the order; EXPIRED, the
+ * only terminal state, comes only from expiry.
  *
  * The invariant checked throughout is the one that matters to a customer: a
  * payment is granted exactly once, and never marked PAID with nothing granted.
@@ -28,6 +32,8 @@ import { prisma, resetDb, createUser, uniq } from './helpers/db.js';
 const require = createRequire(import.meta.url);
 const axios = require('axios');
 const svc = require('../src/services/entitlementService.js');
+const mailer = require('../src/lib/email/index.js');
+const cashfreeOrders = require('../src/lib/cashfreeOrders.js');
 const { reconcileRecentOrders } = require('../src/jobs/billingReconciliationJob.js');
 
 const SECRET = 'test-cashfree-secret-not-real';
@@ -51,6 +57,8 @@ function deliver(bodyOrRaw) {
     .send(raw);
 }
 
+let paymentSeq = 1000;
+
 /** Cashfree's PG webhook shape (2023-08-01 and later). */
 function paymentEvent(orderId, { type = 'PAYMENT_SUCCESS_WEBHOOK', paymentStatus = 'SUCCESS', payment = {} } = {}) {
   return {
@@ -59,7 +67,7 @@ function paymentEvent(orderId, { type = 'PAYMENT_SUCCESS_WEBHOOK', paymentStatus
     data: {
       order: { order_id: orderId, order_amount: 499, order_currency: 'INR', order_tags: null },
       payment: {
-        cf_payment_id: Math.floor(Math.random() * 1e9),
+        cf_payment_id: paymentSeq++,
         payment_status: paymentStatus,
         payment_amount: 499,
         payment_currency: 'INR',
@@ -71,6 +79,9 @@ function paymentEvent(orderId, { type = 'PAYMENT_SUCCESS_WEBHOOK', paymentStatus
     },
   };
 }
+
+const failedEvent = (orderId) =>
+  paymentEvent(orderId, { type: 'PAYMENT_FAILED_WEBHOOK', paymentStatus: 'FAILED', payment: { payment_message: 'Insufficient funds' } });
 
 async function catalogue() {
   const plans = {
@@ -105,6 +116,8 @@ async function tenantWithOrder({ planCode = 'STARTER', addonCode = null, created
 }
 
 const orderStatus = async (order) => (await prisma.order.findUnique({ where: { id: order.id } })).status;
+const attemptsFor = (order) =>
+  prisma.paymentAttempt.findMany({ where: { cashfreeOrderId: order.cashfreeOrderId }, orderBy: { createdAt: 'asc' } });
 const grants = (tenantId) => prisma.creditLedger.findMany({ where: { tenantId, type: 'GRANT' } });
 const ledgerCount = (tenantId) => prisma.creditLedger.count({ where: { tenantId } });
 
@@ -116,7 +129,18 @@ async function expectBalanced(tenantId) {
   return e;
 }
 
+/** Mock Cashfree's order/payment reads for the reconciliation job. */
+function cashfreeReports(orderStatusAtCashfree) {
+  return vi.spyOn(axios, 'get').mockImplementation(async (url) => {
+    if (url.endsWith('/payments')) {
+      return { data: [{ cf_payment_id: 777, payment_status: 'SUCCESS', payment_group: 'upi', payment_method: { upi: {} } }] };
+    }
+    return { data: { order_status: orderStatusAtCashfree } };
+  });
+}
+
 let savedSecret;
+let savedSupport;
 beforeAll(async () => {
   savedSecret = process.env.CASHFREE_SECRET_KEY;
   process.env.CASHFREE_SECRET_KEY = SECRET;
@@ -128,10 +152,14 @@ beforeAll(async () => {
 beforeEach(async () => {
   await resetDb();
   await catalogue();
+  savedSupport = process.env.SUPPORT_EMAIL;
+  process.env.SUPPORT_EMAIL = 'support@test.codeback';
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
+  if (savedSupport === undefined) delete process.env.SUPPORT_EMAIL;
+  else process.env.SUPPORT_EMAIL = savedSupport;
 });
 
 afterAll(async () => {
@@ -141,125 +169,151 @@ afterAll(async () => {
 });
 
 describe('Gate 9.1 — PAYMENT_FAILED_WEBHOOK', () => {
-  it('grants nothing, writes no ledger row, and records the order as FAILED', async () => {
+  it('records a FAILED attempt, leaves the order CREATED, grants nothing, writes no ledger row', async () => {
     const { tenantId, order } = await tenantWithOrder();
 
-    const res = await deliver(paymentEvent(order.cashfreeOrderId, { type: 'PAYMENT_FAILED_WEBHOOK', paymentStatus: 'FAILED' }));
+    const res = await deliver(failedEvent(order.cashfreeOrderId));
 
     expect(res.status).toBe(200);
-    expect(await orderStatus(order), 'a failed payment is recorded, not left looking pending').toBe('FAILED');
+    expect(await orderStatus(order), 'a failed attempt is not an order state').toBe('CREATED');
+    const [attempt] = await attemptsFor(order);
+    expect([attempt.status, attempt.eventType, attempt.failureReason]).toEqual(['FAILED', 'PAYMENT_FAILED_WEBHOOK', 'Insufficient funds']);
     expect(await prisma.entitlement.findUnique({ where: { userId: tenantId } })).toBeNull();
     expect(await ledgerCount(tenantId)).toBe(0);
   });
 
-  it('a later successful attempt on the SAME order still grants — FAILED records an attempt, not the order', async () => {
-    // Cashfree lets a customer retry payment on one order after a failed
-    // attempt. If FAILED were terminal for fulfilment, that retry would take
-    // money and grant nothing.
+  it('a replayed FAILED webhook records the attempt once', async () => {
+    const { order } = await tenantWithOrder();
+    const raw = JSON.stringify(failedEvent(order.cashfreeOrderId));
+
+    await deliver(raw);
+    await deliver(raw);
+
+    expect(await attemptsFor(order)).toHaveLength(1);
+  });
+
+  it('a later successful attempt on the SAME order grants, and both attempts are kept', async () => {
     const { tenantId, order } = await tenantWithOrder();
-    await deliver(paymentEvent(order.cashfreeOrderId, { type: 'PAYMENT_FAILED_WEBHOOK', paymentStatus: 'FAILED' }));
+    await deliver(failedEvent(order.cashfreeOrderId));
 
     const res = await deliver(paymentEvent(order.cashfreeOrderId));
 
     expect(res.status).toBe(200);
     expect(await orderStatus(order)).toBe('PAID');
+    expect((await attemptsFor(order)).map((a) => a.status)).toEqual(['FAILED', 'SUCCESS']);
     expect(await grants(tenantId)).toHaveLength(1);
     await expectBalanced(tenantId);
   });
 
-  it('a late FAILED webhook never downgrades an order that is already PAID', async () => {
+  it('a late FAILED webhook for an order already PAID changes nothing but the attempt log', async () => {
     const { tenantId, order } = await tenantWithOrder();
     await deliver(paymentEvent(order.cashfreeOrderId));
 
-    await deliver(paymentEvent(order.cashfreeOrderId, { type: 'PAYMENT_FAILED_WEBHOOK', paymentStatus: 'FAILED' }));
+    await deliver(failedEvent(order.cashfreeOrderId));
 
     expect(await orderStatus(order)).toBe('PAID');
     expect(await grants(tenantId)).toHaveLength(1);
   });
 });
 
-describe('Gate 9.2 — abandoned checkout', () => {
-  it('USER_DROPPED leaves the order CREATED; the 7-day rule retires it; a late success never grants', async () => {
-    const { tenantId, order } = await tenantWithOrder();
+describe('Gate 9.2 — abandoned checkout and terminal states', () => {
+  it('USER_DROPPED records an attempt and leaves the order CREATED', async () => {
+    const { order } = await tenantWithOrder();
 
-    const dropped = await deliver(
-      paymentEvent(order.cashfreeOrderId, { type: 'PAYMENT_USER_DROPPED_WEBHOOK', paymentStatus: 'USER_DROPPED' })
-    );
-    expect(dropped.status).toBe(200);
+    const res = await deliver(paymentEvent(order.cashfreeOrderId, { type: 'PAYMENT_USER_DROPPED_WEBHOOK', paymentStatus: 'USER_DROPPED' }));
+
+    expect(res.status).toBe(200);
     expect(await orderStatus(order)).toBe('CREATED');
+    expect((await attemptsFor(order)).map((a) => a.status)).toEqual(['USER_DROPPED']);
+  });
 
-    // Age it past the rule. The job must retire it WITHOUT asking Cashfree.
-    await prisma.order.update({ where: { id: order.id }, data: { createdAt: new Date(Date.now() - 8 * DAY_MS) } });
-    const get = vi.spyOn(axios, 'get');
+  it('orders are created at Cashfree with a 60-minute order_expiry_time', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: { payment_session_id: 'sess' } });
+    const before = Date.now();
+
+    await cashfreeOrders.createOrder({
+      orderId: 'sfy_expiry_test',
+      amountInPaise: 49900,
+      currency: 'INR',
+      customerId: 'c1',
+      customerEmail: 'x@test.codeback',
+      customerPhone: '9999999999',
+      returnUrl: 'https://app.test.local/billing',
+    });
+
+    const body = post.mock.calls[0][1];
+    expect(body.order_expiry_time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+05:30$/);
+    const expiresAt = new Date(body.order_expiry_time).getTime();
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 59 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 61 * 60 * 1000);
+  });
+
+  it('reconciliation expires an order Cashfree reports EXPIRED, and a late success never grants', async () => {
+    const { tenantId, order } = await tenantWithOrder();
+    cashfreeReports('EXPIRED');
+
     const run = await reconcileRecentOrders();
-    expect(run.expired).toBe(1);
-    expect(get, 'an order past the window is never re-fetched').not.toHaveBeenCalled();
+
+    expect(run.expiredAtCashfree).toBe(1);
     expect(await orderStatus(order)).toBe('EXPIRED');
 
+    vi.restoreAllMocks();
+    const alert = vi.spyOn(mailer, 'sendBillingOpsAlert').mockResolvedValue({ id: 'x' });
     const late = await deliver(paymentEvent(order.cashfreeOrderId));
     expect(late.status, 'acknowledged, so Cashfree stops retrying').toBe(200);
     expect(await orderStatus(order)).toBe('EXPIRED');
-    expect(await prisma.entitlement.findUnique({ where: { userId: tenantId } })).toBeNull();
     expect(await ledgerCount(tenantId)).toBe(0);
-  });
-});
-
-describe('Gate 9.1/9.2 — reconciliation around failed and expired orders', () => {
-  const paidAtCashfree = (orderId) =>
-    vi.spyOn(axios, 'get').mockImplementation(async (url) => {
-      if (url.endsWith('/payments')) {
-        return { data: [{ payment_status: 'SUCCESS', payment_group: 'upi', payment_method: { upi: {} } }] };
-      }
-      return { data: { order_id: orderId, order_status: 'PAID' } };
-    });
-
-  it('heals a FAILED attempt whose successful retry webhook was dropped', async () => {
-    const { tenantId, order } = await tenantWithOrder();
-    await deliver(paymentEvent(order.cashfreeOrderId, { type: 'PAYMENT_FAILED_WEBHOOK', paymentStatus: 'FAILED' }));
-    paidAtCashfree(order.cashfreeOrderId);
-
-    const run = await reconcileRecentOrders();
-
-    expect(run.healed).toBe(1);
-    expect(await orderStatus(order)).toBe('PAID');
-    expect(await grants(tenantId)).toHaveLength(1);
+    expect(alert.mock.calls.map((c) => c[1].kind), 'money taken with nothing granted reaches a human').toEqual(['paidAfterExpiry']);
   });
 
-  it('never asks Cashfree about a FAILED order that never reached Cashfree (no payload)', async () => {
+  it('reconciliation expires an order Cashfree has no record of (checkout failed before creating it)', async () => {
     const { order } = await tenantWithOrder();
-    await prisma.order.update({ where: { id: order.id }, data: { status: 'FAILED' } }); // as routes/billing.js writes it
-    const get = paidAtCashfree(order.cashfreeOrderId);
+    vi.spyOn(axios, 'get').mockRejectedValue(Object.assign(new Error('not found'), { response: { status: 404, data: {} } }));
 
     const run = await reconcileRecentOrders();
 
-    expect(run.checked).toBe(0);
-    expect(get).not.toHaveBeenCalled();
-    expect(await orderStatus(order)).toBe('FAILED');
+    expect([run.expiredAtCashfree, run.checkFailures]).toEqual([1, 0]);
+    expect(await orderStatus(order)).toBe('EXPIRED');
   });
 
-  it('a confirmed payment on an EXPIRED order grants nothing but is logged for manual action', async () => {
-    const { tenantId, order } = await tenantWithOrder();
-    await prisma.order.update({ where: { id: order.id }, data: { status: 'EXPIRED' } });
-    const error = vi.spyOn(console, 'error');
+  it('an order still ACTIVE at Cashfree is left CREATED', async () => {
+    const { order } = await tenantWithOrder();
+    cashfreeReports('ACTIVE');
 
-    const res = await deliver(paymentEvent(order.cashfreeOrderId));
+    await reconcileRecentOrders();
 
-    expect(res.status).toBe(200);
+    expect(await orderStatus(order)).toBe('CREATED');
+  });
+
+  it('the 7-day safety net retires an unresolved order WITHOUT asking Cashfree, and alerts', async () => {
+    const { tenantId, order } = await tenantWithOrder({ createdAt: new Date(Date.now() - 8 * DAY_MS) });
+    const get = vi.spyOn(axios, 'get');
+    const alert = vi.spyOn(mailer, 'sendBillingOpsAlert').mockResolvedValue({ id: 'x' });
+
+    const run = await reconcileRecentOrders();
+
+    expect(run.expired).toBe(1);
+    expect(get, 'an order past the window is never re-fetched').not.toHaveBeenCalled();
+    expect(await orderStatus(order)).toBe('EXPIRED');
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(alert.mock.calls[0][1].kind).toBe('staleOrdersExpired');
+    expect(alert.mock.calls[0][1].details.orders[0]).toContain(order.cashfreeOrderId);
     expect(await ledgerCount(tenantId)).toBe(0);
-    expect(error.mock.calls.some((c) => String(c[0]).includes('PAID AFTER EXPIRY'))).toBe(true);
+  });
+
+  it('the safety net sends nothing when it has nothing to retire', async () => {
+    const alert = vi.spyOn(mailer, 'sendBillingOpsAlert');
+    await reconcileRecentOrders();
+    expect(alert).not.toHaveBeenCalled();
   });
 });
 
 describe('Gate 9.3 — out-of-order delivery', () => {
   it('a success webhook after reconciliation healed the order grants nothing more', async () => {
     const { tenantId, order } = await tenantWithOrder();
+    vi.spyOn(mailer, 'sendBillingReconciliationMismatch').mockResolvedValue({ id: 'x' });
+    cashfreeReports('PAID');
 
-    vi.spyOn(axios, 'get').mockImplementation(async (url) => {
-      if (url.endsWith('/payments')) {
-        return { data: [{ payment_status: 'SUCCESS', payment_group: 'upi', payment_method: { upi: {} } }] };
-      }
-      return { data: { order_id: order.cashfreeOrderId, order_status: 'PAID' } };
-    });
     const run = await reconcileRecentOrders();
     expect(run.healed).toBe(1);
     const healed = await prisma.entitlement.findUnique({ where: { userId: tenantId } });
@@ -270,6 +324,19 @@ describe('Gate 9.3 — out-of-order delivery', () => {
     expect(await grants(tenantId)).toHaveLength(1);
     const after = await expectBalanced(tenantId);
     expect(after.validUntil.getTime(), 'validity is not extended a second time').toBe(healed.validUntil.getTime());
+  });
+
+  it('a heal records its attempt and the grant snapshot', async () => {
+    const { order } = await tenantWithOrder();
+    vi.spyOn(mailer, 'sendBillingReconciliationMismatch').mockResolvedValue({ id: 'x' });
+    cashfreeReports('PAID');
+
+    await reconcileRecentOrders();
+
+    const [attempt] = await attemptsFor(order);
+    expect([attempt.status, attempt.eventType]).toEqual(['SUCCESS', 'RECONCILIATION']);
+    const paid = await prisma.order.findUnique({ where: { id: order.id } });
+    expect(paid.grantSnapshot).toMatchObject({ priorPlanCode: null, grantedCredits: 500, grantedDays: 30 });
   });
 });
 
@@ -283,6 +350,7 @@ describe('Gate 9.4 — malformed payloads with a valid signature', () => {
     ['order_id is a number', (id) => { const e = paymentEvent(id); e.data.order.order_id = 12345; return e; }],
     ['data.order is a string', () => ({ type: 'PAYMENT_SUCCESS_WEBHOOK', data: { order: 'sfy_x', payment: 'SUCCESS' } })],
     ['body is a JSON array', () => '[1,2,3]'],
+    ['FAILED webhook with an object order_id', (id) => { const e = failedEvent(id); e.data.order.order_id = { id }; return e; }],
   ];
 
   for (const [label, build] of cases) {
@@ -319,7 +387,7 @@ describe('Gate 9.4 — malformed payloads with a valid signature', () => {
   it('unexpected nesting inside payment_method (card_country as an object) does not crash the route', async () => {
     const { tenantId, order } = await tenantWithOrder();
     const event = paymentEvent(order.cashfreeOrderId, {
-      payment: { payment_group: ['card'], payment_method: { card: { card_country: { code: 'IN' } } } },
+      payment: { payment_group: ['card'], payment_method: { card: { card_country: { code: 'IN' } } }, cf_payment_id: { nested: true } },
     });
 
     const res = await deliver(event);
@@ -340,6 +408,7 @@ describe('Gate 9.5 — database failure mid-fulfilment', () => {
 
     expect(first.status, '500 so Cashfree retries').toBe(500);
     expect(await orderStatus(order), 'PAID must roll back with the failed grant').toBe('CREATED');
+    expect(await attemptsFor(order), 'the attempt row rolls back too').toHaveLength(0);
     expect(await prisma.entitlement.findUnique({ where: { userId: tenantId } })).toBeNull();
     expect(await ledgerCount(tenantId)).toBe(0);
 
@@ -408,6 +477,7 @@ describe('Gate 9.6 — retry storm', () => {
     const statuses = responses.map((r) => r.status);
     expect(statuses.every((s) => s === 200), `every delivery acknowledged, got ${statuses.join(',')}`).toBe(true);
     expect(await orderStatus(order)).toBe('PAID');
+    expect(await attemptsFor(order), 'one attempt row for one attempt').toHaveLength(1);
     const rows = await prisma.creditLedger.findMany({ where: { tenantId } });
     expect(rows, 'exactly one ledger row').toHaveLength(1);
     expect(rows[0].type).toBe('GRANT');

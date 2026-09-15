@@ -304,6 +304,55 @@ const templates = {
     };
   },
 
+  /**
+   * CRITICAL internal billing alerts (lib/billingAlerts.js). Not customer-facing.
+   * One template, a heading and lead per kind, and every detail listed — the
+   * reader needs the ids to act, not a summary of them.
+   */
+  billingOpsAlert({ kind, details = {} }) {
+    const copy = {
+      paidAfterExpiry: {
+        heading: 'Payment received on an expired order',
+        lead: 'Cashfree confirmed a payment on an order Siffty had already expired. Nothing was granted, but the money was taken.',
+        next: 'Refund the payment, or grant the plan/add-on by hand.',
+      },
+      staleOrdersExpired: {
+        heading: '7-day order expiry safety net fired',
+        lead: 'Orders sat unpaid and unresolved for 7 days. Cashfree orders expire after 60 minutes and reconciliation should have resolved these long before, so something is not checking them.',
+        next: 'Check the reconciliation job logs and confirm none of these orders was actually paid at Cashfree.',
+      },
+      partialRefund: {
+        heading: 'Partial refund succeeded — access unchanged',
+        lead: 'A partial refund completed at Cashfree. Partial refunds do not revoke anything automatically, so the customer keeps everything the order granted.',
+        next: 'Decide whether any access or credits should be adjusted by hand.',
+      },
+      refundOutsideSiffty: {
+        heading: 'Refund initiated outside Siffty',
+        lead: 'A refund Siffty did not initiate (for example from the Cashfree dashboard) reached the webhook. It has been recorded and processed like any other.',
+        next: 'Confirm the refund was intended, and who issued it.',
+      },
+      refundSnapshotMissing: {
+        heading: 'Refund revoked without a grant snapshot',
+        lead: 'A fully refunded order was fulfilled before grant snapshots were recorded, so its revocation used a best estimate (one cycle of validity and the plan or pack credit amount).',
+        next: "Check the tenant's plan dates and credits against what the order actually granted.",
+      },
+    }[kind] || { heading: `Billing alert: ${kind}`, lead: 'An unrecognised billing alert kind was raised.', next: 'Check the server logs.' };
+
+    const show = (v) => (v instanceof Date ? v.toISOString() : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
+    const facts = Object.entries(details).map(([k, v]) => `${k}: ${show(v)}`);
+
+    return {
+      subject: `[Siffty billing] ${copy.heading}`,
+      text: `${copy.lead}\n\n${facts.join('\n')}\n\n${copy.next}\n\nSiffty · ${SUPPORT_EMAIL}\n`,
+      html: wrap(
+        escapeHtml(copy.heading),
+        `<p style="margin:0;font-size:15px;line-height:1.5;">${escapeHtml(copy.lead)}</p>
+         <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${facts.map((f) => `<li><code>${escapeHtml(f)}</code></li>`).join('')}</ul>
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${escapeHtml(copy.next)}</p>`
+      ),
+    };
+  },
+
   billingReconciliationMismatch({ mismatches, checked }) {
     const rows = mismatches
       .map(

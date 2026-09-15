@@ -340,6 +340,35 @@ router.get('/summary', async (req, res) => {
         })
       : 0;
 
+    // Payment history states each order's OUTCOME, not only its status. An
+    // unpaid order is still CREATED after a failed or abandoned attempt (the
+    // customer could retry it), so the latest attempt is joined in to say so;
+    // a paid order says how much of it has been refunded. Attempts and refunds
+    // are their own rows (PaymentAttempt, Refund).
+    const orderIds = orders.map((o) => o.cashfreeOrderId);
+    const [attempts, successfulRefunds] = orderIds.length
+      ? await Promise.all([
+          prisma.paymentAttempt.findMany({
+            where: { cashfreeOrderId: { in: orderIds } },
+            orderBy: { createdAt: 'desc' },
+            select: { cashfreeOrderId: true, status: true },
+          }),
+          prisma.refund.findMany({
+            where: { cashfreeOrderId: { in: orderIds }, status: 'SUCCESS' },
+            select: { cashfreeOrderId: true, amount: true },
+          }),
+        ])
+      : [[], []];
+    const lastAttemptStatus = {};
+    for (const a of attempts) if (!(a.cashfreeOrderId in lastAttemptStatus)) lastAttemptStatus[a.cashfreeOrderId] = a.status;
+    const refundedAmount = {};
+    for (const r of successfulRefunds) refundedAmount[r.cashfreeOrderId] = (refundedAmount[r.cashfreeOrderId] || 0) + r.amount;
+    const orderHistory = orders.map((o) => ({
+      ...o,
+      lastAttemptStatus: lastAttemptStatus[o.cashfreeOrderId] ?? null,
+      refundedAmount: refundedAmount[o.cashfreeOrderId] ?? 0,
+    }));
+
     return res.json({
       plan: plan
         ? {
@@ -406,7 +435,7 @@ router.get('/summary', async (req, res) => {
       },
       paidAddonOrders,
       replyCreditPacksThisCycle,
-      orders,
+      orders: orderHistory,
       // The one control a customer has over renewals: whether the two early
       // reminder emails are sent. See PUT /reminders.
       reminders: {
@@ -554,8 +583,12 @@ router.post('/checkout/plan', async (req, res) => {
       currency: price.currency,
     });
   } catch (error) {
+    // The order is left CREATED. Whether Cashfree actually created it (a timeout
+    // after success) is Cashfree's to say: reconciliation asks, and expires it
+    // if Cashfree reports it expired or has no such order. The previous
+    // updateMany here also marked every OTHER in-flight order of this plan for
+    // the tenant as failed.
     console.error('[Billing] Plan checkout failed:', error.response?.data || error.message);
-    await prisma.order.updateMany({ where: { tenantId: req.userId, planCode, status: 'CREATED' }, data: { status: 'FAILED' } }).catch(() => {});
     return res.status(502).json({ error: "Couldn't start checkout. Try again." });
   }
 });
@@ -639,8 +672,8 @@ router.post('/checkout/addon', async (req, res) => {
       currency: price.currency,
     });
   } catch (error) {
+    // Left CREATED for reconciliation to resolve — see the plan checkout above.
     console.error('[Billing] Add-on checkout failed:', error.response?.data || error.message);
-    await prisma.order.updateMany({ where: { tenantId: req.userId, addonCode, status: 'CREATED' }, data: { status: 'FAILED' } }).catch(() => {});
     return res.status(502).json({ error: "Couldn't start checkout. Try again." });
   }
 });

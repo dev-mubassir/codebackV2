@@ -21,13 +21,34 @@ import { formatPrice } from '@/lib/pricing';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
 
-/** OrderStatus -> the globals.css badge class that reads right for it. */
+/** Outcome -> the globals.css badge class that reads right for it. */
 const STATUS_BADGE = {
   PAID: 'badge-success',
+  REFUNDED: 'badge-default',
+  PARTIALLY_REFUNDED: 'badge-warning',
+  ATTEMPT_FAILED: 'badge-error',
+  ABANDONED: 'badge-default',
   CREATED: 'badge-default',
-  FAILED: 'badge-error',
   EXPIRED: 'badge-warning',
 };
+
+/**
+ * What happened to an order, from the server's fields. An order's own status is
+ * only "paid or not" (or expired); a failed attempt and a refund are separate
+ * facts the summary joins in, and the row should say them.
+ */
+function outcomeOf(order) {
+  if (order.status === 'PAID') {
+    if (order.refundedAmount >= order.amount) return 'REFUNDED';
+    if (order.refundedAmount > 0) return 'PARTIALLY_REFUNDED';
+    return 'PAID';
+  }
+  if (order.status === 'CREATED') {
+    if (order.lastAttemptStatus === 'FAILED') return 'ATTEMPT_FAILED';
+    if (order.lastAttemptStatus === 'USER_DROPPED') return 'ABANDONED';
+  }
+  return order.status;
+}
 
 /** Plan name where the catalogue knows it, the raw code where it does not (a retired plan). */
 function itemLabel(order, plansByCode) {
@@ -69,8 +90,8 @@ export default function OrderHistory({ orders, plans }) {
                   <td>{itemLabel(order, plansByCode)}</td>
                   <td className={styles.amountCell}>{formatPrice(order.amount, order.currency)}</td>
                   <td>
-                    <span className={`badge ${STATUS_BADGE[order.status] || 'badge-default'}`}>
-                      {billing.orders.status[order.status] || order.status}
+                    <span className={`badge ${STATUS_BADGE[outcomeOf(order)] || 'badge-default'}`}>
+                      {billing.orders.status[outcomeOf(order)] || order.status}
                     </span>
                   </td>
                 </tr>

@@ -80,9 +80,12 @@ async function main() {
   // which are not problems is one people learn to ignore — so comments and
   // blank lines are stripped before hashing, leaving only what actually
   // determines the generated shape.
+  // Split on \r?\n, not \n: a Windows checkout stores schema.prisma with CRLF
+  // while Prisma's generated copy is LF, and a trailing \r stops the comment
+  // strip below from reaching end of line — which reported every client stale.
   const normalize = (text) =>
     text
-      .split('\n')
+      .split(/\r?\n/)
       .map((line) => line.replace(/\/\/.*$/, '').trim().replace(/\s+/g, ' '))
       .filter(Boolean)
       .join('\n');
@@ -170,6 +173,36 @@ async function main() {
         }
         if (drift.length > 5) add(FAIL, '  -> drift', `…and ${drift.length - 5} more`);
       }
+
+      // ---- 7. Refunds ------------------------------------------------------
+      // A refund without revocation is free service. An order whose SUCCESS
+      // refunds reach its full amount must have exactly one revoked refund.
+      const unrevoked = await prisma.$queryRawUnsafe(`
+        SELECT o.cashfree_order_id AS order_id
+          FROM orders o
+          JOIN refunds r ON r.cashfree_order_id = o.cashfree_order_id AND r.status = 'SUCCESS'
+         GROUP BY o.cashfree_order_id, o.amount
+        HAVING SUM(r.amount) >= o.amount
+           AND COUNT(*) FILTER (WHERE r.revoked_at IS NOT NULL) = 0`);
+      const partial = await prisma.$queryRawUnsafe(`
+        SELECT COUNT(*)::int AS n FROM (
+          SELECT o.cashfree_order_id
+            FROM orders o
+            JOIN refunds r ON r.cashfree_order_id = o.cashfree_order_id AND r.status = 'SUCCESS'
+           GROUP BY o.cashfree_order_id, o.amount
+          HAVING SUM(r.amount) < o.amount) p`);
+      const stuck = await prisma.refund.count({
+        where: { status: 'REQUESTED', createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      });
+
+      if (unrevoked.length > 0) {
+        add(FAIL, 'Refund revocation', `${unrevoked.length} fully refunded order(s) with no revocation — access was kept after the money left`);
+        for (const u of unrevoked.slice(0, 5)) add(FAIL, '  -> order', String(u.order_id));
+      } else {
+        add(OK, 'Refund revocation', 'every fully refunded order has been revoked');
+      }
+      if (partial[0]?.n > 0) add(WARN, 'Partial refunds', `${partial[0].n} order(s) partly refunded; access is unchanged by design — each raised an alert`);
+      if (stuck > 0) add(WARN, 'Refunds awaiting Cashfree', `${stuck} refund(s) REQUESTED for over a day — re-sync them from the admin API`);
     }
   } catch (err) {
     add(FAIL, 'Database', err.message.split('\n').pop().trim());

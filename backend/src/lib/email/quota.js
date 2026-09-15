@@ -59,7 +59,17 @@ const PER_RECIPIENT_MAX = 3;
  * the contact route's per-IP limiter plus the daily cap, and both types are
  * DEFERRABLE, so no volume of enquiries can eat the password-reset reserve.
  */
-const PER_RECIPIENT_MAX_BY_TYPE = Object.freeze({ supportEnquiry: 30, enterpriseEnquiry: 30 });
+const PER_RECIPIENT_MAX_BY_TYPE = Object.freeze({
+  supportEnquiry: 30,
+  enterpriseEnquiry: 30,
+  // Billing alerts all go to SUPPORT_EMAIL too, and each one is an event a
+  // human must see — three an hour must not silently swallow the fourth.
+  billingPaidAfterExpiry: 20,
+  billingStaleOrdersExpired: 20,
+  billingPartialRefund: 20,
+  billingRefundOutsideSiffty: 20,
+  billingRefundSnapshotMissing: 20,
+});
 
 function perRecipientMax(type) {
   return PER_RECIPIENT_MAX_BY_TYPE[type] ?? PER_RECIPIENT_MAX;
@@ -94,6 +104,13 @@ const CRITICAL_TYPES = new Set([
   // A money-taken anomaly: a downgrade GRANTED while the paid plan was still
   // active. Same reasoning as a reconciliation mismatch — a human has to look.
   'billingPlanAnomaly',
+  // lib/billingAlerts.js — money taken with nothing granted, a safety net that
+  // should never fire, or money refunded while access stays. All need a human.
+  'billingPaidAfterExpiry',
+  'billingStaleOrdersExpired',
+  'billingPartialRefund',
+  'billingRefundOutsideSiffty',
+  'billingRefundSnapshotMissing',
   'renewalExpiry',
   'renewalGraceFinal',
 ]);

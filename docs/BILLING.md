@@ -13,6 +13,7 @@ two months.
 - [7. Classification gating](#7-classification-gating)
 - [8. First deploy](#8-first-deploy)
 - [9. Local development: granting and resetting trials](#9-local-development-granting-and-resetting-trials)
+- [10. Refunds and revocation](#10-refunds-and-revocation)
 
 Where the code lives:
 
@@ -72,18 +73,26 @@ codebase.
 - **A paid order is fulfilled exactly once.** The Cashfree webhook processes
   synchronously and returns 200 only after the write succeeds, so Cashfree
   retries on failure. `billingFulfillment.fulfillPaidOrder` is idempotent
-  through a conditional `UPDATE … WHERE status IN ('CREATED','FAILED')`, and the
-  nightly reconciliation job calls the same function for any webhook that never
+  through a conditional `UPDATE … WHERE status = 'CREATED'`, and the nightly
+  reconciliation job calls the same function for any webhook that never
   arrived.
   - **One transaction.** Marking the order `PAID` and granting what it bought
     commit or roll back together. They used to be separate writes, so a failure
     between them left a `PAID` order with nothing granted — and the retry then
     saw `PAID` and granted nothing. Emails and skipped-DM recovery run only
     after commit.
-  - **`FAILED` is an attempt, not an order's end.** `PAYMENT_FAILED_WEBHOOK`
-    moves `CREATED → FAILED`, but a later successful attempt on the same order
-    still claims it. `EXPIRED` is the terminal state: a payment confirmed on an
-    expired order grants nothing and logs `PAID AFTER EXPIRY` for manual action.
+  - **Order state is "has a successful payment or not".** An order is
+    `CREATED` until a payment succeeds (`PAID`) or it expires (`EXPIRED`, the
+    only terminal state). A failed or abandoned attempt never changes the
+    order, because Cashfree lets a customer retry on the same order; it is a
+    `PaymentAttempt` row instead. Payment history shows "Payment failed" from
+    that row.
+  - **Expiry comes only from expiry.** Orders are created with a 60-minute
+    `order_expiry_time`. Reconciliation marks an order `EXPIRED` when Cashfree
+    reports it `EXPIRED`/`TERMINATED` or has no record of it. The 7-day rule
+    remains as a safety net and sends a CRITICAL alert if it ever fires. A
+    payment confirmed on an expired order grants nothing and sends the
+    `paidAfterExpiry` CRITICAL alert.
   - **Malformed-but-signed payloads get 200, never 5xx.** A payload that is wrong
     once is wrong on every retry; reconciliation heals any real payment behind it.
   - `tests/cashfree-webhook-edge-cases.test.js` covers failed, abandoned,
@@ -236,6 +245,7 @@ Ledger row types:
 | `expire:renewal_bank_cap` | Same-plan renewal; the carried balance is over the bank cap |
 | `expire:plan_change_bank_cap` | Renewal onto a different plan; over the larger of the two caps |
 | `expire:cycle_bank_cap` | `rollCycle()` without a renewal; over the bank cap |
+| `expire:refund` | A fully refunded order's credits removed ([§10](#10-refunds-and-revocation)). `note` records granted / removed / shortfall; delta can be 0 when everything was already spent |
 | `expire:trial_grant_replaced_balance` | A trial is granted over a `NONE` row that somehow held credits |
 | `expire:dev_reset_trial` | `scripts/dev-reset-trial.js --delete-entitlement` removed an entitlement holding credits (dev only) |
 
@@ -451,3 +461,64 @@ foreign key and would otherwise outlive them.
 **When something "does nothing":** run `npm run billing:doctor` first. A flag
 that is off, a missing credential, a database behind the code, a stale Prisma
 client, and an empty catalogue all look identical from the UI.
+
+## 10. Refunds and revocation
+
+**Refunds are admin-initiated only.** There is no self-serve refund button. The
+published terms are on `/refund-policy`; the code constants are in
+`backend/src/services/refundService.js` (`REFUND_WINDOW_DAYS = 7`,
+`PLAN_USAGE_LIMIT_PERCENT = 20`). Change both together.
+
+Admin API (behind `requireAdmin`):
+
+| Endpoint | Does |
+|---|---|
+| `GET /api/admin/billing/orders/:orderId/refund-eligibility` | Policy verdict, the usage numbers it used, refunds so far, what is still refundable |
+| `POST /api/admin/billing/orders/:orderId/refunds` | `{ reason, amount?, overridePolicy?, overrideReason? }`. `amount` in paise/cents, default everything still refundable |
+| `POST /api/admin/billing/refunds/:refundId/sync` | Re-read a refund from Cashfree; the backstop for a dropped webhook |
+
+**The policy is reported, never a hard refusal.** Eligibility is computed from
+the ledger: auto-replies sent since `paidAt` (`SPEND` rows), against the
+credits the order granted. A plan needs fewer than 20% used, within 7 days,
+before its paid period ends; a reply pack needs zero used since purchase. An
+ineligible refund answers `409 REFUND_POLICY_INELIGIBLE` with the numbers, and
+goes through only with `overridePolicy: true` plus an `overrideReason`. Both, and
+the eligibility snapshot, are stored on the `Refund` row.
+
+**Status only ever comes from Cashfree.** The row is written `REQUESTED` before
+Cashfree is called. A 4xx from Cashfree makes it `FAILED`; a timeout leaves it
+`REQUESTED` until a re-sync asks. After that, only the create response,
+`REFUND_STATUS_WEBHOOK` (same signature verification as payments), or a re-sync
+change it. `SUCCESS`, `CANCELLED` and `FAILED` are terminal: late or replayed
+statuses after them are ignored. A refund issued outside Siffty (for example in
+the Cashfree dashboard) is recorded from its webhook and processed the same way,
+with a CRITICAL `refundOutsideSiffty` alert.
+
+**Revocation: a refund without it is free service.** When `SUCCESS` refunds on an
+order reach its full amount, `entitlementService.revokeOrderGrant` runs in the
+same transaction, under a row lock on the order, once per order. It reads the
+order's `grantSnapshot`, which fulfilment writes in the payment transaction:
+
+- **Validity (plan orders).** Nothing stacked after it: restore the plan,
+  `validUntil` and `graceUntil` the purchase replaced. A later purchase extended
+  from it: shift `validUntil`/`graceUntil` back by this order's cycle length,
+  keeping the current plan, because restoring would erase time the later order
+  paid for. A later purchase cold-started after it had lapsed: nothing to shift.
+- **Credits (plan and reply pack).** Remove what the order granted, never below
+  zero, current before banked. One `EXPIRE` row, source `expire:refund`, with the
+  shortfall in `note`. Credits the original grant discarded are not restored.
+- **Extra Instagram account.** One slot removed.
+- **Status** is recomputed from the resulting dates and written, so an `ACTIVE`
+  row never outlives its paid time. The region lock stays.
+- **No snapshot** (paid before snapshots existed): shift back one cycle and remove
+  the catalogue credit amount, with a CRITICAL `refundSnapshotMissing` alert.
+
+**A partial refund revokes nothing.** Money left and access stayed, so it raises
+the CRITICAL `partialRefund` alert to `SUPPORT_EMAIL`. The refund that later
+completes the order's full amount performs the revocation.
+
+**Checks.** `tests/refunds-and-revocation.test.js` covers the endpoint, the state
+machine, every revocation case, replays and concurrent deliveries.
+`tests/ledger-invariant.test.js` includes refunds. `npm run billing:doctor` fails
+on any fully refunded order without a revocation, and warns on partial refunds
+and on refunds `REQUESTED` for over a day.

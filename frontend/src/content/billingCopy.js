@@ -213,10 +213,14 @@ export const billing = {
     columnStatus: 'Status',
     planItem: (planName) => `${planName} plan`,
     addonItem: (addonCode) => (addonCode === 'extra_ig_account' ? 'Extra Instagram account' : 'Reply credits'),
+    // Keyed by OrderHistory's outcomeOf(), not by the raw order status.
     status: {
       CREATED: 'Not completed',
+      ABANDONED: 'Not completed',
+      ATTEMPT_FAILED: 'Payment failed',
       PAID: 'Paid',
-      FAILED: 'Failed',
+      PARTIALLY_REFUNDED: 'Partly refunded',
+      REFUNDED: 'Refunded',
       EXPIRED: 'Expired',
     },
   },

@@ -18,6 +18,7 @@ const { encrypt, decrypt, readAccountToken, writeAccountToken } = require('../li
 const { getAIStats } = require('../services/aiService');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession } = require('../lib/session');
+const refundService = require('../services/refundService');
 
 // Strip password hashes (and any other secrets) before returning user rows.
 function sanitizeUser(user) {
@@ -965,6 +966,77 @@ router.get('/settings', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: "Couldn't load server configuration. Refresh to try again." });
+  }
+});
+
+// ============================================
+// 7. BILLING — REFUNDS (Gates 11b, 11c)
+//
+// Admin-initiated only; there is no self-serve refund. The refund policy is
+// REPORTED with the usage numbers it was decided on, never a hard refusal: an
+// ineligible refund needs overridePolicy: true and an overrideReason, both
+// stored on the refund row. See services/refundService.js.
+// ============================================
+
+/** Answer a refundService error with its own status and body; anything else is a 500. */
+function sendRefundError(res, error, fallback) {
+  if (error.status && error.body) return res.status(error.status).json(error.body);
+  console.error(`[Admin API] ${fallback}:`, error.message);
+  return res.status(500).json({ error: `${fallback}. Try again.` });
+}
+
+// GET /api/admin/billing/orders/:cashfreeOrderId/refund-eligibility
+router.get('/billing/orders/:cashfreeOrderId/refund-eligibility', async (req, res) => {
+  try {
+    res.json(await refundService.getRefundEligibility(req.params.cashfreeOrderId));
+  } catch (error) {
+    sendRefundError(res, error, "Couldn't check that order's refund eligibility");
+  }
+});
+
+// POST /api/admin/billing/orders/:cashfreeOrderId/refunds
+// body: { amount?: integer (smallest unit), reason: string, overridePolicy?: boolean, overrideReason?: string }
+router.post('/billing/orders/:cashfreeOrderId/refunds', async (req, res) => {
+  const { amount, reason, overridePolicy, overrideReason } = req.body || {};
+  try {
+    const result = await refundService.initiateRefund({
+      cashfreeOrderId: req.params.cashfreeOrderId,
+      amount: amount == null ? undefined : amount,
+      reason,
+      overridePolicy,
+      overrideReason,
+      initiatedBy: req.adminUserId,
+    });
+
+    await logAdminAction(
+      req.adminUserId,
+      'BILLING_REFUND_INITIATE',
+      'ORDER',
+      req.params.cashfreeOrderId,
+      {
+        refundId: result.refund.refundId,
+        amount: result.refund.amount,
+        status: result.refund.status,
+        overridePolicy: result.refund.overridePolicy,
+        eligible: result.policy.eligible,
+      },
+      req.ip
+    );
+
+    res.status(201).json(result);
+  } catch (error) {
+    sendRefundError(res, error, "Couldn't start that refund");
+  }
+});
+
+// POST /api/admin/billing/refunds/:refundId/sync — re-read a refund from Cashfree
+router.post('/billing/refunds/:refundId/sync', async (req, res) => {
+  try {
+    const result = await refundService.syncRefund(req.params.refundId);
+    await logAdminAction(req.adminUserId, 'BILLING_REFUND_SYNC', 'REFUND', req.params.refundId, { outcome: result.outcome }, req.ip);
+    res.json(result);
+  } catch (error) {
+    sendRefundError(res, error, "Couldn't re-sync that refund");
   }
 });
 

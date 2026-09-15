@@ -53,9 +53,17 @@ function assertAfterCommit(outerTx, afterCommit, name) {
 }
 
 /** Plan row for a code, or null. Cached per-process would be premature — this table changes rarely and is tiny. */
-async function getPlan(planCode) {
+/**
+ * Pass `db` — the transaction client — whenever this is called inside a
+ * transaction. Reading through the global client there needs a SECOND pool
+ * connection while the transaction already holds one; under a retry storm every
+ * other connection is held by transactions queued behind this one's row lock,
+ * so that second connection never comes and the grant times out. Reproduced
+ * with connection_limit=3 (tests/cashfree-webhook-edge-cases.test.js, 9.6).
+ */
+async function getPlan(planCode, db = prisma) {
   if (!planCode) return null;
-  return prisma.plan.findUnique({ where: { code: planCode } });
+  return db.plan.findUnique({ where: { code: planCode } });
 }
 
 /**
@@ -358,7 +366,7 @@ async function alertPlanAnomaly(details) {
  * from weak/absent evidence — the plan is still granted normally either way.
  */
 async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit } = {}) {
-  const plan = await getPlan(planCode);
+  const plan = await getPlan(planCode, outerTx || prisma);
   if (!plan) throw new Error(`entitlementService.grantPlan: unknown plan code "${planCode}"`);
   assertAfterCommit(outerTx, afterCommit, 'grantPlan');
 
@@ -387,7 +395,7 @@ async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit 
       // renewal and an upgrade are unaffected (the new cap is equal or larger).
       // A downgrade keeps what was paid for under the old plan; the next cycle
       // roll or renewal caps it to the new plan in the normal way.
-      const oldPlan = existing.planCode === planCode ? plan : await getPlan(existing.planCode);
+      const oldPlan = existing.planCode === planCode ? plan : await getPlan(existing.planCode, tx);
       const carryCap = Math.max(plan.autoReplyBankCap ?? 0, oldPlan?.autoReplyBankCap ?? 0);
       carriedBank = Math.min(priorBalance, carryCap);
       if (priorBalance > carriedBank) {
@@ -489,7 +497,8 @@ async function grantAddon(tenantId, addonCode, { tx: outerTx } = {}) {
     });
   }
 
-  const pack = await prisma.addonPack.findUnique({ where: { code: addonCode } });
+  // Through the caller's transaction when there is one — see getPlan.
+  const pack = await (outerTx || prisma).addonPack.findUnique({ where: { code: addonCode } });
   if (!pack) throw new Error(`entitlementService.grantAddon: unknown addon code "${addonCode}"`);
 
   return inTransaction(outerTx, async (tx) => {
@@ -530,7 +539,7 @@ async function rollCycle(tenantId) {
     const entitlement = await tx.entitlement.findUnique({ where: { userId: tenantId } });
     if (!entitlement) return null;
 
-    const plan = await getPlan(entitlement.planCode);
+    const plan = await getPlan(entitlement.planCode, tx);
     const { banked, discarded } = computeBankRollover(entitlement, plan);
 
     const updated = await tx.entitlement.update({
@@ -559,6 +568,158 @@ async function rollCycle(tenantId) {
   });
 }
 
+const DAY_MS = 24 * HOUR_MS;
+
+const sameInstant = (a, b) => Boolean(a && b && new Date(a).getTime() === new Date(b).getTime());
+
+/**
+ * Undo what one fully refunded order granted (Gate 11c). A refund without
+ * revocation is free service. Runs inside the refund's transaction
+ * (services/refundService.js), which has already locked the order and made sure
+ * this happens once per order.
+ *
+ * VALIDITY (plan orders), from the grant snapshot billingFulfillment wrote:
+ *   - nothing stacked on top: restore the plan, validUntil and graceUntil the
+ *     purchase replaced
+ *   - a later plan purchase extended from this one's validUntil: shift validUntil
+ *     and graceUntil back by this order's cycle length instead — restoring the
+ *     old dates would also erase time the later order paid for
+ *   - a later purchase cold-started after this one had lapsed: this order's time
+ *     is already gone, so there is nothing to shift
+ *   - no snapshot (paid before snapshots existed): shift back by one cycle, and
+ *     report snapshotMissing so the caller alerts a human
+ *
+ * CREDITS (plan and reply-pack orders): remove what the order granted, but
+ * never below zero. Taken from current first, then banked. The EXPIRE row
+ * (source expire:refund) always records granted / removed / shortfall in its
+ * note, including a removal of zero — so the ledger invariant holds and a
+ * disputed balance can be explained.
+ *
+ * The extra-IG-account add-on removes one slot. Credits discarded by the
+ * original grant (cold-start forfeit, bank cap) are NOT restored, and the
+ * region lock stays: the payment evidence behind it was real.
+ *
+ * STATUS is recomputed from the resulting dates and written, so an ACTIVE row
+ * can never outlive the paid time behind it.
+ *
+ * @returns {Promise<object>} a JSON-safe summary, stored on the refund row
+ */
+async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null } = {}) {
+  if (!tx) throw new Error('entitlementService.revokeOrderGrant must run inside the refund transaction');
+
+  const tenantId = order.tenantId;
+  const snap = order.grantSnapshot || null;
+  const summary = {
+    cashfreeOrderId: order.cashfreeOrderId,
+    item: order.planCode || order.addonCode,
+    snapshotMissing: !snap,
+    validity: null,
+    credits: null,
+    extraIgAccounts: null,
+    statusBefore: null,
+    statusAfter: null,
+  };
+
+  const e = await tx.entitlement.findUnique({ where: { userId: tenantId } });
+  if (!e) {
+    summary.validity = { mode: 'no_entitlement' };
+    return summary;
+  }
+  summary.statusBefore = effectiveStatus(e, now);
+
+  const data = {};
+
+  if (order.planCode) {
+    const grantedDays = snap?.grantedDays ?? (await getPlan(order.planCode, tx))?.cycleLengthDays ?? 30;
+    const laterPaid = await tx.order.findMany({
+      where: { tenantId, status: 'PAID', planCode: { not: null }, paidAt: { gt: order.paidAt } },
+      orderBy: { paidAt: 'asc' },
+      select: { cashfreeOrderId: true, grantSnapshot: true },
+    });
+    // A later order that was itself fully refunded has already been unwound.
+    const revokedLater = laterPaid.length
+      ? new Set(
+          (
+            await tx.refund.findMany({
+              where: { cashfreeOrderId: { in: laterPaid.map((o) => o.cashfreeOrderId) }, revokedAt: { not: null } },
+              select: { cashfreeOrderId: true },
+            })
+          ).map((r) => r.cashfreeOrderId)
+        )
+      : new Set();
+    const nextLater = laterPaid.find((o) => !revokedLater.has(o.cashfreeOrderId)) || null;
+
+    const shiftBack = () => {
+      const shiftMs = grantedDays * DAY_MS;
+      if (e.validUntil) data.validUntil = new Date(e.validUntil.getTime() - shiftMs);
+      if (e.graceUntil) data.graceUntil = new Date(e.graceUntil.getTime() - shiftMs);
+    };
+
+    if (!nextLater && snap) {
+      data.planCode = snap.priorPlanCode ?? null;
+      data.validUntil = snap.priorValidUntil ? new Date(snap.priorValidUntil) : null;
+      data.graceUntil = snap.priorGraceUntil ? new Date(snap.priorGraceUntil) : null;
+      summary.validity = { mode: 'restored_prior' };
+    } else if (nextLater && snap && sameInstant(nextLater.grantSnapshot?.priorValidUntil, snap.grantedValidUntil)) {
+      shiftBack();
+      summary.validity = { mode: 'shifted_back', days: grantedDays, stackedUnder: nextLater.cashfreeOrderId };
+    } else if (nextLater && snap) {
+      summary.validity = { mode: 'already_superseded', supersededBy: nextLater.cashfreeOrderId };
+    } else {
+      shiftBack();
+      summary.validity = { mode: 'shifted_back_estimate', days: grantedDays };
+    }
+    summary.validity.validUntilBefore = e.validUntil?.toISOString() ?? null;
+    summary.validity.validUntilAfter = ('validUntil' in data ? data.validUntil : e.validUntil)?.toISOString() ?? null;
+  }
+
+  if (order.addonCode === 'extra_ig_account') {
+    data.extraIgAccounts = Math.max(0, e.extraIgAccounts - 1);
+    summary.extraIgAccounts = { before: e.extraIgAccounts, after: data.extraIgAccounts };
+  } else {
+    let granted = snap?.grantedCredits;
+    if (granted == null) {
+      granted = order.planCode
+        ? (await getPlan(order.planCode, tx))?.autoReplyCreditsPerCycle ?? 0
+        : (await tx.addonPack.findUnique({ where: { code: order.addonCode } }))?.creditAmount ?? 0;
+    }
+    const balance = e.replyCreditsCurrent + e.replyCreditsBanked;
+    const removed = Math.min(granted, balance);
+    const fromCurrent = Math.min(removed, e.replyCreditsCurrent);
+    const fromBanked = removed - fromCurrent;
+    const shortfall = granted - removed;
+    data.replyCreditsCurrent = e.replyCreditsCurrent - fromCurrent;
+    data.replyCreditsBanked = e.replyCreditsBanked - fromBanked;
+
+    await tx.creditLedger.create({
+      data: {
+        tenantId,
+        delta: -removed,
+        type: 'EXPIRE',
+        source: 'expire:refund',
+        balanceAfter: balance - removed,
+        note:
+          `refund${refundId ? ` ${refundId}` : ''} of order ${order.cashfreeOrderId}: granted ${granted}, removed ${removed}` +
+          (shortfall > 0 ? `, shortfall ${shortfall} (already spent; balance clamped at zero)` : ''),
+      },
+    });
+    summary.credits = { granted, removed, shortfall, balanceBefore: balance, balanceAfter: balance - removed };
+  }
+
+  // Honest status from the resulting dates.
+  const nextPlan = 'planCode' in data ? data.planCode : e.planCode;
+  const nextValid = 'validUntil' in data ? data.validUntil : e.validUntil;
+  const nextGrace = 'graceUntil' in data ? data.graceUntil : e.graceUntil;
+  if (!nextPlan || !nextValid) data.status = 'NONE';
+  else if (now < nextValid) data.status = nextPlan === 'TRIAL' ? 'TRIALING' : 'ACTIVE';
+  else if (nextGrace && now < nextGrace) data.status = 'GRACE';
+  else data.status = 'EXPIRED';
+
+  const updated = await tx.entitlement.update({ where: { userId: tenantId }, data });
+  summary.statusAfter = effectiveStatus(updated, now);
+  return summary;
+}
+
 module.exports = {
   GRACE_PERIOD_MS,
   // Exported because routes/billing.js needs the SAME list to tell a
@@ -578,4 +739,5 @@ module.exports = {
   grantPlan,
   grantAddon,
   rollCycle,
+  revokeOrderGrant,
 };

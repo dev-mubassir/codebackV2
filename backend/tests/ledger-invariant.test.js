@@ -225,3 +225,70 @@ describe('ledger invariant — every credit-changing path', () => {
     }
   });
 });
+
+describe('ledger invariant — refund revocation', () => {
+  const { fulfillPaidOrder } = require('../src/services/billingFulfillment.js');
+  const { applyRefundStatus } = require('../src/services/refundService.js');
+
+  let paymentSeq = 900000;
+  async function paid(tenantId, { planCode = null, addonCode = null, amount = 49900 } = {}) {
+    const order = await prisma.order.create({
+      data: { cashfreeOrderId: `sfy_${uniq('inv')}`, tenantId, planCode, addonCode, amount, currency: 'INR' },
+    });
+    await fulfillPaidOrder({ cashfreeOrderId: order.cashfreeOrderId, payment: { cf_payment_id: paymentSeq++, payment_group: 'upi' }, rawPayload: '{}' });
+    return order;
+  }
+  const refundInFull = (order, refundId) =>
+    applyRefundStatus({ refundId, cashfreeOrderId: order.cashfreeOrderId, status: 'SUCCESS', refundAmount: order.amount / 100, source: 'test' });
+
+  it('stays balanced through purchases, spends, a pack refund with a shortfall, a partial refund, and a plan refund', async () => {
+    const { user } = await createUser({ withTrial: false, emailVerified: true });
+    const t = user.id;
+    await igIdentity.claimInstagramIdentity({ userId: t, igUserId: uniq('ig-refund'), emailVerified: true });
+    await expectBalanced(t, 'trial');
+
+    const starter = await paid(t, { planCode: 'STARTER' });
+    await expectBalanced(t, 'fulfil STARTER');
+    const pack = await paid(t, { addonCode: 'reply_credits_500', amount: 19900 });
+    await expectBalanced(t, 'fulfil pack');
+
+    for (let i = 1; i <= 30; i++) await svc.spendReplyCredit(t);
+    await expectBalanced(t, '30 spends');
+
+    await refundInFull(pack, 'inv_pack');
+    let e = await expectBalanced(t, 'refund pack');
+    const packExpire = (await expireRows(t)).find((r) => r.source === 'expire:refund');
+    expect(packExpire.delta).toBe(-500);
+
+    const pro = await paid(t, { planCode: 'PRO', amount: 149900 });
+    await expectBalanced(t, 'fulfil PRO');
+    await applyRefundStatus({ refundId: 'inv_partial', cashfreeOrderId: pro.cashfreeOrderId, status: 'SUCCESS', refundAmount: 100, source: 'test' });
+    await expectBalanced(t, 'partial refund of PRO (revokes nothing)');
+
+    for (let i = 1; i <= 5; i++) await svc.spendReplyCredit(t);
+    await refundInFull(starter, 'inv_starter');
+    e = await expectBalanced(t, 'refund STARTER under the stacked PRO');
+    expect(e.planCode).toBe('PRO');
+
+    await svc.rollCycle(t);
+    e = await expectBalanced(t, 'rollCycle after refunds');
+    expect(e.replyCreditsCurrent + e.replyCreditsBanked).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a refund whose credits were all spent writes a zero-delta EXPIRE row with the shortfall, and never goes negative', async () => {
+    const { user } = await createUser({ withTrial: false });
+    const t = user.id;
+    const pack0 = await paid(t, { planCode: 'STARTER' });
+    await prisma.entitlement.update({ where: { userId: t }, data: { replyCreditsCurrent: 0 } });
+    await prisma.creditLedger.create({ data: { tenantId: t, delta: -500, type: 'SPEND', source: 'auto_reply_spend', balanceAfter: 0 } });
+    await expectBalanced(t, 'all spent');
+
+    await refundInFull(pack0, 'inv_all_spent');
+
+    const e = await expectBalanced(t, 'refund with nothing left');
+    expect(e.replyCreditsCurrent + e.replyCreditsBanked).toBe(0);
+    const row = (await expireRows(t)).find((r) => r.source === 'expire:refund');
+    expect(row.delta).toBe(0);
+    expect(row.note).toMatch(/removed 0, shortfall 500/);
+  });
+});

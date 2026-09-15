@@ -20,8 +20,12 @@
 const express = require('express');
 const router = express.Router();
 const { verifyWebhookSignature } = require('../lib/cashfree');
-const { fulfillPaidOrder, markPaymentFailed } = require('../services/billingFulfillment');
+const { fulfillPaidOrder, recordPaymentAttempt } = require('../services/billingFulfillment');
+const { applyRefundStatus } = require('../services/refundService');
 const { isBillingEnabled } = require('../lib/billingFlags');
+
+/** Attempt outcomes that are recorded on their own and never change the order. */
+const ATTEMPT_ONLY_EVENTS = ['PAYMENT_FAILED_WEBHOOK', 'PAYMENT_USER_DROPPED_WEBHOOK'];
 
 router.post('/', async (req, res) => {
   // Same posture as billing checkout: while billing is dark, this endpoint
@@ -48,36 +52,39 @@ router.post('/', async (req, res) => {
   // wrong on every retry, so a 5xx here is an infinite retry loop and a 4xx is
   // the same loop with a different number. A genuine payment is not lost by
   // acking it: the nightly reconciliation job asks Cashfree directly about
-  // every order still pending.
+  // every order still pending, and an admin can re-sync any refund.
   //
-  // order_id MUST be a string before it goes anywhere near Prisma: an object
-  // or a number there is a validation throw, i.e. exactly that 5xx loop.
+  // ids MUST be strings before they go anywhere near Prisma: an object or a
+  // number there is a validation throw, i.e. exactly that 5xx loop.
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
   const { type, data } = body;
+  const rawPayload = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+
+  if (type === 'REFUND_STATUS_WEBHOOK') {
+    return handleRefundWebhook(data, rawPayload, res);
+  }
+
   const rawOrderId = data?.order?.order_id;
   const orderId = typeof rawOrderId === 'string' && rawOrderId.length > 0 ? rawOrderId : null;
   const paymentStatus = data?.payment?.payment_status;
-  const rawPayload = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
 
-  if (type === 'PAYMENT_FAILED_WEBHOOK') {
+  if (ATTEMPT_ONLY_EVENTS.includes(type)) {
+    // A failed or abandoned ATTEMPT. The order stays CREATED — the customer can
+    // still pay it until it expires — and the attempt is kept on its own row.
     if (!orderId) {
-      console.warn(`[CashfreeWebhook] Malformed PAYMENT_FAILED_WEBHOOK (order_id: ${JSON.stringify(rawOrderId)}) — acknowledged, no state change.`);
+      console.warn(`[CashfreeWebhook] Malformed ${type} (order_id: ${JSON.stringify(rawOrderId)}) — acknowledged, nothing recorded.`);
       return res.status(200).send('OK');
     }
     try {
-      await markPaymentFailed({ cashfreeOrderId: orderId, rawPayload });
+      await recordPaymentAttempt({ cashfreeOrderId: orderId, eventType: type, payment: data?.payment, rawPayload });
       return res.status(200).send('OK');
     } catch (error) {
-      console.error('[CashfreeWebhook] Recording a failed payment failed:', error.name, error.message);
+      console.error(`[CashfreeWebhook] Recording a ${type} attempt failed:`, error.name, error.message);
       return res.status(500).send('Processing failed');
     }
   }
 
   if (type !== 'PAYMENT_SUCCESS_WEBHOOK') {
-    // PAYMENT_USER_DROPPED_WEBHOOK and similar credit nothing and change
-    // nothing: a dropped checkout stays CREATED, because the customer can
-    // still come back and pay the same order, and the reconciliation job's
-    // 7-day rule retires it if they never do.
     console.log(`[CashfreeWebhook] Received "${type}" for order ${orderId} — logged, no state change applied.`);
     return res.status(200).send('OK');
   }
@@ -98,7 +105,7 @@ router.post('/', async (req, res) => {
   try {
     // Every outcome is acknowledged: granted, already processed, an unknown
     // order (retrying changes nothing), and a payment on an order we already
-    // expired (logged loudly inside fulfillPaidOrder — retrying cannot fix it).
+    // expired (alerted inside fulfillPaidOrder — retrying cannot fix it).
     // Only a thrown error, which rolled everything back, asks for a retry.
     await fulfillPaidOrder({ cashfreeOrderId: orderId, payment: data.payment, rawPayload });
     return res.status(200).send('OK');
@@ -107,5 +114,48 @@ router.post('/', async (req, res) => {
     return res.status(500).send('Processing failed');
   }
 });
+
+/**
+ * REFUND_STATUS_WEBHOOK — same signature verification (above), same posture on
+ * malformed payloads, and the same retry contract: 200 only once the status
+ * (and any revocation) has committed.
+ *
+ * The webhook shape differs from the REST refund object: cf_refund_id is a
+ * number here, and speeds are flat fields. Only the fields below are read.
+ */
+async function handleRefundWebhook(data, rawPayload, res) {
+  const refund = data?.refund;
+  const refundId = typeof refund?.refund_id === 'string' && refund.refund_id.length > 0 ? refund.refund_id : null;
+  const orderId = typeof refund?.order_id === 'string' && refund.order_id.length > 0 ? refund.order_id : null;
+  const status = typeof refund?.refund_status === 'string' ? refund.refund_status : null;
+
+  if (!refundId || !orderId || !status) {
+    console.error(
+      `[CashfreeWebhook] Malformed REFUND_STATUS_WEBHOOK (refund_id: ${JSON.stringify(refund?.refund_id)}, ` +
+        `order_id: ${JSON.stringify(refund?.order_id)}, status: ${JSON.stringify(refund?.refund_status)}) — acknowledged. ` +
+        'Re-sync the refund from the admin endpoint if it was real.'
+    );
+    return res.status(200).send('OK');
+  }
+
+  try {
+    await applyRefundStatus({
+      refundId,
+      cashfreeOrderId: orderId,
+      status,
+      refundAmount: refund.refund_amount,
+      cfRefundId: refund.cf_refund_id,
+      arn: refund.refund_arn,
+      statusDescription: refund.status_description,
+      processedAt: refund.processed_at,
+      rawPayload,
+      source: 'webhook',
+    });
+    return res.status(200).send('OK');
+  } catch (error) {
+    console.error('[CashfreeWebhook] Refund status processing failed:', error.name, error.message);
+    return res.status(500).send('Processing failed');
+  }
+}
 
 module.exports = router;
