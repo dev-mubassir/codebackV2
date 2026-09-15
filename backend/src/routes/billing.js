@@ -16,7 +16,8 @@ const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { isBillingEnabled, isUsdPricingEnabled, isMetaApproved } = require('../lib/billingFlags');
 const { effectiveStatus, LIVE_STATUSES, downgradeBlock } = require('../services/entitlementService');
-const { hashIgUserId, TRIAL_OUTCOMES } = require('../lib/igIdentity');
+const { TRIAL_OUTCOMES, trialStatusForUser, claimTrialForUser } = require('../lib/igIdentity');
+const { createRateLimiter } = require('../lib/rateLimit');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
 // would still leak "this route exists and requires login", which is more
@@ -244,27 +245,11 @@ router.get('/summary', async (req, res) => {
     if (status === 'TRIALING' && plan?.code === 'TRIAL') {
       trialStatus = TRIAL_OUTCOMES.TRIAL_GRANTED;
     } else if (status === 'NONE') {
-      const [owner, connected] = await Promise.all([
-        prisma.user.findUnique({ where: { id: tenantId }, select: { emailVerifiedAt: true } }),
-        prisma.instagramAccount.findMany({
-          where: { userId: tenantId, connectionStatus: 'CONNECTED' },
-          select: { igUserId: true },
-        }),
-      ]);
-      const hashes = [...new Set(connected.map((a) => hashIgUserId(a.igUserId)))];
-      const spent = hashes.length
-        ? await prisma.instagramIdentity.count({ where: { igUserIdHash: { in: hashes }, trialConsumedAt: { not: null } } })
-        : 0;
-
-      // Same precedence as the claim: a spent trial outranks an unverified
-      // email, since confirming the address would not change the answer.
-      if (hashes.length > 0 && spent === hashes.length) {
-        trialStatus = TRIAL_OUTCOMES.TRIAL_ALREADY_CONSUMED;
-      } else if (!owner?.emailVerifiedAt) {
-        trialStatus = TRIAL_OUTCOMES.EMAIL_UNVERIFIED;
-      } else {
-        trialStatus = TRIAL_OUTCOMES.TRIAL_NOT_STARTED;
-      }
+      // The SAME decision a claim makes (igIdentity.trialDecision), not a
+      // re-derivation of it. The hand-rolled version here reported
+      // TRIAL_NOT_STARTED for a connected, eligible, never-claimed account —
+      // telling someone with Instagram connected to go and connect it.
+      trialStatus = await trialStatusForUser(tenantId);
     }
 
     // Plans this tenant cannot buy yet — computed with the SAME rule the
@@ -416,6 +401,51 @@ router.get('/summary', async (req, res) => {
   } catch (error) {
     console.error('[Billing] Failed to load the billing summary:', error.message);
     return res.status(500).json({ error: "Couldn't load your billing details. Try again." });
+  }
+});
+
+/**
+ * POST /api/billing/trial/claim — start the trial for an ALREADY-connected account.
+ *
+ * The connect callback used to be the only way into a trial, so an account
+ * that became eligible after it was linked could get there only by
+ * disconnecting and reconnecting. This runs the identical rules and writes
+ * (igIdentity.claimTrialForUser -> trialDecision + grantTrialInTx) and answers
+ * with the same trialOutcome codes. It powers "Start my trial" on the
+ * TRIAL_CLAIMABLE card.
+ *
+ * IDEMPOTENT: a second claim — a double click — is ALREADY_ENTITLED with a
+ * 200, never a second grant; the grant's conditional writes guarantee one
+ * trial even when the two requests race. A refusal is a 4xx carrying the
+ * code, so the page can say why.
+ *
+ * Rate-limited per user, not per IP: the claim is only meaningful for the
+ * session's own tenant, and a shared office IP should not throttle neighbours.
+ */
+const trialClaimLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  keyBy: (req) => req.userId,
+  message: 'Too many attempts to start a trial. Try again in a few minutes.',
+});
+
+const TRIAL_CLAIM_HTTP_STATUS = {
+  [TRIAL_OUTCOMES.TRIAL_GRANTED]: 200,
+  [TRIAL_OUTCOMES.ALREADY_ENTITLED]: 200,
+  [TRIAL_OUTCOMES.TRIAL_ALREADY_CONSUMED]: 409,
+  [TRIAL_OUTCOMES.TRIAL_NOT_STARTED]: 409,
+  [TRIAL_OUTCOMES.EMAIL_UNVERIFIED]: 403,
+  [TRIAL_OUTCOMES.ACCOUNT_BLOCKED]: 403,
+};
+
+router.post('/trial/claim', trialClaimLimiter, async (req, res) => {
+  try {
+    const { trialGranted, trialOutcome } = await claimTrialForUser({ userId: req.userId });
+    console.log(`[Billing] Trial claim for user ${req.userId} — trial outcome: ${trialOutcome}.`);
+    return res.status(TRIAL_CLAIM_HTTP_STATUS[trialOutcome] ?? 409).json({ trialGranted, trialOutcome });
+  } catch (error) {
+    console.error('[Billing] Trial claim failed:', error.message);
+    return res.status(500).json({ error: "Couldn't start your trial. Try again." });
   }
 });
 

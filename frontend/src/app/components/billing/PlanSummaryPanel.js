@@ -38,18 +38,18 @@ function Item({ label, children }) {
 }
 
 export default function PlanSummaryPanel() {
-  const { summary, error } = useBillingSummary();
+  const { summary, error, reload } = useBillingSummary();
 
   // Nothing while loading or on failure. This panel is a convenience on a page
   // that has its own job; a spinner or an error box here would compete with
   // the settings form. /billing carries the full state and the retry.
   if (error || !summary) return null;
 
-  return <PlanSummaryPanelView summary={summary} />;
+  return <PlanSummaryPanelView summary={summary} onClaimed={reload} />;
 }
 
 /** The panel itself, for a given summary — split from the fetch so it renders identically for any summary handed to it. */
-export function PlanSummaryPanelView({ summary }) {
+export function PlanSummaryPanelView({ summary, onClaimed }) {
   const state = trialCardState(summary);
   if (replacesPlanPanels(state)) {
     return (
@@ -58,6 +58,7 @@ export function PlanSummaryPanelView({ summary }) {
         state={state}
         connectHref={getInstagramAuthUrl()}
         plansHref="/billing#plans"
+        onClaimed={onClaimed}
       />
     );
   }

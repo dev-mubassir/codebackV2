@@ -252,6 +252,23 @@ export const billing = {
     resent: 'Confirmation email sent. Check your inbox.',
     resendFailed: "Couldn't send that email just now. Try again shortly.",
 
+    // TRIAL_CLAIMABLE — connected and eligible, but the trial never started.
+    claimableTitle: (days) =>
+      days ? `Your ${days}-day free trial is ready to start` : 'Your free trial is ready to start',
+    claimableBody:
+      "Your Instagram account is connected and hasn't had a free trial yet. It starts the moment you press the button — not before. No payment details needed.",
+    claimButton: 'Start my trial',
+    claiming: 'Starting',
+    // Keyed by the claim's trialOutcome. The page reloads into the matching
+    // card as well; this line says what just happened.
+    claimRefused: {
+      TRIAL_ALREADY_CONSUMED: 'This Instagram account has already used its free trial.',
+      EMAIL_UNVERIFIED: 'Confirm your email address first, then start your trial.',
+      TRIAL_NOT_STARTED: 'Connect an Instagram account first.',
+      ACCOUNT_BLOCKED: "This Instagram account can't start a trial. Contact support.",
+    },
+    claimFailed: "Couldn't start your trial just now. Try again shortly.",
+
     // Shown inside PlanStatusCard for a live trial.
     whenItEnds: (date) =>
       `When your trial ends on ${date}, Siffty stops sorting and answering new messages. They still arrive in your inbox, and nothing is charged — there is no card on file.`,

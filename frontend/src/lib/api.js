@@ -396,6 +396,17 @@ export async function resendVerification() {
   return data;
 }
 
+/**
+ * Start the free trial for an Instagram account that is ALREADY connected.
+ * Resolves with { trialGranted, trialOutcome }. A refusal (spent trial,
+ * unconfirmed email, nothing connected) rejects, with the same body on
+ * err.response.data.
+ */
+export async function claimTrial() {
+  const { data } = await api.post('/api/billing/trial/claim');
+  return data;
+}
+
 /** Attach an email to a legacy Instagram-created account that has none. */
 export async function addEmail(email) {
   const { data } = await api.post('/auth/add-email', { email });

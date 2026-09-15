@@ -54,6 +54,18 @@ const TRIAL_OUTCOMES = Object.freeze({
    */
   ALREADY_ENTITLED: 'ALREADY_ENTITLED',
   TRIAL_NOT_STARTED: 'TRIAL_NOT_STARTED',
+  /**
+   * Eligible, connected, and never claimed: a verified user with no trial or
+   * plan, whose connected Instagram account has not had its trial. Reported by
+   * the billing summary; a claim never returns it — it turns it into
+   * TRIAL_GRANTED.
+   *
+   * Reachable because a trial is granted only when a connect runs the claim,
+   * and "eligible" can become true AFTER the account is linked (a cleared
+   * stamp, a removed entitlement). This used to fall through to
+   * TRIAL_NOT_STARTED, telling a connected user to connect an account.
+   */
+  TRIAL_CLAIMABLE: 'TRIAL_CLAIMABLE',
 });
 
 /**
@@ -139,6 +151,230 @@ function purgeAfterDate(from = new Date()) {
 }
 
 /**
+ * THE TRIAL ELIGIBILITY RULES — the only copy.
+ *
+ * Every way into a trial decides here: the connect callback
+ * (claimInstagramIdentity), POST /api/billing/trial/claim (claimTrialForUser),
+ * and the billing summary, which reports what a claim would do. Two copies of
+ * these rules would drift, and whichever drifted looser would be the one
+ * handing out free trials.
+ *
+ * Pure — no reads, no writes. The order IS the rule:
+ *   1. a user who has (or had) a trial or plan is never granted another
+ *   2. a spent identity — confirming an email would not change the answer
+ *   3. only blocked identities connected (user-level paths only; the connect
+ *      callback refuses a blocked identity before it gets here)
+ *   4. an unconfirmed email
+ *   5. no connected account to claim with
+ *   otherwise TRIAL_CLAIMABLE: grant now.
+ *
+ * @param {object} args
+ * @param {{trialConsumedAt: Date|null}|null} args.identity  the identity a grant would stamp, or null
+ * @param {boolean} [args.blocked]         true when every connected identity is blocked
+ * @param {boolean} args.emailVerified
+ * @param {{status: string}|null} args.entitlement
+ * @returns {string} a TRIAL_OUTCOMES value
+ */
+function trialDecision({ identity, blocked = false, emailVerified, entitlement }) {
+  if (entitlement && entitlement.status !== 'NONE') return TRIAL_OUTCOMES.ALREADY_ENTITLED;
+  if (identity?.trialConsumedAt) return TRIAL_OUTCOMES.TRIAL_ALREADY_CONSUMED;
+  if (!identity && blocked) return TRIAL_OUTCOMES.ACCOUNT_BLOCKED;
+  if (!emailVerified) return TRIAL_OUTCOMES.EMAIL_UNVERIFIED;
+  if (!identity) return TRIAL_OUTCOMES.TRIAL_NOT_STARTED;
+  return TRIAL_OUTCOMES.TRIAL_CLAIMABLE;
+}
+
+/**
+ * A concurrent request granted first: one of grantTrialInTx's conditional
+ * writes matched nothing. Throwing rolls the whole transaction back —
+ * including a stamp this attempt already wrote — and retryOnceIfRaceLost
+ * re-runs the decision, which then reads the winner's committed rows.
+ */
+class TrialGrantRaceLost extends Error {
+  constructor(what) {
+    super(`Trial grant lost a race: ${what}`);
+    this.name = 'TrialGrantRaceLost';
+  }
+}
+
+async function retryOnceIfRaceLost(run) {
+  try {
+    return await run();
+  } catch (err) {
+    if (err instanceof TrialGrantRaceLost) return run();
+    throw err;
+  }
+}
+
+/**
+ * Grant the trial and stamp the identity — together, inside the caller's
+ * transaction, or not at all. The only code that writes a trial grant.
+ *
+ * ONE TRIAL UNDER CONCURRENCY, WITHOUT LOCKS. Every write is conditional on
+ * the state the decision was made from, and must match exactly one row:
+ *   - the stamp WHERE trialConsumedAt IS NULL. A concurrent stamp of the same
+ *     identity waits on the row, re-checks after the first commits, and
+ *     matches nothing.
+ *   - the entitlement: created (userId is unique, so a concurrent create
+ *     fails), or a NONE row lifted WHERE status = 'NONE'.
+ * A write that matches nothing throws TrialGrantRaceLost. So a double click,
+ * or a claim racing a connect of a second account, grants one trial and
+ * stamps one identity.
+ *
+ * STAMP ONLY WHAT WAS GRANTED. trialConsumedAt is a permanent record that
+ * this Instagram account had its one free trial. Stamping an identity that
+ * received nothing silently and permanently denied that account a legitimate
+ * trial later, on any Siffty account — which is why the stamp lives here,
+ * next to the grant, and nowhere else.
+ *
+ * Grants into Entitlement directly (planCode 'TRIAL', cycleStartedAt +
+ * validUntil) rather than through entitlementService.grantPlan — that
+ * function's renewal math (rolling a bank, extending from a prior validUntil)
+ * does not apply to a first-ever trial, and a trial is not a Plan a tenant
+ * "purchases". See schema.prisma's Entitlement comment.
+ */
+async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
+  const now = new Date();
+
+  const stamped = await tx.instagramIdentity.updateMany({
+    where: { igUserIdHash, trialConsumedAt: null },
+    data: { trialConsumedAt: now },
+  });
+  if (stamped.count !== 1) throw new TrialGrantRaceLost('identity already stamped');
+
+  // A NONE row should hold nothing. If it ever did, the trial grant below
+  // replaces that balance, and the replacement is recorded.
+  const priorCurrent = entitlement?.replyCreditsCurrent ?? 0;
+  const trialFields = {
+    planCode: 'TRIAL',
+    status: 'TRIALING',
+    cycleStartedAt: now,
+    validUntil: trialEndDate(now),
+    replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
+  };
+
+  if (entitlement) {
+    // trialDecision only lets a NONE row through, so this cannot reset a real trial or plan.
+    const lifted = await tx.entitlement.updateMany({ where: { userId, status: 'NONE' }, data: trialFields });
+    if (lifted.count !== 1) throw new TrialGrantRaceLost('entitlement is no longer NONE');
+  } else {
+    try {
+      await tx.entitlement.create({ data: { userId, ...trialFields }, select: { id: true } });
+    } catch (err) {
+      if (err.code === 'P2002') throw new TrialGrantRaceLost('entitlement created concurrently');
+      throw err;
+    }
+  }
+
+  const granted = await tx.entitlement.findUnique({ where: { userId }, select: ENTITLEMENT_CONNECT_FIELDS });
+
+  // The trial's credits go through the ledger like every other credit.
+  if (priorCurrent > 0) {
+    await tx.creditLedger.create({
+      data: {
+        tenantId: userId,
+        delta: -priorCurrent,
+        type: 'EXPIRE',
+        source: 'expire:trial_grant_replaced_balance',
+        balanceAfter: granted.replyCreditsBanked,
+      },
+    });
+  }
+  await tx.creditLedger.create({
+    data: {
+      tenantId: userId,
+      delta: TRIAL_AUTO_REPLY_CREDITS,
+      type: 'GRANT',
+      source: 'trial_grant',
+      balanceAfter: granted.replyCreditsCurrent + granted.replyCreditsBanked,
+    },
+  });
+
+  return { entitlement: granted };
+}
+
+/**
+ * What trialDecision needs for a USER, rather than for one connect: their
+ * email stamp, their entitlement, and the connected identity a claim would
+ * stamp.
+ *
+ * With several connected accounts an unspent, unblocked identity is chosen
+ * over a spent one — a spent account must not hide a claimable one — then by
+ * hash, so the choice is stable. An account linked before the ledger existed
+ * has no identity row; it counts as unspent (`missing`), and a claim creates
+ * the row.
+ *
+ * Read-only. `db` is prisma or a transaction client.
+ */
+async function loadUserTrialContext(db, userId) {
+  const owner = await db.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
+  const entitlement = await db.entitlement.findUnique({ where: { userId }, select: ENTITLEMENT_CONNECT_FIELDS });
+  const connected = await db.instagramAccount.findMany({
+    where: { userId, connectionStatus: 'CONNECTED' },
+    select: { igUserId: true },
+  });
+
+  const hashes = [...new Set(connected.map((a) => hashIgUserId(a.igUserId)))].sort();
+  const rows = hashes.length
+    ? await db.instagramIdentity.findMany({
+        where: { igUserIdHash: { in: hashes } },
+        select: { igUserIdHash: true, trialConsumedAt: true, blockedAt: true },
+      })
+    : [];
+  const byHash = new Map(rows.map((r) => [r.igUserIdHash, r]));
+  const candidates = hashes.map(
+    (h) => byHash.get(h) || { igUserIdHash: h, trialConsumedAt: null, blockedAt: null, missing: true }
+  );
+  const usable = candidates.filter((c) => !c.blockedAt);
+
+  return {
+    emailVerified: Boolean(owner?.emailVerifiedAt),
+    entitlement,
+    identity: usable.find((c) => !c.trialConsumedAt) || usable[0] || null,
+    blocked: candidates.length > 0 && usable.length === 0,
+  };
+}
+
+/** What a claim would do for this user right now — the billing summary's `trialStatus` for a NONE tenant. */
+async function trialStatusForUser(userId) {
+  return trialDecision(await loadUserTrialContext(prisma, userId));
+}
+
+/**
+ * Start the trial for a user whose Instagram account is ALREADY connected —
+ * POST /api/billing/trial/claim. Same rules (trialDecision), same writes
+ * (grantTrialInTx), same outcome codes as the connect callback.
+ *
+ * Why it exists: the connect callback was the only way in. An account that
+ * became eligible after it was linked could reach its trial only by
+ * disconnecting and reconnecting.
+ *
+ * @returns {Promise<{trialGranted: boolean, trialOutcome: string}>}
+ */
+async function claimTrialForUser({ userId }) {
+  return retryOnceIfRaceLost(() =>
+    prisma.$transaction(async (tx) => {
+      const ctx = await loadUserTrialContext(tx, userId);
+      const decision = trialDecision(ctx);
+      if (decision !== TRIAL_OUTCOMES.TRIAL_CLAIMABLE) return { trialGranted: false, trialOutcome: decision };
+
+      const { igUserIdHash } = ctx.identity;
+      if (ctx.identity.missing) {
+        try {
+          await tx.instagramIdentity.create({ data: { igUserIdHash, purgeAfter: purgeAfterDate() } });
+        } catch (err) {
+          if (err.code === 'P2002') throw new TrialGrantRaceLost('identity row created concurrently');
+          throw err;
+        }
+      }
+
+      await grantTrialInTx(tx, { userId, igUserIdHash, entitlement: ctx.entitlement });
+      return { trialGranted: true, trialOutcome: TRIAL_OUTCOMES.TRIAL_GRANTED };
+    })
+  );
+}
+
+/**
  * Decide whether `userId` may link `igUserId`, and grant a trial if they are
  * entitled to one. Everything happens in a single transaction.
  *
@@ -157,143 +393,73 @@ function purgeAfterDate(from = new Date()) {
 async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
   const igUserIdHash = hashIgUserId(igUserId);
 
-  return prisma.$transaction(async (tx) => {
-    // --- 1. Find or create the ledger row -------------------------------
-    // Upsert rather than find-then-create: two concurrent connects of the same
-    // account would both see "not found" and both insert.
-    let identity = await tx.instagramIdentity.upsert({
-      where: { igUserIdHash },
-      create: { igUserIdHash, purgeAfter: purgeAfterDate() },
-      update: {},
-    });
-
-    // --- 2. Hard block ---------------------------------------------------
-    if (identity.blockedAt) {
-      return { ok: false, reason: 'blocked', trialOutcome: TRIAL_OUTCOMES.ACCOUNT_BLOCKED };
-    }
-
-    // --- 3. Is it actively linked to someone else? -----------------------
-    // At most one CONNECTED row can exist per Instagram account
-    // (ig_one_active_link), so this is a single lookup rather than a scan.
-    const activeLink = await tx.instagramAccount.findFirst({
-      where: { igUserId: String(igUserId), connectionStatus: 'CONNECTED' },
-      select: { id: true, userId: true },
-    });
-
-    if (activeLink && activeLink.userId !== userId) {
-      const conversationCount = await tx.conversation.count({
-        where: { instagramAccountId: activeLink.id },
+  return retryOnceIfRaceLost(() =>
+    prisma.$transaction(async (tx) => {
+      // --- 1. Find or create the ledger row -------------------------------
+      // Upsert rather than find-then-create: two concurrent connects of the same
+      // account would both see "not found" and both insert.
+      let identity = await tx.instagramIdentity.upsert({
+        where: { igUserIdHash },
+        create: { igUserIdHash, purgeAfter: purgeAfterDate() },
+        update: {},
       });
-      return {
-        ok: false,
-        reason: 'connected_elsewhere',
-        trialOutcome: TRIAL_OUTCOMES.ACCOUNT_ALREADY_LINKED,
-        ownerUserId: activeLink.userId,
-        activeAccountId: activeLink.id,
-        conversationCount,
-      };
-    }
 
-    // --- 4. Trial entitlement --------------------------------------------
-    // Reconnecting the SAME account must be idempotent: no error, and no
-    // second trial. trialConsumedAt is what makes that true, and it is
-    // stamped exactly once, ever.
-    //
-    // Grants into Entitlement directly (planCode 'TRIAL', cycleStartedAt +
-    // validUntil) rather than through entitlementService.grantPlan — that
-    // function's renewal math (rolling a bank, extending from a prior
-    // validUntil) does not apply to a first-ever trial grant, and a trial
-    // is not a Plan a tenant "purchases". See schema.prisma's Entitlement
-    // comment for the full Subscription -> Entitlement field mapping.
-    const alreadyConsumed = Boolean(identity.trialConsumedAt);
-    let entitlement = await tx.entitlement.findUnique({
-      where: { userId },
-      select: ENTITLEMENT_CONNECT_FIELDS,
-    });
-    let trialGranted = false;
-    // Captured BEFORE the grant block: a user who already has (or had) a trial
-    // or plan is never re-granted by connecting another account.
-    const hadEntitlement = Boolean(entitlement && entitlement.status !== 'NONE');
+      // --- 2. Hard block ---------------------------------------------------
+      if (identity.blockedAt) {
+        return { ok: false, reason: 'blocked', trialOutcome: TRIAL_OUTCOMES.ACCOUNT_BLOCKED };
+      }
 
-    // STAMP ONLY WHAT WAS GRANTED. trialConsumedAt is a permanent record that
-    // this Instagram account has had its one free trial. Stamping an identity
-    // that received nothing — because the connecting user already had a trial
-    // or plan — was a false record: it silently and permanently denied that
-    // account a legitimate trial later, on any Siffty account. So the grant
-    // and the stamp happen together or not at all, and a user who already
-    // has an entitlement gets neither.
-    if (!alreadyConsumed && emailVerified && !hadEntitlement) {
-      const now = new Date();
-      // A NONE row should hold nothing. If it ever did, the trial grant below
-      // replaces that balance, and the replacement is recorded.
-      const priorCurrent = entitlement?.replyCreditsCurrent ?? 0;
-      const trialFields = {
-        planCode: 'TRIAL',
-        status: 'TRIALING',
-        cycleStartedAt: now,
-        validUntil: trialEndDate(now),
-        replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
-      };
-      entitlement = await tx.entitlement.upsert({
+      // --- 3. Is it actively linked to someone else? -----------------------
+      // At most one CONNECTED row can exist per Instagram account
+      // (ig_one_active_link), so this is a single lookup rather than a scan.
+      const activeLink = await tx.instagramAccount.findFirst({
+        where: { igUserId: String(igUserId), connectionStatus: 'CONNECTED' },
+        select: { id: true, userId: true },
+      });
+
+      if (activeLink && activeLink.userId !== userId) {
+        const conversationCount = await tx.conversation.count({
+          where: { instagramAccountId: activeLink.id },
+        });
+        return {
+          ok: false,
+          reason: 'connected_elsewhere',
+          trialOutcome: TRIAL_OUTCOMES.ACCOUNT_ALREADY_LINKED,
+          ownerUserId: activeLink.userId,
+          activeAccountId: activeLink.id,
+          conversationCount,
+        };
+      }
+
+      // --- 4. Trial entitlement --------------------------------------------
+      // Reconnecting the SAME account must be idempotent: no error, and no
+      // second trial. trialConsumedAt is what makes that true, and it is
+      // stamped exactly once, ever.
+      //
+      // The rules are trialDecision()'s and the writes are grantTrialInTx()'s —
+      // shared with POST /api/billing/trial/claim, so the two ways into a trial
+      // cannot come to disagree. See both for the reasoning.
+      let entitlement = await tx.entitlement.findUnique({
         where: { userId },
         select: ENTITLEMENT_CONNECT_FIELDS,
-        create: { userId, ...trialFields },
-        // Reached only with no row or a NONE row (hadEntitlement is false), so
-        // lifting it cannot reset a real trial or plan.
-        update: trialFields,
       });
-
-      // The trial's credits go through the ledger like every other credit.
-      // This used to be the one grant with no row: 25 credits held, 0 recorded.
-      if (priorCurrent > 0) {
-        await tx.creditLedger.create({
-          data: {
-            tenantId: userId,
-            delta: -priorCurrent,
-            type: 'EXPIRE',
-            source: 'expire:trial_grant_replaced_balance',
-            balanceAfter: entitlement.replyCreditsBanked,
-          },
-        });
+      let trialOutcome = trialDecision({ identity, emailVerified, entitlement });
+      let trialGranted = false;
+      if (trialOutcome === TRIAL_OUTCOMES.TRIAL_CLAIMABLE) {
+        ({ entitlement } = await grantTrialInTx(tx, { userId, igUserIdHash, entitlement }));
+        trialOutcome = TRIAL_OUTCOMES.TRIAL_GRANTED;
+        trialGranted = true;
       }
-      await tx.creditLedger.create({
-        data: {
-          tenantId: userId,
-          delta: TRIAL_AUTO_REPLY_CREDITS,
-          type: 'GRANT',
-          source: 'trial_grant',
-          balanceAfter: entitlement.replyCreditsCurrent + entitlement.replyCreditsBanked,
-        },
-      });
 
-      // The stamp and the grant are in the same transaction. This is the
-      // invariant the whole ledger rests on.
+      // --- 5. Link count ----------------------------------------------------
       identity = await tx.instagramIdentity.update({
         where: { igUserIdHash },
-        data: { trialConsumedAt: now },
+        data: { linkCount: { increment: 1 }, purgeAfter: purgeAfterDate() },
       });
-      trialGranted = true;
-    }
 
-    // Every branch has a reason, and the reason is RETURNED. Order matters: a
-    // spent trial outranks an unverified email, because confirming the address
-    // would not change the answer.
-    const trialOutcome = hadEntitlement
-      ? TRIAL_OUTCOMES.ALREADY_ENTITLED
-      : trialGranted
-        ? TRIAL_OUTCOMES.TRIAL_GRANTED
-        : alreadyConsumed
-          ? TRIAL_OUTCOMES.TRIAL_ALREADY_CONSUMED
-          : TRIAL_OUTCOMES.EMAIL_UNVERIFIED;
-
-    // --- 5. Link count ----------------------------------------------------
-    identity = await tx.instagramIdentity.update({
-      where: { igUserIdHash },
-      data: { linkCount: { increment: 1 }, purgeAfter: purgeAfterDate() },
-    });
-
-    return { ok: true, trialGranted, trialOutcome, identity, entitlement };
-  });
+      return { ok: true, trialGranted, trialOutcome, identity, entitlement };
+    })
+  );
 }
 
 /**
@@ -332,7 +498,10 @@ module.exports = {
   TRIAL_AUTO_REPLY_CREDITS,
   LEDGER_RETENTION_MONTHS,
   hashIgUserId,
+  trialDecision,
   claimInstagramIdentity,
+  claimTrialForUser,
+  trialStatusForUser,
   hasActiveEntitlement,
   trialEndDate,
   purgeAfterDate,

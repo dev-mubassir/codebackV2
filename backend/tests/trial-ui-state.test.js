@@ -59,6 +59,31 @@ describe('trialCardState — which card a page renders', () => {
   it('a paying tenant gets no trial card', () => {
     expect(trialCardState(active)).toBeNull();
   });
+
+  it('connected, eligible and never claimed -> the CLAIMABLE card, never the connect prompt', () => {
+    const state = trialCardState(none('TRIAL_CLAIMABLE'));
+    expect(state).toBe(TRIAL_CARD.CLAIMABLE);
+    expect(state).not.toBe(TRIAL_CARD.NOT_STARTED);
+    expect(replacesPlanPanels(state)).toBe(true);
+  });
+
+  it('a claim from the card confirms like a connect: TRIAL_GRANTED passed as the just-connected outcome', () => {
+    expect(trialCardState(trialing, { justConnectedOutcome: 'TRIAL_GRANTED' })).toBe(TRIAL_CARD.GRANTED);
+  });
+});
+
+describe('the claim copy', () => {
+  it('CLAIMABLE offers "Start my trial" and never asks to connect', () => {
+    expect(billing.trial.claimButton).toBe('Start my trial');
+    expect(billing.trial.claimableTitle(3)).toContain('3-day');
+    expect(billing.trial.claimableTitle(3)).not.toMatch(/connect/i);
+  });
+
+  it('every refusal a claim can return has its own line', () => {
+    for (const code of ['TRIAL_ALREADY_CONSUMED', 'EMAIL_UNVERIFIED', 'TRIAL_NOT_STARTED', 'ACCOUNT_BLOCKED']) {
+      expect(billing.trial.claimRefused[code], code).toBeTruthy();
+    }
+  });
 });
 
 describe('the copy those cards render', () => {

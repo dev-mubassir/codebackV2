@@ -17,6 +17,8 @@
  *   TRIAL_GRANTED           confirmation, straight after the connect that granted it
  *   TRIAL_ALREADY_CONSUMED  this account has had its trial — here are the plans
  *   EMAIL_UNVERIFIED        confirm your email first, with a resend button
+ *   TRIAL_CLAIMABLE         connected and eligible, never started — "Start my trial"
+ *                           (POST /api/billing/trial/claim; no disconnect needed)
  *
  * Every number comes from summary.trial (the TRIAL catalogue row).
  */
@@ -26,7 +28,7 @@ import Link from 'next/link';
 import Icon from '@/app/components/Icon';
 import { formatCount, formatDate } from '@/content/format';
 import { billing } from '@/content/billingCopy';
-import { resendVerification } from '@/lib/api';
+import { claimTrial, resendVerification } from '@/lib/api';
 import { TRIAL_CARD } from '@/lib/trialState';
 import styles from './billing.module.css';
 
@@ -125,6 +127,48 @@ function AlreadyConsumed({ plansHref }) {
   );
 }
 
+function Claimable({ trial, onClaimed }) {
+  const t = billing.trial;
+  const [state, setState] = useState('idle'); // idle | claiming | failed
+  const [failure, setFailure] = useState('');
+
+  async function claim() {
+    setState('claiming');
+    setFailure('');
+    try {
+      // Granted — or ALREADY_ENTITLED from a double click. Either way the
+      // summary now holds the trial, and reloading it swaps this card out.
+      const result = await claimTrial();
+      if (onClaimed) await onClaimed(result.trialOutcome);
+    } catch (err) {
+      const outcome = err.response?.data?.trialOutcome;
+      setState('failed');
+      setFailure(t.claimRefused[outcome] || err.response?.data?.error || t.claimFailed);
+      // A refusal means the state changed under us; reload into the card that explains it.
+      if (outcome && onClaimed) onClaimed(outcome);
+    }
+  }
+
+  return (
+    <Shell icon="zap" title={t.claimableTitle(trial?.days)}>
+      <p className={styles.help}>{t.claimableBody}</p>
+      <div style={{ marginTop: 16 }}>
+        <Includes trial={trial} />
+      </div>
+      <div className={styles.planActions}>
+        <button type="button" className="btn btn-primary" onClick={claim} disabled={state === 'claiming'}>
+          {state === 'claiming' ? t.claiming : t.claimButton}
+        </button>
+      </div>
+      {state === 'failed' && (
+        <p className={styles.help} role="alert">
+          {failure}
+        </p>
+      )}
+    </Shell>
+  );
+}
+
 function EmailUnverified() {
   const t = billing.trial;
   const [state, setState] = useState('idle'); // idle | sending | sent | failed
@@ -174,9 +218,12 @@ export default function TrialStateCard({
   onConnect,
   plansHref = '/billing#plans',
   usageHref = null,
+  onClaimed = null,
 }) {
   if (!summary) return null;
   switch (state) {
+    case TRIAL_CARD.CLAIMABLE:
+      return <Claimable trial={summary.trial} onClaimed={onClaimed} />;
     case TRIAL_CARD.NOT_STARTED:
       return <NotStarted trial={summary.trial} connectHref={connectHref} onConnect={onConnect} />;
     case TRIAL_CARD.GRANTED:

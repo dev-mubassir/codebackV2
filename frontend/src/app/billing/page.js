@@ -69,6 +69,9 @@ function BillingPageContent() {
   const searchParams = useSearchParams();
 
   const { summary, loading: summaryLoading, error: summaryError, reload } = useBillingSummary();
+  // Set when "Start my trial" is pressed here, so a claim confirms with the
+  // granted card exactly as a connect does.
+  const [claimedOutcome, setClaimedOutcome] = useState(null);
   const pricing = usePricing();
   const checkout = useCheckout();
 
@@ -273,7 +276,9 @@ function BillingPageContent() {
   }
 
   const purchasablePlans = pricing.plans.filter((plan) => plan.purchasable);
-  const trialState = trialCardState(summary, { justConnectedOutcome: searchParams.get('trial') });
+  const trialState = trialCardState(summary, {
+    justConnectedOutcome: claimedOutcome || searchParams.get('trial'),
+  });
 
   return (
     <AppShell activeRoute="/billing">
@@ -336,6 +341,10 @@ function BillingPageContent() {
             state={trialState}
             connectHref={getInstagramAuthUrl()}
             plansHref="#plans"
+            onClaimed={async (outcome) => {
+              await reload();
+              setClaimedOutcome(outcome);
+            }}
           />
         ) : (
           <>

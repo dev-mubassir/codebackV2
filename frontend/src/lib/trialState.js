@@ -22,9 +22,16 @@ export const TRIAL_CARD = {
   ALREADY_CONSUMED: 'TRIAL_ALREADY_CONSUMED',
   /** A trial needs a confirmed email address first. */
   EMAIL_UNVERIFIED: 'EMAIL_UNVERIFIED',
+  /** Instagram is connected and eligible, but no trial was ever started — offer "Start my trial". */
+  CLAIMABLE: 'TRIAL_CLAIMABLE',
 };
 
-const EXPLAINED = new Set([TRIAL_CARD.NOT_STARTED, TRIAL_CARD.ALREADY_CONSUMED, TRIAL_CARD.EMAIL_UNVERIFIED]);
+const EXPLAINED = new Set([
+  TRIAL_CARD.NOT_STARTED,
+  TRIAL_CARD.ALREADY_CONSUMED,
+  TRIAL_CARD.EMAIL_UNVERIFIED,
+  TRIAL_CARD.CLAIMABLE,
+]);
 
 /**
  * @param {object|null} summary  GET /api/billing/summary

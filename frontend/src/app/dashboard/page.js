@@ -615,8 +615,11 @@ export default function DashboardPage() {
  */
 function TrialPrompt({ onConnect }) {
   const searchParams = useSearchParams();
-  const { summary } = useBillingSummary();
-  const state = trialCardState(summary, { justConnectedOutcome: searchParams.get('trial') });
+  const { summary, reload } = useBillingSummary();
+  // A claim from this card confirms the same way a connect does: the granted
+  // card, once, rather than the prompt silently disappearing.
+  const [claimedOutcome, setClaimedOutcome] = useState(null);
+  const state = trialCardState(summary, { justConnectedOutcome: claimedOutcome || searchParams.get('trial') });
   if (!state) return null;
   return (
     <div style={{ marginBottom: 20 }}>
@@ -626,6 +629,10 @@ function TrialPrompt({ onConnect }) {
         connectHref={getInstagramAuthUrl()}
         onConnect={onConnect}
         usageHref="/billing"
+        onClaimed={async (outcome) => {
+          await reload();
+          setClaimedOutcome(outcome);
+        }}
       />
     </div>
   );
