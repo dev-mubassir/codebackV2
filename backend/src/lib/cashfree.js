@@ -16,11 +16,39 @@
 
 const crypto = require('crypto');
 
-const isProduction = process.env.NODE_ENV === 'production';
+const CASHFREE_HOSTS = Object.freeze({
+  sandbox: 'https://sandbox.cashfree.com',
+  production: 'https://api.cashfree.com',
+});
+
+/**
+ * Which Cashfree environment to call: 'sandbox' or 'production'.
+ *
+ * CASHFREE_ENV decides it when set to exactly one of those two words;
+ * otherwise NODE_ENV does (production -> production, anything else ->
+ * sandbox), which is what this always did.
+ *
+ * WHY THE OVERRIDE EXISTS: running the production site against Cashfree's
+ * TEST account — real app, test cards, no real money — before the live
+ * account is activated. Without it a production deploy always called the live
+ * API, and sandbox keys failed there with an opaque `authentication_error`.
+ *
+ * The browser side must agree: a payment_session_id minted on sandbox cannot
+ * be opened in production mode. frontend useCheckout.js reads
+ * NEXT_PUBLIC_CASHFREE_MODE the same way, so set both together.
+ *
+ * Read at call time, like billingFlags.js, so the setting is honoured without
+ * a code change and is testable.
+ */
+function cashfreeEnvironment() {
+  const override = (process.env.CASHFREE_ENV || '').trim().toLowerCase();
+  if (override === 'sandbox' || override === 'production') return override;
+  return process.env.NODE_ENV === 'production' ? 'production' : 'sandbox';
+}
 
 /** Cashfree's sandbox and production API hosts differ; never mix them. */
 function getBaseUrl() {
-  return isProduction ? 'https://api.cashfree.com' : 'https://sandbox.cashfree.com';
+  return CASHFREE_HOSTS[cashfreeEnvironment()];
 }
 
 /**
@@ -68,4 +96,4 @@ function smallestUnitToDecimal(amount) {
   return Number((amount / 100).toFixed(2));
 }
 
-module.exports = { getBaseUrl, verifyWebhookSignature, smallestUnitToDecimal };
+module.exports = { getBaseUrl, cashfreeEnvironment, verifyWebhookSignature, smallestUnitToDecimal };

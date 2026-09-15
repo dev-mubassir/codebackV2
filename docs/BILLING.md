@@ -91,6 +91,15 @@ call time, not at load, so a flag is a real kill switch.
 | `META_APPROVED` | The "Built on the official Instagram Graph API" half of the marketing trust badge | Hidden. The claim is not ours to make before approval. |
 | `USD_PRICING_ENABLED` | Whether `/api/billing/plans` exposes USD/INTL prices | INR only. The USD rows stay in the database either way, so turning them on is a flag flip, never a migration. |
 
+**Cashfree environment.** Separate from the three flags: `CASHFREE_ENV`
+(backend) and `NEXT_PUBLIC_CASHFREE_MODE` (frontend, build-time) choose
+Cashfree's sandbox or live environment. When unset, `NODE_ENV` decides, so
+production calls the live API. Setting both to `sandbox` runs the production
+site against the test account, with test cards and no real money, until the
+live account is activated. They must always agree, and the keys must belong to
+the same environment: sandbox keys against the live API fail with
+`authentication_error`. See `docs/ENV-SETUP.md` §2.
+
 **One deliberate asymmetry.** The trial granted on Instagram *connect* is **not**
 behind `BILLING_ENABLED`, and must not be. Trials accrue correctly while billing
 is dark, so switching billing on finds everyone in the right state. The

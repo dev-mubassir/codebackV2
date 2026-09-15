@@ -158,6 +158,23 @@ switch rather than something frozen at boot.
 Sandbox and production are different hosts, selected by `NODE_ENV` — the
 same credentials do **not** work against both.
 
+### Running production against Cashfree's TEST account
+
+Until the live Cashfree account is activated, production can take checkouts
+in test mode (test cards, no real money). Two settings, and **both** must be
+set, because a checkout session created on one Cashfree environment cannot be
+opened in the other:
+
+| Variable | Where | Value | Effect |
+|---|---|---|---|
+| `CASHFREE_ENV` | backend runtime | `sandbox` or `production` | Which Cashfree API the backend calls. Unset: `NODE_ENV` decides (production → live). Any other value is ignored. |
+| `NEXT_PUBLIC_CASHFREE_MODE` | frontend **build-time** | `sandbox` or `production` | Which mode the browser checkout opens in. Inlined at build, so changing it needs a frontend rebuild. |
+
+Pair them with the matching keys: test mode needs the **sandbox** App ID and
+Secret Key. To go live, set both to `production` (or remove both), replace
+the keys with Production-mode keys, rebuild the frontend and restart the
+backend.
+
 ### Related, pre-existing
 
 | Variable | Where | Purpose |
