@@ -764,3 +764,57 @@ Two things the run found:
   (Developers → Webhooks), not to an order's `notify_url`. Add
   `https://<backend>/webhooks/cashfree` there with refund events enabled. Until
   then, a refund settles only when someone re-syncs it.
+
+### Cashfree ids and 2^53: fields audited
+
+JavaScript numbers hold integers exactly only up to 2^53 (9,007,199,254,740,991,
+16 digits). Cashfree ids are 19 digits. `JSON.parse` rounds a larger integer
+silently, and the digits cannot be recovered afterwards.
+
+**How every Cashfree body is read.** `lib/cashfree.js parseCashfreeJson` rewrites
+the JSON text before parsing, with a string-aware scan:
+
+- any integer beyond ±2^53, under any key or inside an array, becomes an exact string
+- any integer under an id-like key (`CASHFREE_ID_KEY`: `*_id`, `utr`, `*_utr`, `*arn`,
+  `rrn`, `*reference`, `*_number`) becomes a string whatever its size, so one field
+  never arrives as two types
+- amounts, charges, rates, status codes and all other numbers are untouched
+
+It is used for the verified webhook body (`routes/cashfreeWebhooks.js`, instead of
+`req.body`) and as `transformResponse` on every Cashfree API call
+(`lib/cashfreeOrders.js`: create/get order, payments, create/get refund, and the
+Order Pay call in `scripts/sandbox-refund-e2e.js`). Webhook `rawPayload` is stored
+as the untouched raw text; reconciliation and refund `rawPayload` are
+re-serialized from the exact parse.
+
+**Evidence used.** (1) Every JSON sample in the local Cashfree documentation: 52
+blocks across webhooks, refunds, APIs, SDKs, disputes, settlements, payment links
+and Easy Split. (2) The real sandbox payloads stored by the end-to-end run on
+15 September 2026. The payment webhook arrived **twice**: once with
+`cf_payment_id` as a 19-digit JSON integer, once as a string. (3) Every place
+backend, scripts and frontend code reads a Cashfree field.
+
+| Field | Where it comes from | Sent as | Exceeds 2^53? | Read by our code | Handling |
+|---|---|---|---|---|---|
+| `cf_payment_id` | payment webhooks, refund webhook, payments API, refund API | **integer (webhook, observed 19 digits)** or string (REST) | **Yes, observed** | fulfilment attempt rows, alerts | id key: exact string. Was the bug. |
+| `cf_refund_id` | refund webhook (integer), refund API (string, observed 10 digits) | integer or string | Yes, possible | `refundService` | id key: exact string |
+| `cf_order_id` | order API | string (observed 19 digits) | as integer, yes | not read | id key: exact string |
+| `cf_settlement_id` | settlement webhooks | integer | Yes, possible | not read (settlement events are logged only) | id key: exact string |
+| `settlement_id` | settlement webhooks | integer | possible | not read | id key: exact string |
+| `utr` | settlement webhooks | **integer, 16 digits in docs** | Yes, possible | not read | id key: exact string |
+| `cf_link_id`, `transaction_id` | payment links | integer | possible | not read (no payment links) | id key: exact string |
+| `cf_dispute_id`, `dispute_id`, `document_id` | dispute webhooks | integer or string | possible | not read (no dispute handling) | id key: exact string |
+| `gateway_order_id`, `gateway_payment_id` | `payment_gateway_details` in webhooks | string (docs); null in the sandbox run | as integer, yes | not read | id key: exact string |
+| `bank_reference` | payment webhooks | string (observed 10 digits) | as integer, possible | not read | id key: exact string |
+| `refund_arn` | refund webhook and API | string (docs 12 digits; sandbox `Test_ARN`) | as integer, possible | `refundService` (`arn`) | id key: exact string |
+| `card_number`, `account_number` | payment method, easy split | masked string | as integer, yes | not read | id key: exact string |
+| `order_id`, `refund_id`, `customer_id`, `payment_session_id`, `vendor_id`, `offer_id`, `link_id`, `invoice_id` | ours or Cashfree strings | string | n/a | `order_id`, `refund_id`, `payment_session_id` read | strings already; unaffected |
+| `order_amount`, `payment_amount`, `refund_amount`, `settlement_amount`, `amount_settled`, `service_charge`, `service_tax`, `refund_charge`, `forex_*`, `discount_amount`, `adjustment` | amounts and charges | decimal or small integer | No | `refund_amount` (external refunds only) | number, unchanged |
+| `status`, `limit`, `percentage`, `emi_tenure`, `upi_expiry_minutes`, `netbanking_bank_code`, `uidai`, `version`, `schedule_option` | codes, counts, settings | small integer | No | not read | number, unchanged |
+
+**Frontend.** The browser receives only `paymentSessionId` from our own API, as a
+string; it parses no Cashfree body itself.
+
+`tests/cashfree-json-precision.test.js` pins the parser against payment, refund
+and settlement shapes, including unsafe integers inside arrays and nested
+objects, and digits, colons and braces inside strings.

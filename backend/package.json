@@ -12,7 +12,8 @@
     "db:migrate": "npx prisma migrate dev",
     "db:push": "npx prisma db push",
     "db:studio": "npx prisma studio",
-    "billing:doctor": "node scripts/billing-doctor.js"
+    "billing:doctor": "node scripts/billing-doctor.js",
+    "billing:sandbox-e2e": "node scripts/sandbox-refund-e2e.js"
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",

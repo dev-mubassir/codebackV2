@@ -97,21 +97,96 @@ function smallestUnitToDecimal(amount) {
 }
 
 /**
+ * Keys whose values are identifiers, never quantities. Cashfree types these
+ * inconsistently — in the sandbox run on 15 September 2026 the same payment
+ * webhook arrived twice, once with cf_payment_id as a JSON number and once as a
+ * string — so an integer under one of these keys is always read as a string,
+ * whatever its size, and callers compare one type.
+ */
+const CASHFREE_ID_KEY = /^(?:[a-z0-9_]*_id|utr|[a-z0-9_]*_utr|[a-z0-9_]*arn|rrn|[a-z0-9_]*reference|[a-z0-9_]*_number)$/;
+
+const NUMBER_TOKEN = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+
+/**
+ * Rewrite JSON text so that no integer can lose digits when parsed.
+ *
+ * A string-aware scan, not a regex over the whole text: it never touches digits,
+ * colons or braces inside string values, and it sees integers inside arrays and
+ * nested objects. An integer literal is quoted when
+ *   - it is not a safe JavaScript integer (beyond ±2^53), under ANY key or
+ *     inside an array, or
+ *   - it is the value of an id-like key (CASHFREE_ID_KEY).
+ * Decimals, exponents, amounts and every other number are left alone.
+ */
+function quoteUnsafeIntegers(text) {
+  const src = String(text);
+  let out = '';
+  let i = 0;
+  let lastString = null; // raw text of the most recent string token, for key detection
+  let valueKey = null; // the key whose value comes next, set at ':'
+
+  while (i < src.length) {
+    const ch = src[i];
+
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < src.length && src[j] !== '"') j += src[j] === '\\' ? 2 : 1;
+      lastString = src.slice(i, j + 1);
+      out += lastString;
+      i = j + 1;
+      continue;
+    }
+
+    if (ch === ':') {
+      try {
+        valueKey = JSON.parse(lastString);
+      } catch {
+        valueKey = null;
+      }
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '-' || (ch >= '0' && ch <= '9')) {
+      NUMBER_TOKEN.lastIndex = i;
+      const match = NUMBER_TOKEN.exec(src);
+      if (match) {
+        const token = match[0];
+        const integer = /^-?\d+$/.test(token);
+        const quote =
+          integer && (!Number.isSafeInteger(Number(token)) || (typeof valueKey === 'string' && CASHFREE_ID_KEY.test(valueKey)));
+        out += quote ? `"${token}"` : token;
+        i += token.length;
+        valueKey = null;
+        continue;
+      }
+    }
+
+    // Structure ends whatever value a key was waiting for.
+    if (ch === '{' || ch === '[' || ch === ',' || ch === '}' || ch === ']') valueKey = null;
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
  * Parse a Cashfree JSON body without losing digits in its ids.
  *
- * Cashfree sends cf_payment_id (and cf_order_id, cf_refund_id) as JSON NUMBERS
- * in some payloads, and they are larger than Number.MAX_SAFE_INTEGER:
- * 1453353814355098112 parses to 1453353814355098000. Seen for real in the
- * sandbox end-to-end run on 15 September 2026 — one payment was recorded as two
- * attempts under two different ids, because a replay's dedupe key no longer
- * matched. JSON.parse cannot recover the digits afterwards, so every cf_*_id
- * integer is quoted BEFORE parsing and kept as an exact string.
+ * WHY. Cashfree ids exceed Number.MAX_SAFE_INTEGER, and JSON.parse rounds them
+ * silently: the payment webhook in the sandbox end-to-end run on 15 September
+ * 2026 sent cf_payment_id as the number 1453353814355098112, which parsed as
+ * 1453353814355098000 — one payment was recorded as two attempts. The digits
+ * cannot be recovered after parsing, so the text is rewritten first
+ * (quoteUnsafeIntegers): every unsafe integer anywhere, and every id-like field,
+ * arrives as an exact string. docs/BILLING.md lists every field audited.
  *
  * Signature verification still runs over the untouched raw bytes; this is only
- * how the verified body is read.
+ * how the verified body is read. Throws on invalid JSON, like JSON.parse.
  */
 function parseCashfreeJson(text) {
-  return JSON.parse(String(text).replace(/("cf_[a-z_]*id"\s*:\s*)(-?\d+)(?=\s*[,}\]])/g, '$1"$2"'));
+  return JSON.parse(quoteUnsafeIntegers(text));
 }
 
 /** axios transformResponse using parseCashfreeJson; leaves non-JSON bodies as they are. */
@@ -131,4 +206,5 @@ module.exports = {
   smallestUnitToDecimal,
   parseCashfreeJson,
   cashfreeResponseParser,
+  CASHFREE_ID_KEY,
 };
