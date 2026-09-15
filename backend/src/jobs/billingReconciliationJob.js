@@ -82,7 +82,18 @@ async function reconcileRecentOrders({ lookbackHours = LOOKBACK_HOURS, maxPerRun
 
   const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
   const pending = await prisma.order.findMany({
-    where: { status: 'CREATED', createdAt: { gte: cutoff } },
+    where: {
+      createdAt: { gte: cutoff },
+      OR: [
+        { status: 'CREATED' },
+        // A failed ATTEMPT can be followed by a successful retry on the same
+        // order, whose webhook can be dropped like any other. A FAILED row
+        // carrying a payload came from Cashfree's PAYMENT_FAILED_WEBHOOK; one
+        // without came from routes/billing.js when order creation itself
+        // failed, so no Cashfree order exists to ask about.
+        { status: 'FAILED', rawPayload: { not: null } },
+      ],
+    },
     orderBy: { createdAt: 'asc' }, // oldest first — closest to aging out of the window unreconciled
     take: maxPerRun,
   });

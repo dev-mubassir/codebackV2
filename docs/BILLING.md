@@ -72,9 +72,22 @@ codebase.
 - **A paid order is fulfilled exactly once.** The Cashfree webhook processes
   synchronously and returns 200 only after the write succeeds, so Cashfree
   retries on failure. `billingFulfillment.fulfillPaidOrder` is idempotent
-  through a conditional `UPDATE … WHERE status = 'CREATED'`, and the nightly
-  reconciliation job calls the same function for any webhook that never
+  through a conditional `UPDATE … WHERE status IN ('CREATED','FAILED')`, and the
+  nightly reconciliation job calls the same function for any webhook that never
   arrived.
+  - **One transaction.** Marking the order `PAID` and granting what it bought
+    commit or roll back together. They used to be separate writes, so a failure
+    between them left a `PAID` order with nothing granted — and the retry then
+    saw `PAID` and granted nothing. Emails and skipped-DM recovery run only
+    after commit.
+  - **`FAILED` is an attempt, not an order's end.** `PAYMENT_FAILED_WEBHOOK`
+    moves `CREATED → FAILED`, but a later successful attempt on the same order
+    still claims it. `EXPIRED` is the terminal state: a payment confirmed on an
+    expired order grants nothing and logs `PAID AFTER EXPIRY` for manual action.
+  - **Malformed-but-signed payloads get 200, never 5xx.** A payload that is wrong
+    once is wrong on every retry; reconciliation heals any real payment behind it.
+  - `tests/cashfree-webhook-edge-cases.test.js` covers failed, abandoned,
+    out-of-order, malformed, mid-fulfilment failure and a 10× concurrent storm.
 - **Region lock.** The first payment with real evidence (a domestic-only rail,
   or a card country) locks `billingRegion`/`currency`. The currency the page
   showed is never evidence, since that would make VPN arbitrage trivial. An

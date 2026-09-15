@@ -20,7 +20,7 @@
 const express = require('express');
 const router = express.Router();
 const { verifyWebhookSignature } = require('../lib/cashfree');
-const { fulfillPaidOrder } = require('../services/billingFulfillment');
+const { fulfillPaidOrder, markPaymentFailed } = require('../services/billingFulfillment');
 const { isBillingEnabled } = require('../lib/billingFlags');
 
 router.post('/', async (req, res) => {
@@ -42,39 +42,68 @@ router.post('/', async (req, res) => {
     return res.status(401).send('Invalid signature');
   }
 
-  const { type, data } = req.body || {};
-  const orderId = data?.order?.order_id;
+  // MALFORMED BUT SIGNED. A payload that carries a valid signature but not the
+  // shape we need is acknowledged with 200 and logged — never a 5xx. Cashfree
+  // retries anything that is not a 2xx, and a payload that is wrong today is
+  // wrong on every retry, so a 5xx here is an infinite retry loop and a 4xx is
+  // the same loop with a different number. A genuine payment is not lost by
+  // acking it: the nightly reconciliation job asks Cashfree directly about
+  // every order still pending.
+  //
+  // order_id MUST be a string before it goes anywhere near Prisma: an object
+  // or a number there is a validation throw, i.e. exactly that 5xx loop.
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  const { type, data } = body;
+  const rawOrderId = data?.order?.order_id;
+  const orderId = typeof rawOrderId === 'string' && rawOrderId.length > 0 ? rawOrderId : null;
   const paymentStatus = data?.payment?.payment_status;
+  const rawPayload = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+
+  if (type === 'PAYMENT_FAILED_WEBHOOK') {
+    if (!orderId) {
+      console.warn(`[CashfreeWebhook] Malformed PAYMENT_FAILED_WEBHOOK (order_id: ${JSON.stringify(rawOrderId)}) — acknowledged, no state change.`);
+      return res.status(200).send('OK');
+    }
+    try {
+      await markPaymentFailed({ cashfreeOrderId: orderId, rawPayload });
+      return res.status(200).send('OK');
+    } catch (error) {
+      console.error('[CashfreeWebhook] Recording a failed payment failed:', error.name, error.message);
+      return res.status(500).send('Processing failed');
+    }
+  }
 
   if (type !== 'PAYMENT_SUCCESS_WEBHOOK') {
-    // PAYMENT_FAILED_WEBHOOK, PAYMENT_USER_DROPPED_WEBHOOK, and similar
-    // exist but credit nothing — a failed one-time purchase never
-    // credited anything to roll back.
+    // PAYMENT_USER_DROPPED_WEBHOOK and similar credit nothing and change
+    // nothing: a dropped checkout stays CREATED, because the customer can
+    // still come back and pay the same order, and the reconciliation job's
+    // 7-day rule retires it if they never do.
     console.log(`[CashfreeWebhook] Received "${type}" for order ${orderId} — logged, no state change applied.`);
     return res.status(200).send('OK');
   }
 
-  if (!orderId || paymentStatus !== 'SUCCESS') {
+  if (!orderId) {
+    console.error(
+      `[CashfreeWebhook] Malformed PAYMENT_SUCCESS_WEBHOOK — order_id is ${JSON.stringify(rawOrderId)}. ` +
+        'Acknowledged so Cashfree stops retrying; reconciliation will heal a real payment.'
+    );
+    return res.status(200).send('OK');
+  }
+
+  if (paymentStatus !== 'SUCCESS') {
     console.log(`[CashfreeWebhook] Ignoring PAYMENT_SUCCESS_WEBHOOK with status=${paymentStatus} for ${orderId} — not a confirmed success.`);
     return res.status(200).send('OK');
   }
 
   try {
-    const result = await fulfillPaidOrder({
-      cashfreeOrderId: orderId,
-      payment: data.payment,
-      rawPayload: req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body),
-    });
-
-    if (result.outcome === 'not_found') {
-      // Verified signature, but references an order we have no record of.
-      // Ack it (retrying changes nothing) rather than inviting a retry storm.
-      return res.status(200).send('OK');
-    }
-
+    // Every outcome is acknowledged: granted, already processed, an unknown
+    // order (retrying changes nothing), and a payment on an order we already
+    // expired (logged loudly inside fulfillPaidOrder — retrying cannot fix it).
+    // Only a thrown error, which rolled everything back, asks for a retry.
+    await fulfillPaidOrder({ cashfreeOrderId: orderId, payment: data.payment, rawPayload });
     return res.status(200).send('OK');
   } catch (error) {
-    console.error('[CashfreeWebhook] Fulfillment failed:', error.message);
+    console.error('[CashfreeWebhook] Fulfillment failed:', error.name, error.message);
     return res.status(500).send('Processing failed');
   }
 });

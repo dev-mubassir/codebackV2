@@ -30,6 +30,28 @@ const HOUR_MS = 60 * 60 * 1000;
 
 const LIVE_STATUSES = ['TRIALING', 'ACTIVE', 'GRACE'];
 
+/**
+ * Run `fn` inside the caller's transaction when one is supplied, otherwise in a
+ * new one. Prisma interactive transactions do not nest, so a grant that must
+ * commit or roll back TOGETHER with its caller's own writes (billingFulfillment
+ * marking an order PAID) has to be handed that caller's client.
+ */
+function inTransaction(outerTx, fn) {
+  return outerTx ? fn(outerTx) : prisma.$transaction(fn);
+}
+
+/**
+ * Anything a grant does "after commit" (an email) cannot run inside a caller's
+ * transaction, which has not committed yet. A caller passing `tx` must also
+ * pass `afterCommit` and run those callbacks once it has committed — otherwise
+ * an alert could describe a grant that then rolled back.
+ */
+function assertAfterCommit(outerTx, afterCommit, name) {
+  if (outerTx && !Array.isArray(afterCommit)) {
+    throw new Error(`entitlementService.${name}: a caller-supplied tx requires an afterCommit array`);
+  }
+}
+
 /** Plan row for a code, or null. Cached per-process would be premature — this table changes rarely and is tiny. */
 async function getPlan(planCode) {
   if (!planCode) return null;
@@ -335,13 +357,14 @@ async function alertPlanAnomaly(details) {
  * unlocked tenant unlocked (null || null = null) rather than ever locking
  * from weak/absent evidence — the plan is still granted normally either way.
  */
-async function grantPlan(tenantId, planCode, region) {
+async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit } = {}) {
   const plan = await getPlan(planCode);
   if (!plan) throw new Error(`entitlementService.grantPlan: unknown plan code "${planCode}"`);
+  assertAfterCommit(outerTx, afterCommit, 'grantPlan');
 
   let anomaly = null; // set inside the transaction, alerted after it commits
 
-  const granted = await prisma.$transaction(async (tx) => {
+  const granted = await inTransaction(outerTx, async (tx) => {
     const existing = await tx.entitlement.findUnique({ where: { userId: tenantId } });
     const now = new Date();
     const isWarmRenewal = Boolean(existing && LIVE_STATUSES.includes(effectiveStatus(existing, now)) && existing.validUntil);
@@ -440,7 +463,11 @@ async function grantPlan(tenantId, planCode, region) {
     return updated;
   });
 
-  if (anomaly) await alertPlanAnomaly({ ...anomaly, newValidUntil: granted.validUntil });
+  if (anomaly) {
+    const alert = () => alertPlanAnomaly({ ...anomaly, newValidUntil: granted.validUntil });
+    if (afterCommit) afterCommit.push(alert);
+    else await alert();
+  }
   return granted;
 }
 
@@ -454,9 +481,9 @@ async function grantPlan(tenantId, planCode, region) {
  *   - the recurring extra-IG-account add-on has no per-unit code; it just
  *     increments Entitlement.extraIgAccounts by one.
  */
-async function grantAddon(tenantId, addonCode) {
+async function grantAddon(tenantId, addonCode, { tx: outerTx } = {}) {
   if (addonCode === 'extra_ig_account') {
-    return prisma.entitlement.update({
+    return (outerTx || prisma).entitlement.update({
       where: { userId: tenantId },
       data: { extraIgAccounts: { increment: 1 } },
     });
@@ -465,7 +492,7 @@ async function grantAddon(tenantId, addonCode) {
   const pack = await prisma.addonPack.findUnique({ where: { code: addonCode } });
   if (!pack) throw new Error(`entitlementService.grantAddon: unknown addon code "${addonCode}"`);
 
-  return prisma.$transaction(async (tx) => {
+  return inTransaction(outerTx, async (tx) => {
     const updated = await tx.entitlement.update({
       where: { userId: tenantId },
       data: { replyCreditsCurrent: { increment: pack.creditAmount } },
