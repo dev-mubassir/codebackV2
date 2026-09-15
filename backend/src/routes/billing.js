@@ -16,6 +16,7 @@ const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { isBillingEnabled, isUsdPricingEnabled, isMetaApproved } = require('../lib/billingFlags');
 const { effectiveStatus, LIVE_STATUSES } = require('../services/entitlementService');
+const { hashIgUserId, TRIAL_OUTCOMES } = require('../lib/igIdentity');
 
 // BILLING_ENABLED gate runs BEFORE requireAuth — an unauthenticated 401
 // would still leak "this route exists and requires login", which is more
@@ -184,6 +185,13 @@ function daysUntil(date, now) {
  * a paying tenant gets `trial: null` and no limit of any kind. The test file
  * pins both halves.
  *
+ * `trialStatus` says WHY a tenant has no trial, so no page ever has to render
+ * an unexplained "no plan": TRIAL_GRANTED for a live trial; for NONE one of
+ * TRIAL_ALREADY_CONSUMED, EMAIL_UNVERIFIED or TRIAL_NOT_STARTED; null for
+ * everyone else. It is DERIVED from the same sources the connect decision
+ * uses — the identity ledger and the email verification stamp — and never
+ * stored, so it cannot drift from what connecting would actually do.
+ *
  * Order rows are SELECTED field by field rather than returned whole:
  * `rawPayload` is a stored Cashfree webhook body, and `paymentCountry` /
  * `regionSource` are the region lock's internal provenance. None of the
@@ -225,6 +233,34 @@ router.get('/summary', async (req, res) => {
       : plan?.code === 'TRIAL'
         ? plan
         : await prisma.plan.findUnique({ where: { code: 'TRIAL' } });
+
+    // Why this tenant has no trial — see `trialStatus` in the route doc.
+    let trialStatus = null;
+    if (status === 'TRIALING' && plan?.code === 'TRIAL') {
+      trialStatus = TRIAL_OUTCOMES.TRIAL_GRANTED;
+    } else if (status === 'NONE') {
+      const [owner, connected] = await Promise.all([
+        prisma.user.findUnique({ where: { id: tenantId }, select: { emailVerifiedAt: true } }),
+        prisma.instagramAccount.findMany({
+          where: { userId: tenantId, connectionStatus: 'CONNECTED' },
+          select: { igUserId: true },
+        }),
+      ]);
+      const hashes = [...new Set(connected.map((a) => hashIgUserId(a.igUserId)))];
+      const spent = hashes.length
+        ? await prisma.instagramIdentity.count({ where: { igUserIdHash: { in: hashes }, trialConsumedAt: { not: null } } })
+        : 0;
+
+      // Same precedence as the claim: a spent trial outranks an unverified
+      // email, since confirming the address would not change the answer.
+      if (hashes.length > 0 && spent === hashes.length) {
+        trialStatus = TRIAL_OUTCOMES.TRIAL_ALREADY_CONSUMED;
+      } else if (!owner?.emailVerifiedAt) {
+        trialStatus = TRIAL_OUTCOMES.EMAIL_UNVERIFIED;
+      } else {
+        trialStatus = TRIAL_OUTCOMES.TRIAL_NOT_STARTED;
+      }
+    }
 
     // Credits SPENT since this cycle started, counted from the ledger rather
     // than inferred by subtracting the balance from the plan's grant. The
@@ -343,6 +379,7 @@ router.get('/summary', async (req, res) => {
         autoRepliesThisCycle: spentThisCycle,
       },
       extraIgAccounts: entitlement?.extraIgAccounts ?? 0,
+      trialStatus,
       trial: trialPlan
         ? {
             days: trialPlan.cycleLengthDays,

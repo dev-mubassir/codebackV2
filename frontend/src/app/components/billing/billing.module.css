@@ -645,20 +645,13 @@
   color: var(--text-primary);
 }
 
-.trialStats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  margin-bottom: 14px;
-}
-
-.trialStats .meter {
+/* The trial's sorting meter inside UsageStrip, tighter than the credits meter. */
+.usageMeter {
   margin: 8px 0 0;
 }
 
 @media (max-width: 720px) {
-  .trialIncludes,
-  .trialStats {
+  .trialIncludes {
     grid-template-columns: 1fr;
   }
 }

@@ -321,3 +321,46 @@ DELETE FROM "entitlements";
 Entitlements cascade from `users` and are rebuilt by connecting an Instagram
 account, so this is safe on a development database and destroys nothing else.
 It is not safe anywhere else.
+
+### 5.5 Re-testing the trial locally — clear `trialConsumedAt` (DEV ONLY)
+
+> **DEV ONLY. NEVER RUN THIS AGAINST PRODUCTION.**
+>
+> `trialConsumedAt` on an Instagram identity is the only thing that stops
+> "delete your account and sign up again" from being an unlimited free trial.
+> It deliberately survives account deletion. Clearing it in production hands
+> that Instagram account a second free trial, and leaves no record it ever
+> had a first one.
+
+**Why you need it.** One free trial per Instagram account, ever. After an
+account has connected once, every later connect — from any Siffty user,
+including one you just deleted and re-registered — correctly grants nothing
+and shows "This Instagram account has already used its free trial". That is
+the right behaviour, and it means the grant path cannot be re-tested with the
+same Instagram account without clearing the stamp.
+
+The pepper-derived hash cannot be computed in SQL, so use the script. It
+**refuses to run** when `NODE_ENV=production` or when `DATABASE_URL` is not a
+localhost database, and it changes nothing without `--apply`:
+
+```bash
+# from backend/ — dry run first: shows the stamp, link count, and who it is connected to
+node scripts/dev-reset-trial.js @your_instagram_username
+```
+
+```bash
+# clear the stamp
+node scripts/dev-reset-trial.js @your_instagram_username --apply
+```
+
+```bash
+# ALSO delete the connected user's entitlement — needed if that user is already
+# TRIALING, because the grant never resets an existing trial or plan
+node scripts/dev-reset-trial.js @your_instagram_username --apply --delete-entitlement
+```
+
+Then, in the app, **disconnect that Instagram account and connect it again**.
+The connect redirect should carry `?trial=TRIAL_GRANTED`, and the billing page
+should show a 25-credit trial ending three days from now.
+
+`--ig-user-id <id>` works in place of `@username`. `blockedAt` is never touched.

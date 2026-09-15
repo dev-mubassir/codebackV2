@@ -601,6 +601,58 @@ Phase 2 replaces this logic with the `InstagramIdentity` ledger.
 
 ---
 
+### F17. Dev-server 404 burst on eight real routes, legal pages included — cause UNCONFIRMED
+
+Observed 2026-09-15 on local `next dev` (Turbopack — the `dev` script is plain
+`next dev`; the server was started from the owner's terminal at 05:53). First
+confirmed around 06:00; every route below was back to 200 by 06:16. During the
+burst these returned **HTTP 404** and rendered the app's own not-found page
+("Page not found — Siffty"):
+
+`/settings`, `/profile`, `/register`, `/support`, `/privacy`, `/terms`,
+`/verify-email`, `/reset-password`
+
+On the same server at the same time, `/dashboard`, `/inbox`, `/billing`,
+`/onboarding`, `/notifications`, `/brand-deals`, `/admin`, `/login`,
+`/data-deletion` and `/forgot-password` returned 200. Every affected page file
+was tracked, unchanged against HEAD, and had served 200 the previous evening
+under `next dev --webpack`.
+
+Ruled out:
+- **A dead link.** `/profile` alone is linked from seven places
+  (`AppShell.js:116,164`, `NavSidebar.js:148`, `dashboard/page.js:232`,
+  `inbox/page.js:611,648,702`) and redirected to by the backend
+  (`auth.js:1006,1009`).
+- **A competing `app/` or `pages/` root, or a rewrite.** Neither root exists, and
+  `next.config.mjs` rewrites only `/api/*` and `/auth/*`.
+- **Missing metadata copy.** Every `meta.*` key those layouts read exists in
+  `content/copy.js`.
+- **The import unique to `/settings` and `/profile`** (`lib/businessTemplates.js`).
+  `/onboarding` imports it too and returned 200.
+- No error was embedded in the 404 body, and
+  `.next/dev/logs/next-development.log` recorded none.
+
+It cleared with **no change to any affected file**, shortly after edits to other
+pages (`billing`, `dashboard`, `settings`) forced recompiles. A stale Turbopack
+route table refreshed by those recompiles fits the evidence but was not
+confirmed. Not reproduced since. Production builds were not tested for it.
+
+**Why it matters:** `/privacy` and `/terms` are the policy URLs Meta App Review
+loads. A reviewer who hits this sees a 404 where the policies should be.
+
+**If it recurs, capture BEFORE restarting** — a restart destroys the only evidence:
+
+1. The full `next dev` terminal output since the server started.
+2. The status of every route:
+   ```bash
+   for r in dashboard inbox billing settings profile register support privacy terms verify-email reset-password; do printf "%-16s %s\n" "$r" "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3000/$r")"; done
+   ```
+3. A copy of `frontend/.next/dev/logs/next-development.log`.
+
+Then restart, and record whether the same routes come back.
+
+---
+
 ## Stale artifacts
 
 ### S1. Stale assertion in `scripts/test-socket-isolation.js:421`

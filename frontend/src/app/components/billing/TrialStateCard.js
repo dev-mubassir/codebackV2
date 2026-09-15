@@ -1,194 +1,191 @@
 'use client';
 
 /**
- * The two states a tenant is in before paying for anything — each of which
- * used to render as an empty page.
+ * Every way a tenant can be without a trial or a plan — each one explained.
  *
- *   NONE      No entitlement yet. The trial is granted on Instagram CONNECT,
- *             not at signup, and that is deliberate: trialConsumedAt on the
- *             Instagram identity is the only thing stopping trial farming,
- *             and a 3-day trial should not tick away while someone is still
- *             filling in their profile. So this state's whole job is to make
- *             connecting the obvious next step, with the value visible before
- *             anyone commits to it.
+ * The trial is granted on Instagram CONNECT, not at signup, and only once per
+ * Instagram account: trialConsumedAt on the identity ledger survives account
+ * deletion, which is the only thing that stops "delete and sign up again" from
+ * being an unlimited trial. That rule is correct, and it used to be invisible.
+ * A connect that granted nothing left the page at "No plan yet", with no way
+ * to tell a spent trial from an unconfirmed email from a bug.
  *
- *   TRIALING  Days left, sorting used against the trial's limit, auto-replies
- *             left, and what happens at the end.
+ * So each state gets its own card, chosen by lib/trialState from the reason
+ * the server derives (summary.trialStatus):
  *
- * Every number comes from GET /api/billing/summary — `summary.trial` is read
- * server-side from the TRIAL catalogue row. Nothing is typed in here, so
- * changing the trial is a catalogue update rather than a copy edit.
+ *   TRIAL_NOT_STARTED       what connecting gets you, with the condition stated
+ *   TRIAL_GRANTED           confirmation, straight after the connect that granted it
+ *   TRIAL_ALREADY_CONSUMED  this account has had its trial — here are the plans
+ *   EMAIL_UNVERIFIED        confirm your email first, with a resend button
  *
- * THE TRIAL IS THE ONLY PLACE A SORTING LIMIT IS SHOWN. Paid plans never show
- * theirs (see UsageStrip). A trial's limit is part of what the trial is, and
- * hiding it would leave someone at the limit wondering why sorting stopped.
+ * Every number comes from summary.trial (the TRIAL catalogue row).
  */
 
+import { useState } from 'react';
+import Link from 'next/link';
 import Icon from '@/app/components/Icon';
 import { formatCount, formatDate } from '@/content/format';
 import { billing } from '@/content/billingCopy';
-import { LOW_CREDIT_PERCENT } from './BillingBanners';
+import { resendVerification } from '@/lib/api';
+import { TRIAL_CARD } from '@/lib/trialState';
 import styles from './billing.module.css';
 
-/** True for the two states this card owns. Pages use it to swap their paid-plan panels out. */
-export function isTrialState(summary) {
-  if (!summary) return false;
-  if (summary.status === 'NONE') return true;
-  return summary.status === 'TRIALING' && summary.plan?.code === 'TRIAL';
-}
-
-/** Share of `limit` used, clamped to 0–100. */
-function usedPercent(used, limit) {
-  if (!limit) return 0;
-  return Math.min(100, Math.max(0, Math.round((used / limit) * 100)));
-}
-
-function Meter({ percent, label }) {
-  const tone = percent >= 100 ? styles.meterFillDanger : percent >= LOW_CREDIT_PERCENT ? styles.meterFillWarning : '';
-  return (
-    <div
-      className={styles.meter}
-      role="progressbar"
-      aria-valuenow={percent}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-label={label}
-    >
-      <div className={`${styles.meterFill} ${tone}`} style={{ width: `${percent}%` }} />
-    </div>
-  );
-}
-
-function NoEntitlement({ trial, connectHref, onConnect }) {
-  const t = billing.trial;
-  const title = t.noneTitle(trial?.days);
-
+function Shell({ icon, title, children }) {
   return (
     <section className={styles.panel} aria-label={title}>
       <div className={styles.trialIntro}>
         <span className={styles.trialIcon}>
-          <Icon name="instagram" size={22} />
+          <Icon name={icon} size={22} />
         </span>
         <div>
           <h2 className={styles.trialTitle}>{title}</h2>
-          <p className={styles.help}>{t.noneBody}</p>
+          {children}
         </div>
       </div>
+    </section>
+  );
+}
 
-      {/* Omitted rather than guessed if the catalogue has no TRIAL row. */}
-      {trial && (
-        <>
-          <span className={styles.label}>{t.includesHeading}</span>
-          <ul className={styles.trialIncludes}>
-            {trial.days != null && (
-              <li>
-                <Icon name="clock" size={15} /> {t.includesDays(trial.days)}
-              </li>
-            )}
-            {trial.classificationLimit != null && (
-              <li>
-                <Icon name="messageSquare" size={15} /> {t.includesClassified(formatCount(trial.classificationLimit))}
-              </li>
-            )}
-            {trial.autoReplyCredits != null && (
-              <li>
-                <Icon name="zap" size={15} /> {t.includesAutoReplies(trial.autoReplyCredits)}
-              </li>
-            )}
-          </ul>
-        </>
-      )}
+/** What the trial includes. Omitted rather than guessed if the catalogue has no TRIAL row. */
+function Includes({ trial }) {
+  const t = billing.trial;
+  if (!trial) return null;
+  return (
+    <>
+      <span className={styles.label}>{t.includesHeading}</span>
+      <ul className={styles.trialIncludes}>
+        {trial.days != null && (
+          <li>
+            <Icon name="clock" size={15} /> {t.includesDays(trial.days)}
+          </li>
+        )}
+        {trial.classificationLimit != null && (
+          <li>
+            <Icon name="messageSquare" size={15} /> {t.includesClassified(formatCount(trial.classificationLimit))}
+          </li>
+        )}
+        {trial.autoReplyCredits != null && (
+          <li>
+            <Icon name="zap" size={15} /> {t.includesAutoReplies(trial.autoReplyCredits)}
+          </li>
+        )}
+      </ul>
+    </>
+  );
+}
 
+function NotStarted({ trial, connectHref, onConnect }) {
+  const t = billing.trial;
+  return (
+    <Shell icon="instagram" title={t.noneTitle(trial?.days)}>
+      <p className={styles.help}>{t.noneBody}</p>
+      <div style={{ marginTop: 16 }}>
+        <Includes trial={trial} />
+      </div>
       <div className={styles.planActions}>
         <a href={connectHref} onClick={onConnect} className="btn btn-primary">
           <Icon name="instagram" size={16} /> {t.connectButton}
         </a>
       </div>
-    </section>
+    </Shell>
   );
 }
 
-function Trialing({ summary }) {
+function Granted({ summary, usageHref }) {
   const t = billing.trial;
-  const { trial, daysRemaining, validUntil, credits, usage } = summary;
-  const endDate = formatDate(validUntil);
+  const { trial, validUntil } = summary;
+  return (
+    <Shell icon="check" title={t.grantedTitle(trial?.days)}>
+      <p className={styles.help}>{t.grantedBody(formatDate(validUntil))}</p>
+      <div style={{ marginTop: 16 }}>
+        <Includes trial={trial} />
+      </div>
+      {usageHref && (
+        <div className={styles.planActions}>
+          <Link href={usageHref} className="btn btn-secondary">
+            {t.grantedAction}
+          </Link>
+        </div>
+      )}
+    </Shell>
+  );
+}
 
-  const sorted = usage.classificationsThisCycle;
-  const sortLimit = trial?.classificationLimit ?? null;
-  const sortingCapped = sortLimit != null && sorted >= sortLimit;
+function AlreadyConsumed({ plansHref }) {
+  const t = billing.trial;
+  return (
+    <Shell icon="info" title={t.consumedTitle}>
+      <p className={styles.help}>{t.consumedBody}</p>
+      <div className={styles.planActions}>
+        <Link href={plansHref} className="btn btn-primary">
+          {t.plansButton}
+        </Link>
+      </div>
+    </Shell>
+  );
+}
 
-  // The pool is what is left plus what has been spent this cycle, computed by
-  // the server — so a support credit or a manual top-up can never render as
-  // "500 of 25".
-  const repliesLeft = credits.remaining;
-  const replyPool = credits.cyclePool;
+function EmailUnverified() {
+  const t = billing.trial;
+  const [state, setState] = useState('idle'); // idle | sending | sent | failed
+  const [failure, setFailure] = useState('');
+
+  async function resend() {
+    setState('sending');
+    setFailure('');
+    try {
+      await resendVerification();
+      setState('sent');
+    } catch (err) {
+      // While the sending domain is unverified this is a 503. Say so honestly:
+      // claiming success would leave someone waiting for mail that never left.
+      setState('failed');
+      setFailure(err.response?.data?.error || t.resendFailed);
+    }
+  }
 
   return (
-    <section className={styles.panel} aria-label={t.activeTitle}>
-      <div className={styles.panelHeader}>
-        <h2 className={styles.panelTitle}>{t.activeTitle}</h2>
-        {typeof daysRemaining === 'number' && (
-          <span className="badge badge-info">{billing.plan.daysLeft(daysRemaining)}</span>
+    <Shell icon="alertTriangle" title={t.unverifiedTitle}>
+      <p className={styles.help}>{t.unverifiedBody}</p>
+      <div className={styles.planActions}>
+        {state === 'sent' ? (
+          <p className={styles.help} role="status">
+            {t.resent}
+          </p>
+        ) : (
+          <button type="button" className="btn btn-primary" onClick={resend} disabled={state === 'sending'}>
+            {state === 'sending' ? t.resending : t.resendButton}
+          </button>
         )}
       </div>
-
-      <div className={styles.trialStats}>
-        <div className={styles.metaItem}>
-          <span className={styles.label}>{t.endsLabel}</span>
-          <span className={styles.metaValue}>{endDate}</span>
-        </div>
-
-        <div className={styles.metaItem}>
-          <span className={styles.label}>{t.classifiedLabel}</span>
-          <span className={styles.metaValue}>
-            {sortLimit != null ? t.ofLimit(formatCount(sorted), formatCount(sortLimit)) : formatCount(sorted)}
-          </span>
-          {sortLimit != null && (
-            <Meter
-              percent={usedPercent(sorted, sortLimit)}
-              label={t.ofLimit(formatCount(sorted), formatCount(sortLimit))}
-            />
-          )}
-        </div>
-
-        <div className={styles.metaItem}>
-          <span className={styles.label}>{t.autoRepliesLabel}</span>
-          <span className={styles.metaValue}>
-            {replyPool > 0 ? t.ofLimit(formatCount(repliesLeft), formatCount(replyPool)) : formatCount(repliesLeft)}
-          </span>
-          {replyPool > 0 && (
-            <Meter
-              percent={usedPercent(replyPool - repliesLeft, replyPool)}
-              label={t.ofLimit(formatCount(repliesLeft), formatCount(replyPool))}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* Sorting running out stops replies too (a reply needs a sorted
-          message), so it is the one to state when both apply. */}
-      {sortingCapped ? (
-        <p className={styles.help}>{t.sortingLimitReached(formatCount(sortLimit))}</p>
-      ) : replyPool > 0 && repliesLeft === 0 ? (
-        <p className={styles.help}>{t.autoRepliesUsedUp}</p>
-      ) : null}
-
-      <div className={styles.renewalNote}>
-        <span className={styles.renewalNoteIcon}>
-          <Icon name="info" size={16} />
-        </span>
-        <span>
-          <strong>{t.whenItEndsHeading}</strong> {t.whenItEnds(endDate)}
-        </span>
-      </div>
-    </section>
+      {state === 'failed' && (
+        <p className={styles.help} role="alert">
+          {failure}
+        </p>
+      )}
+    </Shell>
   );
 }
 
-export default function TrialStateCard({ summary, connectHref, onConnect }) {
-  if (!isTrialState(summary)) return null;
-  if (summary.status === 'NONE') {
-    return <NoEntitlement trial={summary.trial} connectHref={connectHref} onConnect={onConnect} />;
+export default function TrialStateCard({
+  summary,
+  state,
+  connectHref,
+  onConnect,
+  plansHref = '/billing#plans',
+  usageHref = null,
+}) {
+  if (!summary) return null;
+  switch (state) {
+    case TRIAL_CARD.NOT_STARTED:
+      return <NotStarted trial={summary.trial} connectHref={connectHref} onConnect={onConnect} />;
+    case TRIAL_CARD.GRANTED:
+      return <Granted summary={summary} usageHref={usageHref} />;
+    case TRIAL_CARD.ALREADY_CONSUMED:
+      return <AlreadyConsumed plansHref={plansHref} />;
+    case TRIAL_CARD.EMAIL_UNVERIFIED:
+      return <EmailUnverified />;
+    default:
+      return null;
   }
-  return <Trialing summary={summary} />;
 }

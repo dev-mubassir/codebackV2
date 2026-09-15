@@ -11,13 +11,19 @@
  * up", and the first time the two disagreed a customer would read one answer
  * on /settings and another on /billing.
  *
+ * A tenant with no trial and no plan gets the same explaining card as the
+ * billing page and dashboard (lib/trialState decides), never "No plan yet".
+ *
  * The caller mounts this only when features.billing is on, so pre-launch
  * settings makes no billing request at all.
  */
 
 import Link from 'next/link';
 import useBillingSummary from './useBillingSummary';
+import TrialStateCard from './TrialStateCard';
 import { STATUS_BADGE } from './PlanStatusCard';
+import { trialCardState, replacesPlanPanels } from '@/lib/trialState';
+import { getInstagramAuthUrl } from '@/lib/api';
 import { formatCount } from '@/content/format';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
@@ -44,10 +50,22 @@ export default function PlanSummaryPanel() {
 
 /** The panel itself, for a given summary — split from the fetch so it renders identically for any summary handed to it. */
 export function PlanSummaryPanelView({ summary }) {
+  const state = trialCardState(summary);
+  if (replacesPlanPanels(state)) {
+    return (
+      <TrialStateCard
+        summary={summary}
+        state={state}
+        connectHref={getInstagramAuthUrl()}
+        plansHref="/billing#plans"
+      />
+    );
+  }
+
   const t = billing.settingsPanel;
   const { plan, status, daysRemaining, credits, usage, trial } = summary;
   const sorted = formatCount(usage.classificationsThisCycle);
-  // A limit is only ever shown for a trial — see TrialStateCard.
+  // A limit is only ever shown for a trial — see UsageStrip.
   const sortLimit = plan?.code === 'TRIAL' ? trial?.classificationLimit : null;
 
   return (
@@ -63,7 +81,7 @@ export function PlanSummaryPanelView({ summary }) {
       </div>
 
       <div className={styles.planMetaRow}>
-        <Item label={t.planLabel}>{plan?.name || t.noPlan}</Item>
+        <Item label={t.planLabel}>{plan?.name || t.noValue}</Item>
         <Item label={t.statusLabel}>
           <span className={`badge ${STATUS_BADGE[status] || 'badge-default'}`}>{billing.status[status] || status}</span>
         </Item>
@@ -71,11 +89,9 @@ export function PlanSummaryPanelView({ summary }) {
         <Item label={t.currentLabel}>{formatCount(credits.current)}</Item>
         <Item label={t.bankedLabel}>{formatCount(credits.banked)}</Item>
         <Item label={t.classifiedLabel}>
-          {sortLimit != null ? billing.trial.ofLimit(sorted, formatCount(sortLimit)) : sorted}
+          {sortLimit != null ? billing.usage.ofLimit(sorted, formatCount(sortLimit)) : sorted}
         </Item>
       </div>
-
-      {status === 'NONE' && <p className={styles.help}>{t.noneHint}</p>}
     </section>
   );
 }

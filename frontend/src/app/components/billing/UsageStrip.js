@@ -12,14 +12,24 @@
  * feature, and then into a support conversation about why it is not higher.
  *
  * So: the customer's own usage, stated plainly, with no denominator.
+ *
+ * ONE EXCEPTION: a TRIAL. Its limit is part of what the trial is — the offer
+ * names it before anyone connects — and a trialing tenant who reaches it needs
+ * to see why sorting stopped. The server sends it only for a live trial
+ * (summary.trial), never for Starter or Pro.
  */
 
 import { formatCount, formatDate } from '@/content/format';
+import { LOW_CREDIT_PERCENT } from './BillingBanners';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
 
 export default function UsageStrip({ summary }) {
-  const { usage, cycleStartedAt } = summary;
+  const { usage, cycleStartedAt, plan, trial } = summary;
+  const used = usage.classificationsThisCycle;
+  const limit = plan?.code === 'TRIAL' ? (trial?.classificationLimit ?? null) : null;
+  const percent = limit ? Math.min(100, Math.max(0, Math.round((used / limit) * 100))) : 0;
+  const tone = percent >= 100 ? styles.meterFillDanger : percent >= LOW_CREDIT_PERCENT ? styles.meterFillWarning : '';
 
   return (
     <section className={styles.panel} aria-label={billing.usage.heading}>
@@ -30,7 +40,21 @@ export default function UsageStrip({ summary }) {
       <div className={styles.usageStrip}>
         <div className={styles.metaItem}>
           <span className={styles.label}>{billing.usage.classified}</span>
-          <span className={styles.usageValue}>{formatCount(usage.classificationsThisCycle)}</span>
+          <span className={styles.usageValue}>
+            {limit != null ? billing.usage.ofLimit(formatCount(used), formatCount(limit)) : formatCount(used)}
+          </span>
+          {limit != null && (
+            <div
+              className={`${styles.meter} ${styles.usageMeter}`}
+              role="progressbar"
+              aria-valuenow={percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={billing.usage.ofLimit(formatCount(used), formatCount(limit))}
+            >
+              <div className={`${styles.meterFill} ${tone}`} style={{ width: `${percent}%` }} />
+            </div>
+          )}
           <p className={styles.help}>{billing.usage.classifiedHelp}</p>
         </div>
 

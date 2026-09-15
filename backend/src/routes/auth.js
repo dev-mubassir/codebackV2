@@ -1200,7 +1200,7 @@ router.get('/instagram/callback', async (req, res) => {
         { attemptedByUserId: currentUserId, reason: 'blocked' },
         req.ip
       );
-      return res.redirect(`${frontendUrl()}/dashboard?error=account_blocked`);
+      return res.redirect(`${frontendUrl()}/dashboard?error=account_blocked&trial=${claim.trialOutcome}`);
     }
 
     if (!claim.ok && claim.reason === 'connected_elsewhere') {
@@ -1227,11 +1227,12 @@ router.get('/instagram/callback', async (req, res) => {
       if (req.accepts('json') && !req.accepts('html')) {
         return res.status(409).json({
           error: 'Account already connected',
+          code: claim.trialOutcome,
           message:
             'That Instagram account is connected to another Codeback workspace. Disconnect it there first, or contact support if you cannot reach that workspace.',
         });
       }
-      return res.redirect(`${frontendUrl()}/dashboard?error=account_already_connected`);
+      return res.redirect(`${frontendUrl()}/dashboard?error=account_already_connected&trial=${claim.trialOutcome}`);
     }
 
     if (existingAccount) {
@@ -1317,8 +1318,12 @@ router.get('/instagram/callback', async (req, res) => {
       sessionVersion: user.sessionVersion,
     });
 
-    console.log('[Auth] Instagram connect complete. Redirecting to dashboard.');
-    res.redirect(`${frontendUrl()}/dashboard`);
+    // The trial outcome travels on the redirect and into the log. It used to
+    // be discarded here, which is how a spent trial reached the dashboard as
+    // an unexplained "No plan yet". The summary endpoint re-derives the same
+    // reason later, so nothing depends on this parameter surviving.
+    console.log(`[Auth] Instagram connect complete — trial outcome: ${claim.trialOutcome}. Redirecting to dashboard.`);
+    res.redirect(`${frontendUrl()}/dashboard?trial=${encodeURIComponent(claim.trialOutcome)}`);
 
   } catch (error) {
     // error.response?.data is Meta's error JSON. Never log the error object

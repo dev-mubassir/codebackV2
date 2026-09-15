@@ -51,6 +51,7 @@ export const billing = {
     noPlanBody: 'Pick a plan below to turn on auto-replies. You pay once, for 30 days, and nothing renews on its own.',
     expiresLabel: 'Expired on',
     renewedUntilLabel: 'Paid until',
+    trialEndsLabel: 'Trial ends',
     timeLeftLabel: 'Time left',
     instagramLabel: 'Instagram',
     currencyLabel: 'Currency',
@@ -74,6 +75,8 @@ export const billing = {
     keepsYourDays: (currentExpiry, newExpiry) =>
       `Renewing now does not restart your month. Your ${currentExpiry} expiry moves to ${newExpiry} — you keep every day you have already paid for.`,
     coldStart: (newExpiry) => `Your 30 days start when the payment clears, running to ${newExpiry}.`,
+    afterTrial: (trialEnd, newExpiry) =>
+      `Buy a plan now and it starts when your trial ends on ${trialEnd}, running to ${newExpiry}. You lose none of your trial.`,
     renewButton: 'Renew plan',
     buyButton: 'Buy plan',
     upgradeButton: 'Upgrade to Pro',
@@ -96,9 +99,11 @@ export const billing = {
     classified: 'Messages sorted',
     autoReplies: 'Auto-replies sent',
     cycleStarted: 'Cycle started',
-    // Deliberately no ceiling anywhere in this block. The classification cap
-    // and hourly throttle are an internal burst guard and are never shown as
-    // a number to a customer — see Plan.classificationCapCycle's schema note.
+    // Used ONLY for a trial, whose limit is part of the offer. A paid plan's
+    // classification cap and hourly throttle are an internal burst guard and
+    // are never shown as a number — see Plan.classificationCapCycle's schema
+    // note, and UsageStrip.
+    ofLimit: (value, limit) => `${value} of ${limit}`,
     classifiedHelp: 'Every DM you receive is read and sorted. This does not use a reply credit.',
   },
 
@@ -212,28 +217,44 @@ export const billing = {
    * catalogue row, so the trial can change without touching this file.
    */
   trial: {
+    // TRIAL_NOT_STARTED. The promise states its condition: a trial is not
+    // guaranteed on connect, only for an Instagram account that has never
+    // had one.
     noneTitle: (days) =>
       days
         ? `Connect an Instagram account to start your ${days}-day free trial`
         : 'Connect an Instagram account to start your free trial',
     noneBody:
-      'Your trial starts the moment you connect, not before, so none of it runs out while you are still setting up. No payment details needed.',
+      'One free trial per Instagram account. If the account you connect has never had one, your trial starts the moment it connects — not before, so none of it runs out while you set up. No payment details needed.',
     includesHeading: 'Your trial includes',
     includesDays: (days) => (days === 1 ? '1 day of full access' : `${days} days of full access`),
     includesClassified: (limit) => `${limit} messages read and sorted`,
     includesAutoReplies: (count) => (count === 1 ? '1 auto-reply sent for you' : `${count} auto-replies sent for you`),
     connectButton: 'Connect Instagram',
-    activeTitle: 'Your free trial',
-    endsLabel: 'Trial ends',
-    classifiedLabel: 'Messages sorted',
-    autoRepliesLabel: 'Auto-replies left',
-    ofLimit: (value, limit) => `${value} of ${limit}`,
-    sortingLimitReached: (limit) =>
-      `You have used all ${limit} trial message sorts. New messages still arrive, but they are not sorted or answered until you pick a plan.`,
-    autoRepliesUsedUp: 'You have used every trial auto-reply. Messages are still being sorted until your trial ends.',
-    whenItEndsHeading: 'When the trial ends:',
+
+    // TRIAL_GRANTED — the confirmation, straight after the connect.
+    grantedTitle: (days) => (days ? `Your ${days}-day free trial has started` : 'Your free trial has started'),
+    grantedBody: (date) => `It runs until ${date}.`,
+    grantedAction: 'See your usage',
+
+    // TRIAL_ALREADY_CONSUMED
+    consumedTitle: 'This Instagram account has already used its free trial',
+    consumedBody:
+      'Each Instagram account gets one free trial, ever — even on a different Siffty account. Your account is still connected and messages still arrive. Pick a plan to turn on sorting and auto-replies.',
+    plansButton: 'See plans',
+
+    // EMAIL_UNVERIFIED
+    unverifiedTitle: 'Confirm your email to start your free trial',
+    unverifiedBody:
+      'A free trial needs a confirmed email address, so we can reach you if your Instagram connection ever breaks. Confirm it, then connect (or reconnect) Instagram to start.',
+    resendButton: 'Resend email',
+    resending: 'Sending',
+    resent: 'Confirmation email sent. Check your inbox.',
+    resendFailed: "Couldn't send that email just now. Try again shortly.",
+
+    // Shown inside PlanStatusCard for a live trial.
     whenItEnds: (date) =>
-      `on ${date}, Siffty stops sorting and answering new messages. They still arrive in your inbox, and nothing is charged — there is no card on file. Pick a plan to switch everything back on.`,
+      `When your trial ends on ${date}, Siffty stops sorting and answering new messages. They still arrive in your inbox, and nothing is charged — there is no card on file.`,
   },
 
   /** The plan panel on /settings (PlanSummaryPanel). */
@@ -246,10 +267,8 @@ export const billing = {
     currentLabel: 'Replies this cycle',
     bankedLabel: 'Banked replies',
     classifiedLabel: 'Sorted this cycle',
-    noPlan: 'No plan yet',
     noValue: '—',
     manageLink: 'Manage billing',
-    noneHint: 'Connect an Instagram account from your dashboard to start your free trial.',
   },
 
   noAutoDebit: {

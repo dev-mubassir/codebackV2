@@ -29,6 +29,34 @@ const prisma = require('./prisma');
 const TRIAL_DAYS = 3;
 
 /**
+ * Why a connect did or did not start a trial — machine-readable, returned on
+ * EVERY branch of claimInstagramIdentity().
+ *
+ * These exist because the reason used to be thrown away. A connect that
+ * granted nothing returned only `trialGranted: false`, the callback discarded
+ * even that, and the page showed "No plan yet": a spent trial, an unconfirmed
+ * email and a genuine bug all looked the same.
+ *
+ * TRIAL_NOT_STARTED is never returned by a claim. It is what the billing
+ * summary reports for a tenant who has not connected an account that could
+ * claim one yet, so the pages have one vocabulary for "why no trial".
+ */
+const TRIAL_OUTCOMES = Object.freeze({
+  TRIAL_GRANTED: 'TRIAL_GRANTED',
+  TRIAL_ALREADY_CONSUMED: 'TRIAL_ALREADY_CONSUMED',
+  EMAIL_UNVERIFIED: 'EMAIL_UNVERIFIED',
+  ACCOUNT_ALREADY_LINKED: 'ACCOUNT_ALREADY_LINKED',
+  ACCOUNT_BLOCKED: 'ACCOUNT_BLOCKED',
+  /**
+   * The user already has (or had) a trial or plan. Connecting another account
+   * never starts or resets one — and does NOT stamp that account's
+   * trialConsumedAt, since it received nothing.
+   */
+  ALREADY_ENTITLED: 'ALREADY_ENTITLED',
+  TRIAL_NOT_STARTED: 'TRIAL_NOT_STARTED',
+});
+
+/**
  * Auto-reply credits granted at trial start.
  *
  * A deliberate taste of the paid feature, not a full allowance. This was 0 —
@@ -112,10 +140,12 @@ function purgeAfterDate(from = new Date()) {
  * Decide whether `userId` may link `igUserId`, and grant a trial if they are
  * entitled to one. Everything happens in a single transaction.
  *
- * Returns one of:
- *   { ok: false, reason: 'blocked' }
- *   { ok: false, reason: 'connected_elsewhere', ownerUserId, conversationCount }
- *   { ok: true, trialGranted: boolean, identity, entitlement }
+ * Returns one of (every shape carries `trialOutcome`, a TRIAL_OUTCOMES value):
+ *   { ok: false, reason: 'blocked', trialOutcome: ACCOUNT_BLOCKED }
+ *   { ok: false, reason: 'connected_elsewhere', trialOutcome: ACCOUNT_ALREADY_LINKED, ownerUserId, conversationCount }
+ *   { ok: true, trialGranted: boolean, trialOutcome, identity, entitlement }
+ *
+ * `trialGranted` is true ONLY when a trial was actually started by this call.
  *
  * @param {object} args
  * @param {string} args.userId          the Codeback user connecting the account
@@ -137,7 +167,7 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
 
     // --- 2. Hard block ---------------------------------------------------
     if (identity.blockedAt) {
-      return { ok: false, reason: 'blocked' };
+      return { ok: false, reason: 'blocked', trialOutcome: TRIAL_OUTCOMES.ACCOUNT_BLOCKED };
     }
 
     // --- 3. Is it actively linked to someone else? -----------------------
@@ -155,6 +185,7 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
       return {
         ok: false,
         reason: 'connected_elsewhere',
+        trialOutcome: TRIAL_OUTCOMES.ACCOUNT_ALREADY_LINKED,
         ownerUserId: activeLink.userId,
         activeAccountId: activeLink.id,
         conversationCount,
@@ -178,34 +209,33 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
       select: ENTITLEMENT_CONNECT_FIELDS,
     });
     let trialGranted = false;
+    // Captured BEFORE the grant block: a user who already has (or had) a trial
+    // or plan is never re-granted by connecting another account.
+    const hadEntitlement = Boolean(entitlement && entitlement.status !== 'NONE');
 
-    if (!alreadyConsumed && emailVerified) {
+    // STAMP ONLY WHAT WAS GRANTED. trialConsumedAt is a permanent record that
+    // this Instagram account has had its one free trial. Stamping an identity
+    // that received nothing — because the connecting user already had a trial
+    // or plan — was a false record: it silently and permanently denied that
+    // account a legitimate trial later, on any Siffty account. So the grant
+    // and the stamp happen together or not at all, and a user who already
+    // has an entitlement gets neither.
+    if (!alreadyConsumed && emailVerified && !hadEntitlement) {
       const now = new Date();
+      const trialFields = {
+        planCode: 'TRIAL',
+        status: 'TRIALING',
+        cycleStartedAt: now,
+        validUntil: trialEndDate(now),
+        replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
+      };
       entitlement = await tx.entitlement.upsert({
         where: { userId },
         select: ENTITLEMENT_CONNECT_FIELDS,
-        create: {
-          userId,
-          planCode: 'TRIAL',
-          status: 'TRIALING',
-          cycleStartedAt: now,
-          validUntil: trialEndDate(now),
-          replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
-        },
-        update: {
-          // Only lift an entitlement that has never been anything. Someone
-          // already TRIALING/ACTIVE/GRACE/EXPIRED must not be reset by
-          // connecting a second Instagram account.
-          ...(entitlement && entitlement.status !== 'NONE'
-            ? {}
-            : {
-                planCode: 'TRIAL',
-                status: 'TRIALING',
-                cycleStartedAt: now,
-                validUntil: trialEndDate(now),
-                replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
-              }),
-        },
+        create: { userId, ...trialFields },
+        // Reached only with no row or a NONE row (hadEntitlement is false), so
+        // lifting it cannot reset a real trial or plan.
+        update: trialFields,
       });
 
       // The stamp and the grant are in the same transaction. This is the
@@ -217,13 +247,24 @@ async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
       trialGranted = true;
     }
 
+    // Every branch has a reason, and the reason is RETURNED. Order matters: a
+    // spent trial outranks an unverified email, because confirming the address
+    // would not change the answer.
+    const trialOutcome = hadEntitlement
+      ? TRIAL_OUTCOMES.ALREADY_ENTITLED
+      : trialGranted
+        ? TRIAL_OUTCOMES.TRIAL_GRANTED
+        : alreadyConsumed
+          ? TRIAL_OUTCOMES.TRIAL_ALREADY_CONSUMED
+          : TRIAL_OUTCOMES.EMAIL_UNVERIFIED;
+
     // --- 5. Link count ----------------------------------------------------
     identity = await tx.instagramIdentity.update({
       where: { igUserIdHash },
       data: { linkCount: { increment: 1 }, purgeAfter: purgeAfterDate() },
     });
 
-    return { ok: true, trialGranted, identity, entitlement };
+    return { ok: true, trialGranted, trialOutcome, identity, entitlement };
   });
 }
 
@@ -259,6 +300,7 @@ async function hasActiveEntitlement(userId) {
 
 module.exports = {
   TRIAL_DAYS,
+  TRIAL_OUTCOMES,
   TRIAL_AUTO_REPLY_CREDITS,
   LEDGER_RETENTION_MONTHS,
   hashIgUserId,

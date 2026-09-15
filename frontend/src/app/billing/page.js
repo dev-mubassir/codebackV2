@@ -40,7 +40,8 @@ import useCheckout from '@/app/components/billing/useCheckout';
 import CheckoutDialog from '@/app/components/billing/CheckoutDialog';
 import BillingBanners from '@/app/components/billing/BillingBanners';
 import PlanStatusCard from '@/app/components/billing/PlanStatusCard';
-import TrialStateCard, { isTrialState } from '@/app/components/billing/TrialStateCard';
+import TrialStateCard from '@/app/components/billing/TrialStateCard';
+import { trialCardState, replacesPlanPanels, TRIAL_CARD } from '@/lib/trialState';
 import CreditsCard from '@/app/components/billing/CreditsCard';
 import UsageStrip from '@/app/components/billing/UsageStrip';
 import AddonShelf from '@/app/components/billing/AddonShelf';
@@ -257,6 +258,7 @@ function BillingPageContent() {
   }
 
   const purchasablePlans = pricing.plans.filter((plan) => plan.purchasable);
+  const trialState = trialCardState(summary, { justConnectedOutcome: searchParams.get('trial') });
 
   return (
     <AppShell activeRoute="/billing">
@@ -308,13 +310,18 @@ function BillingPageContent() {
       />
 
       <div className={styles.stack}>
-        {/* Before a first payment the plan, credits and usage panels have
-            nothing true to say: "not on a plan", three zeros, and a rollover
-            rule that does not apply. That combination is what read as an empty
-            page. A tenant with no entitlement, or on a live trial, gets the one
-            card that describes where they actually are. */}
-        {isTrialState(summary) ? (
-          <TrialStateCard summary={summary} connectHref={getInstagramAuthUrl()} />
+        {/* A tenant with no trial and no plan gets the card that says WHY and
+            what to do next — never the paid panels, whose "not on a plan" and
+            three zeros are what read as an empty page. A live trial renders in
+            the SAME panels as Starter and Pro, not a separate lesser layout. */}
+        {trialState === TRIAL_CARD.GRANTED && <TrialStateCard summary={summary} state={trialState} />}
+        {replacesPlanPanels(trialState) ? (
+          <TrialStateCard
+            summary={summary}
+            state={trialState}
+            connectHref={getInstagramAuthUrl()}
+            plansHref="#plans"
+          />
         ) : (
           <>
             <div className={styles.topGrid}>
@@ -338,7 +345,7 @@ function BillingPageContent() {
 
         <AddonShelf summary={summary} catalogPlan={catalogPlan} region={region} onBuyAddon={openAddonCheckout} />
 
-        <section aria-label={billing.plans.heading}>
+        <section id="plans" aria-label={billing.plans.heading}>
           <h2 className={styles.sectionTitle}>{billing.plans.heading}</h2>
           <p className={styles.sectionSubtitle}>{billing.plans.subheading}</p>
           <div className={styles.planGrid}>

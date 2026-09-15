@@ -35,6 +35,10 @@ export const STATUS_BADGE = {
 
 export default function PlanStatusCard({ summary, onRenew }) {
   const { plan, status, validUntil, daysRemaining, renewal, extraIgAccounts, currency } = summary;
+  // A trial renders in this same card as a paid plan; only the wording that
+  // would be untrue for something free changes ("paid until", "days you have
+  // already paid for").
+  const isTrial = plan?.code === 'TRIAL';
 
   // The date this plan's renewal would land on. Falls back to the Starter
   // preview for a tenant with no plan yet, so the promise is visible before
@@ -60,7 +64,11 @@ export default function PlanStatusCard({ summary, onRenew }) {
           <div className={styles.planMetaRow}>
             <div className={styles.metaItem}>
               <span className={styles.label}>
-                {status === 'GRACE' || status === 'EXPIRED' ? billing.plan.expiresLabel : billing.plan.renewedUntilLabel}
+                {isTrial
+                  ? billing.plan.trialEndsLabel
+                  : status === 'GRACE' || status === 'EXPIRED'
+                    ? billing.plan.expiresLabel
+                    : billing.plan.renewedUntilLabel}
               </span>
               <span className={styles.metaValue}>{formatDate(validUntil)}</span>
             </div>
@@ -93,6 +101,9 @@ export default function PlanStatusCard({ summary, onRenew }) {
           </div>
 
           {extraIgAccounts > 0 && <p className={styles.help}>{billing.plan.extraAccounts(extraIgAccounts)}</p>}
+          {isTrial && status === 'TRIALING' && validUntil && (
+            <p className={styles.help}>{billing.trial.whenItEnds(formatDate(validUntil))}</p>
+          )}
         </>
       ) : (
         <>
@@ -109,9 +120,11 @@ export default function PlanStatusCard({ summary, onRenew }) {
             <Icon name="info" size={16} />
           </span>
           <span>
-            {renewal.extendsFromValidUntil
-              ? billing.renewal.keepsYourDays(formatDate(renewal.anchor), formatDate(previewDate))
-              : billing.renewal.coldStart(formatDate(previewDate))}
+            {isTrial && renewal.extendsFromValidUntil
+              ? billing.renewal.afterTrial(formatDate(renewal.anchor), formatDate(previewDate))
+              : renewal.extendsFromValidUntil
+                ? billing.renewal.keepsYourDays(formatDate(renewal.anchor), formatDate(previewDate))
+                : billing.renewal.coldStart(formatDate(previewDate))}
           </span>
         </div>
       )}
