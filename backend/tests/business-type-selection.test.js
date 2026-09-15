@@ -55,7 +55,43 @@ describe('the default business type', () => {
   });
 });
 
-describe('toggleBusinessType — the rule onboarding and Settings share', () => {
+describe('onboarding starts with NOTHING selected', () => {
+  const src = () => fs.readFileSync(new URL('../../frontend/src/app/onboarding/page.js', import.meta.url), 'utf8');
+
+  it('the wizard selection starts empty — no real type, no "Something else", no saved placeholder', () => {
+    expect(src()).toMatch(/const \[selectedCategories, setSelectedCategories\] = useState\(\[\]\);/);
+    expect(src(), 'saved types must not be loaded into the selection').not.toMatch(/setSelectedCategories\(initialCats/);
+    expect(src()).not.toContain('DEFAULT_BUSINESS_TYPE');
+  });
+
+  it('step 2 cannot continue until at least one type is picked', () => {
+    expect(src()).toMatch(/disabled=\{selectedCategories\.length === 0\}/);
+  });
+
+  it('onboarding toggles in allowEmpty mode', () => {
+    expect(src()).toMatch(/toggleBusinessType\(prev, catId, \{ allowEmpty: true \}\)/);
+  });
+});
+
+describe('toggleBusinessType in onboarding mode (allowEmpty)', () => {
+  const tap = (current, id) => toggleBusinessType(current, id, { allowEmpty: true });
+
+  it('the first pick is exactly that type', () => {
+    expect(tap([], 'real_estate')).toEqual(['real_estate']);
+    expect(tap([], 'other')).toEqual(['other']);
+  });
+
+  it('"Something else" is an ordinary choice — picking another type does NOT replace it', () => {
+    expect(tap(['other'], 'real_estate')).toEqual(['other', 'real_estate']);
+  });
+
+  it('turning off the last type leaves nothing selected — no fallback is chosen for the user', () => {
+    expect(tap(['real_estate'], 'real_estate')).toEqual([]);
+    expect(tap(['other'], 'other')).toEqual([]);
+  });
+});
+
+describe('toggleBusinessType in Settings mode (a saved profile always holds at least the placeholder)', () => {
   it('picking a type while only the placeholder is on REPLACES the placeholder', () => {
     expect(toggleBusinessType(['other'], 'real_estate')).toEqual(['real_estate']);
     expect(toggleBusinessType([], 'video_editor')).toEqual(['video_editor']);

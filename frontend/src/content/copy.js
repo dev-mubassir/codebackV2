@@ -414,6 +414,7 @@ export const onboarding = {
   step2: {
     title: 'What do you do?',
     description: 'Pick every type that fits. Siffty adapts to all of them.',
+    pickOne: 'Pick at least one to continue.',
     customLabel: 'Describe your business',
     customPlaceholders: [
       'Antique watch restoration',

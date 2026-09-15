@@ -436,13 +436,21 @@ export const DEFAULT_BUSINESS_TYPE = 'other';
  *     back to the placeholder instead of refusing the tap.
  *   - Otherwise the tap adds the type: a business can be several things,
  *     including "Something else" alongside real types.
+ *
+ * `allowEmpty` is the ONBOARDING mode. There nothing is selected until the
+ * user picks, so there is no placeholder to replace or fall back to:
+ * "Something else" is an ordinary choice, a tap simply adds or removes, and
+ * turning off the last type leaves the selection empty (the wizard will not
+ * continue until at least one is picked). Settings uses the default mode,
+ * because a saved profile always holds at least the placeholder.
  */
-export function toggleBusinessType(current, catId) {
+export function toggleBusinessType(current, catId, { allowEmpty = false } = {}) {
   const selected = Array.isArray(current) ? current.filter(Boolean) : [];
   if (selected.includes(catId)) {
     const next = selected.filter((id) => id !== catId);
-    return next.length > 0 ? next : [DEFAULT_BUSINESS_TYPE];
+    return next.length > 0 || allowEmpty ? next : [DEFAULT_BUSINESS_TYPE];
   }
+  if (allowEmpty) return [...selected, catId];
   const onlyPlaceholder =
     selected.length === 0 || (selected.length === 1 && selected[0] === DEFAULT_BUSINESS_TYPE);
   if (onlyPlaceholder) return [catId];
