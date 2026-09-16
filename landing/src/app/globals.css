@@ -1,0 +1,235 @@
+/* ============================================
+ * Siffty — Landing (siffty.com apex)
+ * ============================================
+ *
+ * The design tokens below are a DELIBERATE COPY of
+ * frontend/src/app/globals.css, not an import.
+ *
+ * This app is built and deployed on its own. Importing across the two app
+ * directories would put the marketing site inside the product's build graph —
+ * which is the one thing this directory exists to avoid. The cost is that a
+ * token changed in the app has to be changed here too; that is the trade
+ * being made on purpose.
+ *
+ * Copied from frontend/src/app/globals.css as of 16 September 2026.
+ * Trimmed to what a marketing page uses: the palette, type scale, radii,
+ * transitions, the reset, and the .btn system. Form/table/avatar/spinner
+ * styles were left behind.
+ * ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ---- Copied verbatim from the app ---- */
+
+  /* Core palette */
+  --bg-page: #f5f5f5;
+  --bg-surface: #ffffff;
+  --bg-surface-secondary: #fafafa;
+  --bg-surface-hover: #f0f0f0;
+
+  /* Borders */
+  --border-default: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --border-subtle: #f0f0f0;
+  --border-focus: #4169e1;
+
+  /* Text */
+  --text-primary: #171717;
+  --text-secondary: #525252;
+  --text-tertiary: #a3a3a3;
+  --text-inverse: #ffffff;
+  --text-link: #4169e1;
+
+  /* Accent / primary */
+  --color-primary: #4169e1;
+  --color-primary-hover: #3457c9;
+  --color-primary-active: #2d4ab0;
+  --color-primary-subtle: #eef2ff;
+  --color-primary-text: #ffffff;
+
+  /* Status */
+  --color-success: #10b981;
+  --color-success-subtle: #ecfdf5;
+  --color-success-text: #065f46;
+  --color-warning: #f59e0b;
+  --color-warning-subtle: #fffbeb;
+  --color-warning-text: #92400e;
+  --color-error: #ef4444;
+  --color-error-subtle: #fef2f2;
+  --color-error-text: #991b1b;
+  --color-info: #3b82f6;
+  --color-info-subtle: #eff6ff;
+  --color-info-text: #1e40af;
+
+  /* AI accent */
+  --color-ai: #7c3aed;
+  --color-ai-light: #a855f7;
+  --color-ai-subtle: #f5f3ff;
+  --color-ai-text: #5b21b6;
+
+  /* Message bubbles */
+  --bubble-inbound: #f5f5f5;
+  --bubble-outbound: #4169e1;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.06), 0 4px 6px rgba(0, 0, 0, 0.04);
+
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.875rem;  /* 14px */
+  --text-md: 1rem;        /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 2rem;       /* 32px */
+
+  /* Landing-only, and the one size that is not in the app.
+   *
+   * The app's scale stops at --text-3xl (32px), which is a dashboard page
+   * title — it is not a hero. Rather than leave a raw clamp() buried in a
+   * component, the marketing display size is a token like every other size on
+   * the page, so the next display-weight heading uses the same one and the
+   * two cannot drift. Fluid between 36px and 56px. */
+  --text-display: clamp(2.25rem, 4.2vw, 3.5rem);
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* ---- New here, not in the app ----
+   * The app has exactly one dark surface (--bg-sidebar: #1a1a2e) and no dark
+   * mode. The hero needs a darker ground than that so white text clears AA
+   * even where the background video is at its brightest, so these two are
+   * landing-only and deliberately darker than the app's sidebar.
+   * #0d0e1f is also the exact fill of public/hero/hero-poster.jpg, so a
+   * missing video reads as an intentional dark section, not a broken box. */
+  --hero-ink: #0d0e1f;
+  --hero-ink-soft: #1a1a2e;
+}
+
+/* ---- Reset (from the app) ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+/* A hash link must not drop its target under a future sticky header, and
+   smooth scrolling is motion — both are switched off for the same users. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+  font-size: var(--text-base);
+}
+
+img,
+video {
+  max-width: 100%;
+}
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:not(.btn):hover {
+  color: var(--color-primary-hover);
+}
+
+/* Keyboard focus ring. Mouse clicks never trigger :focus-visible, so this is
+   invisible to pointer users but keeps the page navigable by keyboard.
+   Do NOT replace this with `outline: none`. */
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Buttons (copied from the app so the CTA is the product's button) ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  line-height: 1.25;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  user-select: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-primary-text);
+  border-color: var(--color-primary);
+}
+
+/* Each :hover restates `color` so an <a class="btn"> keeps its label colour no
+   matter what the global anchor rules do. */
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-primary-text);
+}
+
+.btn-primary:active {
+  background: var(--color-primary-active);
+  border-color: var(--color-primary-active);
+  color: var(--color-primary-text);
+}
+
+/* The app's .btn-lg, for a marketing-weight call to action. */
+.btn-lg {
+  padding: 12px 24px;
+  font-size: var(--text-md);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

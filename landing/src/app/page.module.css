@@ -1,0 +1,29 @@
+/* Stub section below the hero. Exists so the hero's #how-it-works link has a
+   real target; replace wholesale when that section is built. */
+
+.stub {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 96px 32px;
+  /* scroll-margin so the anchor does not land flush against the viewport
+     edge, and so it still clears a sticky header if one is added later. */
+  scroll-margin-top: 24px;
+}
+
+.stubHeading {
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
+}
+
+.stubBody {
+  color: var(--text-secondary);
+  max-width: 34rem;
+}
+
+@media (max-width: 768px) {
+  .stub {
+    padding: 64px 20px;
+  }
+}
