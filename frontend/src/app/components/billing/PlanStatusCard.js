@@ -65,12 +65,7 @@ export default function PlanStatusCard({ summary, onRenew }) {
   return (
     <section className={styles.panel} aria-label={billing.plan.heading}>
       <div className={styles.panelHeader}>
-        <div className={styles.panelTitleGroup}>
-          <span className={styles.panelIcon}>
-            <Icon name="crown" size={18} />
-          </span>
-          <h2 className={styles.panelTitle}>{billing.plan.heading}</h2>
-        </div>
+        <h2 className={styles.panelTitle}>{billing.plan.heading}</h2>
         <span className={`badge ${STATUS_BADGE[status] || 'badge-default'}`}>
           {billing.status[status] || status}
         </span>
@@ -110,6 +105,9 @@ export default function PlanStatusCard({ summary, onRenew }) {
               </div>
             )}
 
+            {/* Shown only once the region lock has actually been set from a
+                real payment — before that there is no billing currency of
+                record to state, and guessing one would misrepresent it. */}
             {currency && (
               <div className={styles.metaItem}>
                 <span className={styles.label}>{billing.plan.currencyLabel}</span>

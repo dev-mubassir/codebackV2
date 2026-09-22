@@ -124,14 +124,8 @@ export default function AdminLayout({ children }) {
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <div className={styles.adminUserChip}>
-            <div className={styles.adminAvatar}>
-              <Icon name="shield" size={16} />
-            </div>
-            <div className={styles.adminUserInfo}>
-              <span className={styles.adminUsername}>{adminUsername || t.panelTitle}</span>
-              <span className={styles.adminRole}>Superadmin</span>
-            </div>
+          <div style={{ fontWeight: '600', color: 'white', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Icon name="user" size={14} /> {adminUsername || t.panelTitle}
           </div>
           <button
             onClick={handleAdminLogout}
@@ -146,15 +140,9 @@ export default function AdminLayout({ children }) {
       {/* Main Content Area */}
       <main className={styles.main} style={{ marginTop: impersonating ? '38px' : '0' }}>
         <header className={styles.header}>
-          <div className={styles.headerLeft}>
-            <h1 className={styles.headerTitle}>
-              {navItems.find((n) => n.path === pathname)?.label || t.panelTitle}
-            </h1>
-            <div className={styles.systemHealthPill}>
-              <span className={styles.pulseDot} />
-              <span>Operational</span>
-            </div>
-          </div>
+          <h1 className={styles.headerTitle}>
+            {navItems.find(n => n.path === pathname)?.label || t.panelTitle}
+          </h1>
           <div>
             <Link href="/dashboard" className="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
               <Icon name="externalLink" size={13} /> {t.openApp}

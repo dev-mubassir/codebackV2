@@ -1,63 +1,104 @@
 /* ============================================
- * Siffty Unified Inbox Styles — Modern 4-Column Layout
- * Matches Reference Mockup with Pixel Precision
+ * Inbox Page Styles — Cloudflare SaaS Theme
  * ============================================ */
+
+/* Single source of truth for the header's dark brand block (.navBrand) and
+   .filterSidebar's width, so the two can never drift — see the sidebar-
+   alignment audit. Redefined again at the 1024px breakpoint alongside
+   .filterSidebar's own responsive width. This is NOT the same thing as
+   globals.css's --sidebar-width (240px), which sizes AppShell's unrelated
+   sidebar — do not conflate the two. */
+:root {
+  --inbox-sidebar-width: 220px;
+}
 
 .loadingScreen {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: #f8fafd;
+  background: var(--bg-page);
 }
 
 .inboxLayout {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f8fafd;
+  background: var(--bg-page);
   overflow: hidden;
-  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: #0c0c0e;
 }
 
-/* ---- Top Header Bar ---- */
+/* Global Nav Header */
 .globalNav {
-  height: 56px;
-  background: #ffffff;
-  border-bottom: 1px solid #f1f3f7;
+  height: var(--header-height);
+  background: var(--bg-surface);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 20px;
   flex-shrink: 0;
   z-index: 50;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  position: relative;
+}
+
+/* Border-bottom lives on a pseudo-element inset by --inbox-sidebar-width
+   instead of on .globalNav itself, so it never runs under .navBrand's dark
+   column at all — no negative-margin "paint over 1px" hack needed, and no
+   hairline of it showing through on real devices where a fractional
+   devicePixelRatio (common on Android) rounds a -1px margin unevenly. */
+.globalNav::after {
+  content: '';
+  position: absolute;
+  left: var(--inbox-sidebar-width);
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--border-default);
 }
 
 .globalNavLeft {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  /* Full header height so .navBrand's own align-self: stretch has the full
+     height to fill. Does not change where the breadcrumb/current-page text
+     sit — they're still vertically centered by align-items above. */
+  align-self: stretch;
 }
 
+/* Dark treatment matching AppShell's .brand, so this
+   forms one continuous dark column with .filterSidebar directly beneath it.
+   width/flex-shrink come from --inbox-sidebar-width (defined above), the same
+   value .filterSidebar uses, so the two can never drift out of alignment.
+   margin-left cancels .globalNav's own `padding: 0 20px` so this block starts
+   flush with the true left edge (x=0), matching where .filterSidebar starts —
+   padding-left restores the original visual inset for the icon/text inside it.
+   border-radius removed: a rounded corner would leave a gap at the page's
+   actual top-left corner, which this block now occupies edge-to-edge. */
 .navBrand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  background: transparent;
+  gap: 8px;
+  background: var(--bg-sidebar);
   border: none;
+  padding: 4px 6px 4px 20px;
+  margin-left: -20px;
+  align-self: stretch;
+  width: var(--inbox-sidebar-width);
+  flex-shrink: 0;
+  border-radius: 0;
   cursor: pointer;
-  padding: 0;
+  transition: background var(--transition-fast);
 }
 
 .navBrandIcon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
+  color: white;
   overflow: hidden;
 }
 
@@ -68,132 +109,108 @@
 }
 
 .navBrandText {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 19px;
-  font-weight: 800;
-  color: #0c0c0e;
-  letter-spacing: -0.03em;
+  font-size: var(--text-md);
+  font-weight: 700;
+  /* White, matching AppShell's .brandName on the now-dark background. */
+  color: var(--text-sidebar-active);
 }
 
-.navDivider {
-  color: #e2e8f0;
-  font-size: 18px;
-  font-weight: 300;
-  user-select: none;
+.navBreadcrumb {
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
 }
 
 .navCurrentPage {
-  font-size: 15px;
-  font-weight: 700;
-  color: #4b5563;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
-.globalNavRight {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-left: auto;
-}
-
-.navActionBtn {
-  position: relative;
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
-  color: #4b5563;
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.navActionBtn:hover {
-  background: #f4f5f8;
-  color: #0c0c0e;
-}
-
-.notifBadgeDot {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 8px;
-  height: 8px;
-  background: #ef4444;
-  border-radius: 50%;
-  border: 2px solid #ffffff;
-}
-
-.navProfileBtn {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  cursor: pointer;
-  display: flex;
+/* Mobile-only header row (<=768px) — hidden here, shown in that media
+   query, while .globalNavLeft/.globalNavActions (the desktop row) flip the
+   other way. Visual classes (menuBtn/headerAction/headerBadge/headerUser)
+   come from AppShell.module.css, imported read-only by inbox/page.js, so
+   this row matches AppShell's mobile header instead of duplicating its
+   CSS here. */
+.mobileHeaderLeft,
+.mobileHeaderRight {
+  display: none;
   align-items: center;
   gap: 8px;
-  padding: 3px 10px 3px 4px;
-  border-radius: 9999px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-.navProfileAvatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #dbeafe;
-  color: #2563eb;
+.globalNavActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bellBadge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: var(--color-error);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+  min-width: 15px;
+  height: 15px;
+  border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11.5px;
-  font-weight: 800;
+  padding: 0 3px;
 }
 
-/* ---- Inbox Main Body: 4-Column Flex Layout ---- */
+/* Inbox Body Grid */
 .inboxBody {
   display: flex;
   flex: 1;
-  min-height: 0;
   overflow: hidden;
-  background: #ffffff;
 }
 
-/* ========================================================= */
-/* Column 1: Vertical Filter Sidebar                         */
-/* ========================================================= */
+/* ============================================
+ * Column 1: Dedicated Vertical Filter Sidebar
+ * ============================================ */
+/* Moved to the dark --bg-sidebar family to match
+   AppShell's sidebar (dashboard/profile/settings/notifications) and the
+   admin section, which both already use it — see the sidebar audit. */
 .filterSidebar {
-  width: 230px;
+  /* Sourced from --inbox-sidebar-width (defined at
+     the top of this file) instead of a literal, so .navBrand in the header
+     can never drift out of alignment with this panel. Value unchanged (220px). */
+  width: var(--inbox-sidebar-width);
+  min-width: 200px;
+  max-width: 240px;
   flex-shrink: 0;
-  background: #ffffff;
-  border-right: 1px solid #f1f3f7;
+  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   overflow-y: auto;
-}
-
-.filterListWrapper {
   padding: 14px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .filterSection {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
+/* Matched to AppShell's .navSectionLabel exactly —
+   font-weight 700->600, letter-spacing 0.05em->0.06em, padding 4px 8px 6px
+   ->12px 12px 6px, and color var(--text-tertiary) [6.76:1 contrast on
+   --bg-sidebar] -> rgba(255,255,255,0.35) [AppShell's literal, untokenized
+   value; ~3.2:1, fails WCAG AA]. Visual consistency with AppShell is the
+   explicit goal for this decorative, non-content label — accepted knowingly,
+   not missed. */
 .filterSectionTitle {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #9ca3af;
-  padding: 6px 12px;
+  color: rgba(255, 255, 255, 0.35);
+  padding: 12px 12px 6px;
 }
 
 .filterItemList {
@@ -206,42 +223,42 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  color: #4b5563;
-  font-size: 13.5px;
-  font-weight: 600;
-  transition: all 0.18s ease;
   width: 100%;
+  padding: 7px 10px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-sidebar);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
 }
 
 .filterItemBtn:hover {
-  background: #f4f5f8;
-  color: #0c0c0e;
+  background: var(--bg-sidebar-hover);
+  color: var(--text-sidebar-active);
 }
 
 .filterItemBtnActive {
-  background: #eff4ff !important;
-  color: #2563eb !important;
-  font-weight: 700;
+  background: var(--bg-sidebar-active) !important;
+  color: var(--text-sidebar-active) !important;
+  font-weight: 600;
+  border-color: transparent !important;
 }
 
 .filterItemLeft {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .filterItemIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  color: inherit;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
 .filterItemLabel {
@@ -251,24 +268,32 @@
 }
 
 .filterItemCount {
-  font-size: 11px;
-  font-weight: 700;
-  color: #2563eb;
-  padding: 1px 7px;
-  border-radius: 9999px;
-  background: #e0ecff;
-}
-
-.labelDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-sidebar-hover);
+  color: var(--text-tertiary);
+  font-weight: 600;
   flex-shrink: 0;
 }
 
+.filterItemBtnActive .filterItemCount {
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+}
+
+/* Left Down Corner: Profile Link */
 .filterSidebarFooter {
-  padding: 12px 14px;
-  border-top: 1px solid #f1f3f7;
+  margin-top: auto;
+  padding-top: 12px;
+  /* --border-default (#e5e5e5) is a light-theme token —
+     opaque and bright against --bg-sidebar. --border-sidebar matches
+     AppShell.module.css's own sidebarHeader/sidebarFooter divider weight
+     exactly (same rgba(255,255,255,0.08) value, added as a real token in
+     globals.css rather than reusing --bg-sidebar-hover, a background
+     variable, as a border color). */
+  border-top: 1px solid var(--border-sidebar);
+  flex-shrink: 0;
 }
 
 .sidebarProfileBtn {
@@ -276,100 +301,105 @@
   align-items: center;
   gap: 10px;
   width: 100%;
+  padding: 8px 10px;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 8px;
+  transition: all var(--transition-fast);
   text-align: left;
 }
 
+.sidebarProfileBtn:hover {
+  background: var(--bg-sidebar-hover);
+}
+
 .sidebarProfileAvatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #2563eb;
-  color: #ffffff;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-ai), var(--color-ai-light));
+  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12.5px;
   font-weight: 700;
+  font-size: 12px;
   flex-shrink: 0;
 }
 
 .sidebarProfileMeta {
   display: flex;
   flex-direction: column;
+  gap: 1px;
   min-width: 0;
   flex: 1;
 }
 
 .sidebarProfileName {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0c0c0e;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-sidebar-active);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .sidebarProfileSub {
-  font-size: 11px;
-  color: #9ca3af;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ========================================================= */
-/* Column 2: Conversation List Panel                         */
-/* ========================================================= */
-.convPanel {
-  width: 310px;
+.sidebarProfileArrow {
+  font-size: 12px;
+  color: var(--text-tertiary);
   flex-shrink: 0;
-  background: #ffffff;
-  border-right: 1px solid #f1f3f7;
+}
+
+/* ============================================
+ * Column 2: Squeezed Conversation List Panel
+ * ============================================ */
+.convPanel {
+  width: 320px;
+  min-width: 300px;
+  max-width: 340px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  background: var(--bg-surface);
 }
 
 .convPanelHeader {
-  padding: 16px 18px;
-  border-bottom: 1px solid #f1f3f7;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: var(--bg-surface);
+  flex-shrink: 0;
 }
 
 .convPanelTitle {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 16px;
-  font-weight: 800;
-  color: #0c0c0e;
-  margin: 0;
-}
-
-.convPanelControls {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.convPanelFilterIcon {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  color: #6b7280;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.convPanelFilterIcon:hover {
-  background: #f3f4f6;
-  color: #0c0c0e;
+.convPanelBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .convList {
@@ -379,65 +409,94 @@
   flex-direction: column;
 }
 
+.emptyConvs {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-tertiary);
+}
+
+.emptyConvsIcon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+
+.emptyConvs h4 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.emptyConvs p {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ---- Conversation Item (Clean & Well-Spaced) ---- */
 .convItem {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: #ffffff;
-  border: none;
-  border-bottom: 1px solid #f8fafc;
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.18s ease;
-  position: relative;
+  gap: 10px;
   width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+  color: var(--text-primary);
 }
 
 .convItem:hover {
-  background: #f8fafd;
+  background: var(--bg-surface-hover);
 }
 
 .convItemActive {
-  background: #f0f5ff !important;
-}
-
-.convItemActive::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3.5px;
-  background: #2563eb;
-  border-radius: 0 4px 4px 0;
+  background: var(--color-primary-subtle) !important;
+  border-left: 3px solid var(--color-primary);
 }
 
 .convAvatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  overflow: hidden;
   position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  overflow: visible;
+  margin-top: 2px;
 }
 
 .convAvatar img {
   width: 100%;
   height: 100%;
+  border-radius: var(--radius-full);
   object-fit: cover;
 }
 
 .convAvatarFallback {
   width: 100%;
   height: 100%;
-  background: #e2e8f0;
-  color: #475569;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
+  font-size: var(--text-xs);
+}
+
+.windowDot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  border: 2px solid var(--bg-surface);
 }
 
 .convInfo {
@@ -445,119 +504,167 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
+/* Header Alignment: pushed to opposite ends */
 .convTopRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   gap: 6px;
-}
-
-.convUsernameRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.unreadDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #2563eb;
-  flex-shrink: 0;
 }
 
 .convUsername {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: #0c0c0e;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.convTime {
-  font-size: 11px;
-  color: #9ca3af;
-  white-space: nowrap;
-}
-
-.convPreview {
-  font-size: 12px;
-  color: #6b7280;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin: 0;
-  line-height: 1.35;
-}
-
-.convBadgesRow {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-top: 4px;
-  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
 }
 
-.pillTag {
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 9999px;
+.unreadDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.convTopRight {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.convTime {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
-.pillTagBlue {
-  background: #eff6ff;
-  color: #2563eb;
+/* Single-Line Message Preview */
+.convPreviewRow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
 }
 
-.pillTagPurple {
-  background: #faf5ff;
-  color: #9333ea;
+.priorityIndicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.pillTagGreen {
-  background: #f0fdf4;
-  color: #16a34a;
+.priorityCritical { background: var(--color-error); }
+.priorityHigh { background: var(--color-warning); }
+.priorityNormal { background: var(--text-tertiary); }
+.priorityLow { background: var(--border-default); }
+
+.convPreview {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.3;
 }
 
-.pillTagRed {
-  background: #fef2f2;
-  color: #ef4444;
+/* Tags/Badges Container with flex-wrap and 4px gap */
+.convBadgesRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  margin-top: 1px;
 }
 
-.pillTagGray {
-  background: #f3f4f6;
-  color: #6b7280;
+.categoryBadge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  line-height: 1.2;
+  font-weight: 500;
 }
 
-/* ========================================================= */
-/* Column 3: Active Chat Panel                               */
-/* ========================================================= */
+.priorityBadge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: var(--color-info-subtle);
+  color: var(--color-info-text);
+  border-radius: var(--radius-sm);
+  line-height: 1.2;
+}
+
+.customerBadge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: rgba(65, 105, 225, 0.08);
+  color: var(--color-primary);
+  border-radius: var(--radius-sm);
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.autoReplyListBadge {
+  font-size: 9px;
+  padding: 1px 4px;
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--color-success);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.riskBadge {
+  font-size: 9px;
+  padding: 1px 4px;
+  background: rgba(239, 68, 68, 0.12);
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* ============================================
+ * Column 3: Main Chat View
+ * ============================================ */
 .chatPanel {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
-  border-right: 1px solid #f1f3f7;
-  overflow: hidden;
-  position: relative;
+  background: var(--bg-surface-secondary);
+  min-width: 0;
 }
 
+/* Chat Header */
 .chatHeader {
-  height: 60px;
-  padding: 0 20px;
-  border-bottom: 1px solid #f1f3f7;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-surface);
   flex-shrink: 0;
-  background: #ffffff;
 }
 
 .chatHeaderLeft {
@@ -566,623 +673,289 @@
   gap: 12px;
 }
 
-.chatContactAvatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  overflow: hidden;
+.backBtnMobile {
+  display: none;
+  font-size: var(--text-lg);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.chatContactAvatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.backBtnMobile:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
 }
 
 .chatUserMeta {
   display: flex;
+  flex-direction: column;
+}
+
+.chatUserTitleRow {
+  display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
 }
 
 .chatUsername {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 15px;
-  font-weight: 800;
-  color: #0c0c0e;
-  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chatRealName {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
 .chatHeaderRight {
   display: flex;
   align-items: center;
   gap: 8px;
-  position: relative;
 }
 
-/* Three Dots Button & Dropdown */
-.threeDotsBtn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: transparent;
-  border: 1px solid #e5e7eb;
-  color: #4b5563;
-  cursor: pointer;
+/* Summary Card */
+.summaryCard {
+  margin: 16px 24px 0;
+  padding: 12px 16px;
+  background: var(--color-ai-subtle);
+  border: 1px solid rgba(65, 105, 225, 0.15);
+  border-radius: var(--radius-md);
+}
+
+.summaryHeader {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: all 0.18s ease;
+  justify-content: space-between;
+  margin-bottom: 4px;
 }
 
-.threeDotsBtn:hover {
-  background: #f4f5f8;
-  color: #0c0c0e;
-}
-
-.threeDotsDropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  width: 180px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 6px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 100;
-  animation: dropdownIn 0.18s ease;
-}
-
-@keyframes dropdownIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.dropdownItem {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
+.summaryTag {
+  font-size: var(--text-xs);
   font-weight: 600;
-  color: #374151;
-  text-align: left;
-  transition: background 0.15s ease;
-  width: 100%;
+  color: var(--color-ai-text);
 }
 
-.dropdownItem:hover {
-  background: #f3f4f6;
-  color: #0c0c0e;
+.summaryStage {
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--color-ai);
+  color: white;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
 }
 
-.dropdownItemDanger {
-  color: #ef4444 !important;
+.summaryText {
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  line-height: 1.5;
 }
 
-.dropdownItemDanger:hover {
-  background: #fef2f2 !important;
-  color: #dc2626 !important;
+/* Brand Deal Card */
+.brandDealCard {
+  margin: 16px 24px 0;
+  padding: 16px;
+  background: var(--color-warning-subtle);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md);
 }
 
-.btnOpenIg {
-  display: inline-flex;
+.brandDealHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.brandDealTitleRow {
+  display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 13px;
-  border-radius: 8px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  color: #0c0c0e;
-  font-size: 12.5px;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.18s ease;
+  font-size: var(--text-sm);
+  color: var(--color-warning-text);
 }
 
-.btnOpenIg:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+.brandDealGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
 }
 
-/* Chat Messages Container */
+.brandDealField {
+  display: flex;
+  flex-direction: column;
+}
+
+.brandDealLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-warning-text);
+  opacity: 0.7;
+  font-weight: 600;
+}
+
+.brandDealValue {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-warning-text);
+
+  margin-top: 2px;
+}
+
+/* Messages Container */
 .messagesContainer {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  background: #fafbfe;
+  gap: 10px;
 }
 
-.dateDivider {
+.noMessages {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 6px 0;
-  position: relative;
+  flex: 1;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
 }
 
-.dateDividerText {
-  font-size: 11.5px;
-  font-weight: 700;
-  color: #9ca3af;
-  background: #fafbfe;
-  padding: 0 12px;
-  position: relative;
-  z-index: 1;
+/* Message Bubbles */
+.messageBubble {
+  max-width: 65%;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  box-shadow: var(--shadow-xs);
 }
 
-.dateDivider::before {
-  content: '';
-  position: absolute;
-  left: 10%;
-  right: 10%;
-  height: 1px;
-  background: #edf0f8;
+.messageInbound {
+  align-self: flex-start;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-bottom-left-radius: 2px;
 }
 
-.messageRow {
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
+.messageOutbound {
+  align-self: flex-end;
+  background: var(--color-primary);
+  color: white;
+  border-bottom-right-radius: 2px;
 }
 
-.messageRowInbound {
-  justify-content: flex-start;
-}
-
-.messageRowOutbound {
-  justify-content: flex-end;
-}
-
-.msgAvatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  overflow: hidden;
-  flex-shrink: 0;
-  margin-bottom: 16px;
-}
-
-.msgAvatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.msgBubbleCol {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 68%;
-}
-
-.msgBubble {
-  padding: 12px 16px;
-  border-radius: 18px;
-  font-size: 13.5px;
-  line-height: 1.45;
+.messageText {
   word-break: break-word;
 }
 
-.msgBubbleInbound {
-  background: #f4f5f8;
-  color: #0c0c0e;
-  border-bottom-left-radius: 4px;
+.messageAttachment {
+  margin-top: 6px;
 }
 
-.msgBubbleOutbound {
-  background: #2563eb;
-  color: #ffffff;
-  border-bottom-right-radius: 4px;
+.messageAttachment img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  max-height: 240px;
+  object-fit: contain;
 }
 
-.msgMetaRow {
+/* TEMP (pre-Meta-review): muted, non-interactive placeholder for share/story_mention
+   attachments — see inbox/page.js messageAttachment rendering. One revert together. */
+.messageAttachmentPlaceholder {
+  display: inline-block;
+  font-style: italic;
+  color: var(--text-tertiary);
+}
+
+.messageTime {
+  display: block;
+  font-size: 10px;
+  margin-top: 4px;
+  opacity: 0.7;
+  font-family: var(--font-mono);
+}
+
+.messageInbound .messageTime {
+  color: var(--text-tertiary);
+}
+
+.messageOutbound .messageTime {
+  color: rgba(255, 255, 255, 0.8);
+  text-align: right;
+}
+
+/* Compose Bar */
+.composeBar {
+  padding: 16px 24px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.composeToolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: #9ca3af;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 
-.msgMetaRowOutbound {
-  justify-content: flex-end;
-}
-
-.checkMarks {
-  color: #2563eb;
-  font-weight: 800;
-}
-
-/* Typing Indicator */
-.typingIndicatorBubble {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 14px;
-  background: #f4f5f8;
-  border-radius: 16px;
-  border-bottom-left-radius: 4px;
-  width: fit-content;
-}
-
-.typingDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #9ca3af;
-  animation: typingBounce 1.2s infinite ease-in-out;
-}
-
-.typingDot:nth-child(2) { animation-delay: 0.2s; }
-.typingDot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes typingBounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-4px); }
-}
-
-/* Message Composer Box */
-.composeContainer {
-  padding: 14px 18px;
-  background: #ffffff;
-  border-top: 1px solid #f1f3f7;
-  position: relative;
-}
-
-.composeBox {
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 10px 14px;
-  background: #ffffff;
+.composeToolbarActions {
   display: flex;
-  flex-direction: column;
   gap: 8px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.composeBox:focus-within {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+.composeHint {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
 .composeTextarea {
-  border: none;
-  outline: none;
-  font-family: inherit;
-  font-size: 13.5px;
-  color: #0c0c0e;
-  resize: none;
-  height: 48px;
   width: 100%;
-  background: transparent;
-  line-height: 1.4;
+  min-height: 72px;
+  max-height: 140px;
+  resize: vertical;
+  padding: 10px 14px;
+  font-size: var(--form-text);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
 }
 
-.composeActionsRow {
+.composeTextarea:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.1);
+}
+
+.composeFooter {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-top: 10px;
 }
 
-.composeToolbarLeft {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  position: relative;
-}
-
-.composeToolBtn {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: transparent;
-  border: none;
-  color: #6b7280;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  transition: all 0.15s ease;
-}
-
-.composeToolBtn:hover {
-  background: #f3f4f6;
-  color: #0c0c0e;
-}
-
-/* Emoji Quick Popover */
-.emojiPopover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 8px 10px;
-  display: flex;
-  gap: 6px;
-  box-shadow: 0 10px 24px -4px rgba(0, 0, 0, 0.12);
-  z-index: 100;
-  animation: popoverIn 0.15s ease;
-}
-
-@keyframes popoverIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.emojiSelectBtn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 18px;
-  padding: 4px;
-  border-radius: 6px;
-  transition: transform 0.15s ease;
-}
-
-.emojiSelectBtn:hover {
-  transform: scale(1.25);
-  background: #f3f4f6;
-}
-
-.btnSend {
-  background: #2563eb;
-  color: #ffffff;
-  border: none;
-  border-radius: 9999px;
-  padding: 8px 18px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.btnSend:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ========================================================= */
-/* Column 4: Conversation Insights & AI Draft Right Panel    */
-/* ========================================================= */
-.insightsSidebar {
-  width: 320px;
-  flex-shrink: 0;
-  background: #ffffff;
-  border-left: 1px solid #f1f3f7;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 16px;
-  overflow-y: auto;
-}
-
-.insightsCard {
-  background: #fafbfe;
-  border: 1px solid #edf0f8;
-  border-radius: 16px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.insightsHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.insightsTitleGroup {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sparkleIconBlue {
-  color: #2563eb;
-}
-
-.insightsTitle {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 13.5px;
-  font-weight: 800;
-  color: #0c0c0e;
-  margin: 0;
-}
-
-.chevronToggleBtn {
-  background: transparent;
-  border: none;
-  color: #9ca3af;
-  cursor: pointer;
-  padding: 2px;
-}
-
-.whatTheyWantBlock {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12.5px;
-  color: #4b5563;
-}
-
-.whatTheyWantText strong {
-  color: #0c0c0e;
-}
-
-/* Score Meters */
-.scoreMetersGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1.2fr;
-  gap: 10px;
-  padding: 8px 0;
-  border-top: 1px solid #f1f3f7;
-  border-bottom: 1px solid #f1f3f7;
-}
-
-.meterItem {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.meterLabel {
-  font-size: 9.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #9ca3af;
-}
-
-.meterVal {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 14px;
-  font-weight: 800;
-  color: #0c0c0e;
-}
-
-.meterBarTrack {
-  height: 4px;
-  border-radius: 9999px;
-  background: #e2e8f0;
-  overflow: hidden;
-}
-
-.meterBarFillGreen {
-  height: 100%;
-  background: #22c55e;
-  border-radius: 9999px;
-}
-
-.meterBarFillBlue {
-  height: 100%;
-  background: #3b82f6;
-  border-radius: 9999px;
-}
-
-.suggestedStepLink {
-  font-size: 12px;
-  font-weight: 700;
-  color: #2563eb;
-  text-decoration: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.insightsSummaryBlock {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.insightsSummaryTitle {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: #6b7280;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.insightsSummaryText {
-  font-size: 12px;
-  color: #4b5563;
-  line-height: 1.45;
-  margin: 0;
-}
-
-/* Siffty Draft AI Reply Card */
-.aiDraftCard {
-  background: #fafbfe;
-  border: 1px solid #edf0f8;
-  border-radius: 16px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.copyDraftBtn {
-  background: transparent;
-  border: none;
-  color: #9ca3af;
-  cursor: pointer;
-}
-
-.copyDraftBtn:hover {
-  color: #0c0c0e;
-}
-
-.aiDraftText {
-  font-size: 12.5px;
-  color: #374151;
-  line-height: 1.5;
-  margin: 0;
-  background: #ffffff;
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid #edf0f8;
-}
-
-.aiDraftActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.btnUseReply {
-  flex: 1;
-  background: #0c0c0e;
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
+.windowClosedWarning {
   padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-md);
+  margin-bottom: 10px;
 }
 
-.btnEditReply {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  color: #0c0c0e;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
+.sendError {
+  font-size: var(--text-xs);
+  color: var(--color-error);
+  margin-top: 6px;
 }
 
-/* Empty State */
+/* Empty Chat View */
 .emptyChat {
   flex: 1;
   display: flex;
@@ -1191,54 +964,434 @@
   justify-content: center;
   text-align: center;
   padding: 40px;
-  color: #9ca3af;
+  color: var(--text-tertiary);
 }
 
 .emptyChatIcon {
-  width: 60px;
-  height: 60px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
-  background: #eff4ff;
-  color: #2563eb;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 16px;
+  color: var(--text-tertiary);
 }
 
 .emptyChat h2 {
-  font-size: 18px;
-  font-weight: 800;
-  color: #0c0c0e;
-  margin: 0 0 6px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
 }
 
 .emptyChat p {
-  font-size: 13px;
-  color: #6b7280;
-  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  max-width: 360px;
 }
 
-/* Modals */
+/* Responsive Layout */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100%;
+  }
+
+  .chatPanel {
+    display: none;
+  }
+
+  .showChatMobile .sidebar {
+    display: none;
+  }
+
+  .showChatMobile .chatPanel {
+    display: flex;
+  }
+
+  .backBtnMobile {
+    display: block;
+  }
+
+  .brandDealGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ============================================
+ * Auto-Reply UI Styles
+ * ============================================ */
+.autoReplyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.autoReplyBtn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.autoReplyBtnActive {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: var(--color-success) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+.autoReplyDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: background var(--transition-fast);
+}
+
+.autoReplyBtnActive .autoReplyDot {
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+}
+
+.autoReplyListBadge {
+  font-size: 10px;
+  padding: 1px 5px;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.autoReplyBanner {
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(6, 95, 70, 0.04) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.autoReplyBannerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.autoReplyBannerIcon {
+  font-size: 18px;
+}
+
+.autoReplyBannerText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.autoReplyBannerTitle {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.autoReplyBannerDesc {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.autoReplyPromptBox {
+  margin: 8px 24px 0;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.autoReplyPromptLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+}
+
+.autoReplyPromptActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ============================================
+ * AI Intelligence & Lead Qualification Styles
+ * ============================================ */
+.intelligenceCard {
+  margin: 12px 24px 0;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.intelligenceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.intelligenceHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toggleSummaryBtn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.toggleSummaryBtn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.intelligenceCardCollapsed {
+  margin: 12px 24px 0;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.collapsedLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.collapsedIntent {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intelligenceTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.intelligenceBadge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(65, 105, 225, 0.1);
+  color: var(--color-primary);
+}
+
+.intelligenceMetrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  background: var(--bg-surface-secondary);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.metricItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metricLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.metricValue {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.riskBadgeLow {
+  color: var(--color-success);
+}
+.riskBadgeMed {
+  color: var(--color-warning);
+}
+.riskBadgeHigh {
+  color: var(--color-error);
+  font-weight: 700;
+}
+.riskBadgeCrit {
+  color: var(--color-error-strong);
+  font-weight: 700;
+}
+
+.recommendationBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  background: rgba(65, 105, 225, 0.05);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.humanAttentionBanner {
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-error);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+/* ============================================
+ * Clear & Delete Chat Modals and Action Buttons
+ * ============================================ */
+.chatHeaderActionGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.actionBtn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.actionBtnDanger:hover {
+  background: rgba(239, 68, 68, 0.08);
+  color: var(--color-error);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.quickDeleteBtn {
+  opacity: 0;
+  padding: 3px 6px;
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.convItem:hover .quickDeleteBtn {
+  opacity: 0.8;
+}
+
+.quickDeleteBtn:hover {
+  opacity: 1 !important;
+  color: var(--color-error) !important;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Modal Overlay */
 .modalOverlay {
   position: fixed;
-  inset: 0;
-  background: rgba(12, 12, 14, 0.45);
-  backdrop-filter: blur(4px);
-  z-index: 1000;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1000;
   padding: 20px;
 }
 
 .modalCard {
-  background: #ffffff;
-  border-radius: 18px;
-  padding: 24px;
   width: 100%;
   max-width: 440px;
-  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.16);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1251,21 +1404,19 @@
 }
 
 .modalIcon {
-  color: #ef4444;
+  font-size: 24px;
 }
 
 .modalTitle {
-  font-size: 16px;
-  font-weight: 800;
-  color: #0c0c0e;
-  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .modalBody {
-  font-size: 13.5px;
-  color: #4b5563;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   line-height: 1.5;
-  margin: 0;
 }
 
 .modalActions {
@@ -1273,17 +1424,264 @@
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  margin-top: 8px;
 }
 
-/* Responsive */
-@media (max-width: 1200px) {
-  .insightsSidebar {
-    display: none;
+.btnDanger {
+  background: var(--color-error) !important;
+  color: white !important;
+  border-color: var(--color-error) !important;
+}
+
+.btnDanger:hover {
+  background: var(--color-error-hover) !important;
+  border-color: var(--color-error-hover) !important;
+}
+
+/* ============================================
+ * Mobile Filter Bar (Horizontally Scrollable)
+ * ============================================ */
+.mobileFilterBar {
+  display: none;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+}
+
+.mobileFilterBar::-webkit-scrollbar {
+  display: none;
+}
+
+.mobileFilterScroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobileFilterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+}
+
+.mobileFilterChip:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.mobileFilterChipActive {
+  background: var(--color-primary-subtle) !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  font-weight: 600;
+}
+
+.mobileChipDivider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-default);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* ============================================
+ * Responsive Media Queries for 3-Column Layout
+ * ============================================ */
+@media (max-width: 1024px) {
+  /* Redefines the shared width variable itself, so
+     .filterSidebar (via width: var(--inbox-sidebar-width) above) and
+     .navBrand in the header both pick up 180px here automatically — one
+     source of truth at every breakpoint, not two numbers that have to be
+     kept in sync by hand. */
+  :root {
+    --inbox-sidebar-width: 180px;
+  }
+  .filterSidebar {
+    min-width: 170px;
+    padding: 10px 6px;
+  }
+  .convPanel {
+    width: 280px;
+    min-width: 260px;
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 768px) {
+  /* .globalNav itself keeps a plain, symmetric padding on mobile — the old
+     asymmetric 0/12px pairing existed only to keep .navBrand's square flush
+     with one edge, which no longer applies now that the desktop row
+     (.globalNavLeft/.globalNavActions, including .navBrand) is hidden
+     outright below and replaced by .mobileHeaderLeft/.mobileHeaderRight. */
+  .globalNav {
+    height: auto;
+    min-height: var(--header-height);
+    padding: 0 12px;
+  }
+
+  /* Runs the full header width: below this breakpoint there's no dark
+     .navBrand column on the left for the border to route around. */
+  .globalNav::after {
+    left: 0;
+  }
+
+  /* Swap the desktop nav row for the mobile hamburger header. */
+  .globalNavLeft,
+  .globalNavActions {
+    display: none;
+  }
+
+  .mobileHeaderLeft,
+  .mobileHeaderRight {
+    display: flex;
+  }
+
   .filterSidebar {
     display: none;
   }
+
+  .mobileFilterBar {
+    display: block;
+  }
+
+  .convPanel {
+    width: 100%;
+    max-width: 100%;
+    border-right: none;
+  }
+
+  .inboxLayout.showChatMobile .convPanel {
+    display: none;
+  }
+
+  .inboxLayout.showChatMobile .chatPanel {
+    display: flex;
+    width: 100%;
+  }
+
+  .backBtnMobile {
+    display: inline-flex !important;
+  }
+
+  .chatHeader {
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chatUserMeta {
+    gap: 2px;
+  }
+
+  .chatUserTitleRow {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .chatHeaderActionGroup {
+    width: 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .intelligenceCard,
+  .intelligenceCardCollapsed {
+    margin: 8px 10px 0;
+    padding: 8px 10px;
+  }
+
+  .toggleSummaryBtn {
+    font-size: 10px !important;
+    padding: 3px 8px !important;
+    min-height: 26px;
+    flex-shrink: 0 !important;
+  }
+
+  .intelligenceMetrics {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .summaryCard {
+    margin: 8px 12px 0;
+    padding: 10px 12px;
+  }
+
+  .messagesContainer {
+    padding: 12px;
+  }
+
+  .messageBubble {
+    max-width: 88%;
+  }
+
+  .composeBar {
+    padding: 8px 12px 14px;
+  }
+
+  .composeToolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .composeFooter {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .composeHint {
+    font-size: 10px;
+    text-align: left;
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .navBrandText {
+    display: none;
+  }
+
+  .chatUsername {
+    font-size: var(--text-sm);
+  }
+
+  .messageText {
+    font-size: 12px;
+  }
+}
+
+
+
+
+/* An inbound message the AI never read — says why (Message.aiSkipReason). */
+.messageSkipped {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.unsortedBanner {
+  margin: 0 12px 10px;
 }

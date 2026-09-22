@@ -33,13 +33,13 @@ export default function NotFound() {
 
         {/* Display Headline */}
         <h1 className={styles.errorHeadline}>
-          Looking for a page that <span className={styles.highlightBlue}>doesn't exist?</span>
+          Looking for a page that <span className={styles.highlightBlue}>doesn&apos;t exist?</span>
         </h1>
 
         {/* Subtitle Copy */}
         <p className={styles.errorSubtitle}>
           The link you followed might be broken, or this page may have been moved.
-          Don't worry — your Instagram connections, smart DM classifications, and AI reply rules remain completely safe and active.
+          Don&apos;t worry — your Instagram connections, smart DM classifications, and AI reply rules remain completely safe and active.
         </p>
 
         {/* Primary Action Buttons */}

@@ -50,9 +50,21 @@ describe('Gate 11d — refund policy page', () => {
     expect(read('app/components/pricing/PricingSection.js')).toContain('href="/refund-policy"');
   });
 
-  it('is linked from every legal page nav', () => {
+  // The guarantee is unchanged — every legal page still links to the refund
+  // policy — but the redesign moved that link out of each page and into the
+  // shared PublicFooter, which LegalLayout renders. Asserting the inline
+  // href per page was checking the old mechanism, not the requirement, so
+  // this now checks the chain that actually delivers it. Verified in the
+  // browser: /privacy, /terms, /data-deletion, /support and /contact all
+  // render href="/refund-policy".
+  it('is linked from every legal page, through the shared footer', () => {
+    expect(read('app/components/public/PublicFooter.js')).toContain('href="/refund-policy"');
+    expect(read('app/components/public/LegalLayout.js')).toContain('PublicFooter');
+
     for (const p of ['app/privacy/page.js', 'app/terms/page.js', 'app/data-deletion/page.js', 'app/support/page.js', 'app/contact/page.js']) {
-      expect(read(p), p).toContain('href="/refund-policy"');
+      const src = read(p);
+      const reachesFooter = src.includes('LegalLayout') || src.includes('PublicFooter');
+      expect(reachesFooter, `${p} must render the shared footer or link the refund policy itself`).toBe(true);
     }
   });
 });

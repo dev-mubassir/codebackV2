@@ -101,7 +101,7 @@ export default function ForgotPasswordPage() {
               {auth.forgotPassword.sent}
             </p>
             <p style={{ margin: '0 0 22px', fontSize: 13, color: '#6b7280' }}>
-              Didn't receive the email? Check your spam folder or try again in a few minutes.
+              Didn&apos;t receive the email? Check your spam folder or try again in a few minutes.
             </p>
             <Link href="/login" className={styles.submitBtn} style={{ textDecoration: 'none' }}>
               Back to Sign In

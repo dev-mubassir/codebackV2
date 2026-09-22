@@ -88,7 +88,7 @@ function AuthErrorBannerInner({ onDismiss }) {
           <div style={{ marginTop: 10 }}>
             {address && (
               <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 8 }}>
-                We'll send it to <strong>{address}</strong>. Wrong address? Update it in your
+                We&apos;ll send it to <strong>{address}</strong>. Wrong address? Update it in your
                 profile below.
               </div>
             )}

@@ -33,11 +33,14 @@ export function buildNavItems({ billingEnabled = false } = {}) {
       ],
     },
     {
-      section: 'AUTOMATION',
+      section: nav.sections.configuration,
       items: [
         { label: nav.settings, path: '/settings', icon: 'settings' },
-        { label: nav.billing, path: '/billing', icon: 'wallet' },
+        ...(billingEnabled ? [{ label: nav.billing, path: '/billing', icon: 'wallet' }] : []),
       ],
+    },
+  ];
+}
     },
   ];
 }

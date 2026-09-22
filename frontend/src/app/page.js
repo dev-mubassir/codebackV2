@@ -636,7 +636,7 @@ function LandingPageContent() {
       <header className={`navbar-wrapper ${isScrolled ? 'scrolled' : ''}`} id="navbar">
         <nav className="navbar-container">
           <div className="navbar-left">
-            <a href="#" className="brand-logo" id="brand-logo" aria-label="Siffty Home">
+            <Link href="/" className="brand-logo" id="brand-logo" aria-label="Siffty Home">
               <img
                 src="/assets/siffty-logo-tight.png"
                 alt="Siffty Logo"
@@ -644,7 +644,7 @@ function LandingPageContent() {
                 width="48"
                 height="48"
               />
-            </a>
+            </Link>
 
             <ul className="nav-links" id="nav-links">
               <li className="nav-item">
@@ -725,7 +725,7 @@ function LandingPageContent() {
         <div className="hero-container">
           {/* Left Column: Copy & Actions */}
           <div className="hero-left">
-            <a href="#release" className="badge-announcement" id="hero-badge">
+            <a href="#capabilities" className="badge-announcement" id="hero-badge">
               <span className="badge-pulse-dot" />
               <span className="badge-text">Introducing Siffty</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -1643,10 +1643,10 @@ function LandingPageContent() {
         <div className="footer-top-container">
           {/* Brand column */}
           <div className="footer-brand-col">
-            <a href="#" className="brand-logo footer-logo">
+            <Link href="/" className="brand-logo footer-logo">
               <img src="/assets/siffty-logo-tight.png" alt="Siffty Logo" className="brand-logo-img" width="40" height="40" />
               <span className="logo-text">Siffty</span>
-            </a>
+            </Link>
             <p className="footer-brand-desc">
               Siffty reads, understands and organizes your Instagram DMs so you can spend less time sorting and more time on the conversations that matter.
             </p>

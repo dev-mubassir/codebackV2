@@ -283,14 +283,9 @@ function BillingPageContent() {
   return (
     <AppShell activeRoute="/billing">
       <div className={styles.pageHeader}>
-        <div className={styles.pageHeaderLeft}>
-          <div className={styles.headerIconBadge}>
-            <Icon name="wallet" size={24} />
-          </div>
-          <div>
-            <h1 className={styles.pageTitle}>{billing.page.title}</h1>
-            <p className={styles.pageSubtitle}>{billing.page.subtitle}</p>
-          </div>
+        <div>
+          <h1 className={styles.pageTitle}>{billing.page.title}</h1>
+          <p className={styles.pageSubtitle}>{billing.page.subtitle}</p>
         </div>
 
         {/* Only offered when there is a real choice AND the tenant has not

@@ -1,8 +1,14 @@
-/* ============================================
- * Siffty Billing & Plans — Modern Clean Theme
- * Refined cards, soft borders, glowing meters,
- * custom icons and button hover animations.
- * ============================================ */
+/*
+ * One stylesheet for every billing component and for the page itself.
+ *
+ * Kept as a single module rather than one file per component on purpose: the
+ * billing page is a set of panels that must line up with each other — same
+ * card padding, same label treatment, same number scale. Splitting it into
+ * six files is how those drift apart, one small copy-paste at a time.
+ *
+ * Every colour, radius and font size is a token from globals.css. Nothing
+ * here invents a value, so the page follows a theme change for free.
+ */
 
 /* ---------------------------------------------------------------- layout */
 
@@ -10,65 +16,45 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 28px;
-}
-
-.pageHeaderLeft {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.headerIconBadge {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
-  color: #2563eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  margin-bottom: 24px;
 }
 
 .pageTitle {
   margin: 0 0 4px;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #0f172a;
-  line-height: 1.2;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .pageSubtitle {
   margin: 0;
-  font-size: 14px;
-  color: #64748b;
-  font-weight: 500;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
 }
 
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
+/* Plan status and credits sit side by side — they are read together ("how
+   long have I got, and how much have I got left"), so they are one glance. */
 .topGrid {
   display: grid;
   grid-template-columns: 1.35fr 1fr;
-  gap: 24px;
+  gap: 20px;
 }
 
 .planGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
 }
 
-@media (max-width: 880px) {
+@media (max-width: 860px) {
   .topGrid {
     grid-template-columns: 1fr;
   }
@@ -77,18 +63,11 @@
 /* ----------------------------------------------------------------- panel */
 
 .panel {
-  background: #ffffff;
-  border: 1px solid #f1f5f9;
-  border-radius: 20px;
-  padding: 24px 26px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  padding: 20px;
   min-width: 0;
-  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03), 0 1px 2px rgba(15, 23, 42, 0.02);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
-}
-
-.panel:hover {
-  border-color: #e2e8f0;
-  box-shadow: 0 8px 30px -4px rgba(15, 23, 42, 0.05);
 }
 
 .panelHeader {
@@ -96,54 +75,40 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 20px;
-}
-
-.panelTitleGroup {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.panelIcon {
-  color: #2563eb;
-  display: flex;
-  align-items: center;
+  margin-bottom: 16px;
 }
 
 .panelTitle {
   margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .sectionTitle {
-  margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .sectionSubtitle {
-  margin: 0 0 20px;
-  font-size: 14px;
-  color: #64748b;
+  margin: 0 0 16px;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
 }
 
 .label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 .help {
-  font-size: 13px;
-  color: #64748b;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
   line-height: 1.5;
   margin: 0;
 }
@@ -152,78 +117,66 @@
 
 .planTop {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: baseline;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .planName {
-  font-size: 28px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.03em;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
   line-height: 1.1;
 }
 
 .planMetaRow {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 16px;
-  margin: 20px 0;
-  padding: 16px;
-  background: #f8fafc;
-  border-radius: 14px;
-  border: 1px solid #f1f5f9;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 16px 0;
 }
 
 .metaItem {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
-.metaItemHeader {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #94a3b8;
-}
-
 .metaValue {
-  font-size: 15px;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
+/* The renewal promise. Given real visual weight because it is a commitment
+   the server actually keeps (grantPlan anchors on validUntil), and the whole
+   point of stating it is that an early renewer can see they lose nothing. */
 .renewalNote {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: 14px;
-  padding: 14px 16px;
-  margin: 18px 0;
-  font-size: 13px;
+  background: var(--color-info-subtle);
+  border: 1px solid var(--color-info);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  margin: 16px 0;
+  font-size: var(--text-sm);
   line-height: 1.5;
-  color: #166534;
-  font-weight: 500;
+  color: var(--color-info-text);
 }
 
 .renewalNoteIcon {
   flex-shrink: 0;
-  margin-top: 2px;
-  color: #16a34a;
+  margin-top: 1px;
+  color: var(--color-info);
 }
 
 .planActions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 14px;
 }
 
 /* --------------------------------------------------------- credits panel */
@@ -232,65 +185,57 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .creditsBig {
-  font-size: 40px;
-  font-weight: 800;
+  font-size: 36px;
+  font-weight: 700;
   line-height: 1;
-  color: #0f172a;
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.03em;
 }
 
 .creditsBigEmpty {
-  color: #ef4444;
+  color: var(--color-error);
 }
 
 .creditsUnit {
-  font-size: 14px;
-  color: #64748b;
-  font-weight: 600;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
 }
 
 .meter {
-  height: 10px;
-  border-radius: 999px;
-  background: #edf2f7;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-hover);
   overflow: hidden;
-  margin: 16px 0 10px;
-  position: relative;
+  margin: 14px 0 8px;
 }
 
 .meterFill {
   height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #2563eb, #3b82f6);
-  transition: width 0.4s ease;
-  box-shadow: 0 0 12px rgba(37, 99, 235, 0.4);
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  transition: width var(--transition-normal);
 }
 
 .meterFillWarning {
-  background: linear-gradient(90deg, #f59e0b, #fbbf24);
-  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+  background: var(--color-warning);
 }
 
 .meterFillDanger {
-  background: linear-gradient(90deg, #ef4444, #f87171);
-  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+  background: var(--color-error);
 }
 
 .splitRow {
   display: flex;
   justify-content: space-between;
-  align-items: center;
   gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid #f1f5f9;
-  font-size: 13px;
-  color: #64748b;
-  font-weight: 500;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
 }
 
 .splitRow:last-of-type {
@@ -298,44 +243,25 @@
 }
 
 .splitValue {
-  font-weight: 700;
-  color: #0f172a;
+  font-weight: 600;
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
 }
 
 /* ---------------------------------------------------------- usage strip */
 
 .usageStrip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 16px;
-}
-
-.usageTile {
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  border-radius: 14px;
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.usageTileHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #64748b;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 20px;
 }
 
 .usageValue {
-  font-size: 26px;
-  font-weight: 800;
-  color: #0f172a;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 /* ---------------------------------------------------------------- banner */
@@ -344,21 +270,21 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .banner {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
-  padding: 16px 20px;
-  border-radius: 16px;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
   border: 1px solid transparent;
 }
 
 .bannerIcon {
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .bannerBody {
@@ -367,13 +293,13 @@
 }
 
 .bannerTitle {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: 600;
   margin-bottom: 2px;
 }
 
 .bannerText {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -383,104 +309,96 @@
 }
 
 .bannerWarning {
-  background: #fffbeb;
-  border-color: #fde68a;
-  color: #92400e;
+  background: var(--color-warning-subtle);
+  border-color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .bannerError {
-  background: #fef2f2;
-  border-color: #fecaca;
-  color: #991b1b;
+  background: var(--color-error-subtle);
+  border-color: var(--color-error);
+  color: var(--color-error-text);
 }
 
 .bannerInfo {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #1e40af;
+  background: var(--color-info-subtle);
+  border-color: var(--color-info);
+  color: var(--color-info-text);
+}
+
+@media (max-width: 600px) {
+  .banner {
+    flex-wrap: wrap;
+  }
+  .bannerAction {
+    width: 100%;
+  }
+  .bannerAction > * {
+    width: 100%;
+  }
 }
 
 /* --------------------------------------------------------------- add-ons */
-
-.addonList {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  margin-top: 14px;
-}
 
 .addonRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 18px 20px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  border-radius: 16px;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
-  transition: border-color 0.2s ease;
 }
 
-.addonRow:hover {
-  border-color: #cbd5e1;
+.addonRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .addonInfo {
   min-width: 0;
-  flex: 1 1 240px;
-}
-
-.addonTitleRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  flex: 1 1 220px;
 }
 
 .addonName {
-  font-size: 15px;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
 }
 
 .addonRight {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
   flex-shrink: 0;
 }
 
 .addonPrice {
-  font-size: 17px;
-  font-weight: 800;
-  color: #0f172a;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
 /* ---------------------------------------------------------------- upsell */
 
+/* The conversion moment. It is loud on purpose — this renders only once a
+   Starter tenant has actually paid for an add-on, so it is never noise. */
 .upsell {
   display: flex;
   align-items: flex-start;
-  gap: 18px;
-  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
-  border: 1px solid #bfdbfe;
-  border-radius: 20px;
-  padding: 24px 26px;
-  box-shadow: 0 4px 20px -2px rgba(37, 99, 235, 0.06);
+  gap: 14px;
+  background: var(--color-primary-subtle);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-xl);
+  padding: 18px 20px;
 }
 
 .upsellIcon {
   flex-shrink: 0;
-  color: #2563eb;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: #dbeafe;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: var(--color-primary);
+  margin-top: 2px;
 }
 
 .upsellBody {
@@ -489,23 +407,22 @@
 }
 
 .upsellTitle {
-  font-size: 18px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.02em;
-  margin-bottom: 6px;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
 }
 
 .upsellText {
-  font-size: 14px;
-  color: #475569;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
   line-height: 1.5;
-  margin: 0 0 16px;
+  margin: 0 0 14px;
 }
 
 .upsellActions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -513,44 +430,10 @@
 
 .tableWrap {
   overflow-x: auto;
-  border: 1px solid #f1f5f9;
-  border-radius: 14px;
-  background: #ffffff;
-}
-
-.tableWrap table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-  font-size: 13px;
-}
-
-.tableWrap th {
-  background: #f8fafc;
-  padding: 12px 18px;
-  font-weight: 700;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #64748b;
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.tableWrap td {
-  padding: 14px 18px;
-  border-bottom: 1px solid #f8fafc;
-  color: #334155;
-  vertical-align: middle;
-}
-
-.tableWrap tr:last-child td {
-  border-bottom: none;
 }
 
 .amountCell {
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  color: #0f172a;
   white-space: nowrap;
 }
 
@@ -558,25 +441,25 @@
 
 .reassure {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: flex-start;
-  padding: 20px 22px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 18px;
-  background: #f8fafc;
+  padding: 16px 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface-secondary);
 }
 
 .reassureIcon {
   flex-shrink: 0;
-  color: #2563eb;
+  color: var(--text-tertiary);
   margin-top: 2px;
 }
 
 .reassureTitle {
-  font-size: 15px;
-  font-weight: 700;
-  color: #0f172a;
-  margin-bottom: 4px;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
 }
 
 /* ---------------------------------------------------------------- dialog */
@@ -584,62 +467,28 @@
 .dialogOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px;
   z-index: 100;
 }
 
 .dialog {
-  background: #ffffff;
-  border-radius: 24px;
-  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
-  border: 1px solid #f1f5f9;
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-overlay);
   width: 100%;
-  max-width: 440px;
-  padding: 28px;
-  animation: dialogPop 0.2s ease-out;
-}
-
-@keyframes dialogPop {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.dialogHeader {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.dialogHeaderIcon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: #eff6ff;
-  color: #2563eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  max-width: 420px;
+  padding: 24px;
 }
 
 .dialogTitle {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .dialogAmount {
@@ -647,35 +496,34 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  margin-bottom: 20px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 18px;
 }
 
 .dialogAmountValue {
-  font-size: 22px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .field {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .fieldLabel {
   display: block;
-  font-size: 13px;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: var(--form-text);
+  font-weight: 600;
+  color: var(--text-primary);
   margin-bottom: 6px;
 }
 
 .fieldHelp {
-  font-size: 12px;
-  color: #64748b;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
   margin: 6px 0 0;
   line-height: 1.45;
 }
@@ -684,19 +532,18 @@
   display: flex;
   gap: 10px;
   justify-content: flex-end;
-  margin-top: 24px;
+  margin-top: 20px;
   flex-wrap: wrap;
 }
 
 .dialogError {
-  font-size: 13px;
-  color: #991b1b;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--color-error-text);
+  background: var(--color-error-subtle);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 14px;
 }
 
 /* -------------------------------------------------------- page-level bits */
@@ -705,54 +552,54 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 72px 0;
+  padding: 64px 0;
 }
 
 .errorState {
   text-align: center;
-  padding: 56px 20px;
+  padding: 48px 20px;
 }
 
 .errorText {
-  font-size: 15px;
-  color: #64748b;
-  margin: 0 0 18px;
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  margin: 0 0 16px;
 }
 
 .currencyToggle {
   display: inline-flex;
   gap: 4px;
-  padding: 4px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  padding: 3px;
+  border-radius: var(--radius-full);
+  background: var(--bg-surface-hover);
 }
 
 .currencyOption {
   border: none;
   background: transparent;
-  border-radius: 999px;
-  padding: 6px 16px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #64748b;
+  border-radius: var(--radius-full);
+  padding: 5px 14px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
 }
 
 .currencyOptionActive {
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-xs);
 }
 
-/* ---- Trial states (TrialStateCard) ---- */
+/* ---- Trial states (TrialStateCard) ----
+   Custom properties carry fallbacks: this block is newer than the design
+   tokens it leans on, and a missing token should degrade, not vanish. */
 
 .trialIntro {
   display: flex;
-  gap: 16px;
+  gap: 14px;
   align-items: flex-start;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .trialIcon {
@@ -760,47 +607,47 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: #eff6ff;
-  border: 1px solid #dbeafe;
-  color: #2563eb;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg, 12px);
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  color: var(--color-primary);
 }
 
 .trialTitle {
-  margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 800;
+  margin: 0 0 4px;
+  font-size: var(--text-lg, 18px);
+  font-weight: 700;
   line-height: 1.3;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 .trialIncludes {
   list-style: none;
   padding: 0;
-  margin: 12px 0 6px;
+  margin: 8px 0 4px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .trialIncludes li {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid #f1f5f9;
-  border-radius: 12px;
-  background: #f8fafc;
-  font-size: 13px;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md, 8px);
+  background: var(--bg-surface-secondary);
+  font-size: var(--text-sm, 14px);
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
+/* The trial's sorting meter inside UsageStrip, tighter than the credits meter. */
 .usageMeter {
-  margin: 10px 0 0;
+  margin: 8px 0 0;
 }
 
 @media (max-width: 720px) {

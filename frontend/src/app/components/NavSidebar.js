@@ -85,7 +85,7 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
 
   async function handleLogout() {
     try {
-      await logout().catch(() => {});
+      await logout().catch(() => { });
       router.push('/login');
     } catch (err) {
       console.error('Logout failed:', err);
@@ -143,48 +143,23 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
         </nav>
 
         <div className={appShellStyles.sidebarFooter}>
-          <div className={appShellStyles.userProfileRow}>
-            <button
-              className={appShellStyles.userInfo}
-              onClick={() => navigate('/profile')}
-              title={nav.account}
-            >
-              <div className={appShellStyles.userAvatar}>
-                {(user?.name || user?.email || 'M')[0].toUpperCase()}
-              </div>
-              <div className={appShellStyles.userMeta}>
-                <span className={appShellStyles.userName}>{user?.name || 'mubassir shah'}</span>
-                <span className={appShellStyles.userSubtitle}>Account &amp; profile</span>
-              </div>
-            </button>
-            <button className={appShellStyles.logoutBtn} onClick={handleLogout} aria-label={nav.logOut} title={nav.logOut}>
-              <Icon name="logOut" size={16} />
-            </button>
-          </div>
-
-          {/* Upgrade to Pro Card */}
-          <div className={appShellStyles.upgradeCard}>
-            <div className={appShellStyles.upgradeHeader}>
-              <div className={appShellStyles.upgradeCrown}>
-                <Icon name="crown" size={16} />
-              </div>
-              <span className={appShellStyles.upgradeTitle}>Upgrade to Pro</span>
+          <button
+            className={appShellStyles.userInfo}
+            onClick={() => navigate('/profile')}
+            title={nav.account}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }}
+          >
+            <div className="avatar avatar-sm">
+              {(user?.name || user?.email || 'U')[0].toUpperCase()}
             </div>
-            <p className={appShellStyles.upgradeDesc}>
-              Unlock more power for your Instagram DMs.
-            </p>
-            <button
-              className={`${appShellStyles.upgradeBtn} ${appShellStyles.btnHoverRoll}`}
-              onClick={() => navigate('/billing')}
-            >
-              <span className={appShellStyles.btnTextRoll}>
-                <span className={appShellStyles.btnTextTrack}>
-                  <span className={appShellStyles.btnTextLine}>Upgrade now &rarr;</span>
-                  <span className={appShellStyles.btnTextLine} aria-hidden="true">Upgrade now &rarr;</span>
-                </span>
-              </span>
-            </button>
-          </div>
+            <div className={appShellStyles.userMeta}>
+              <span className={appShellStyles.userName}>{user?.name || nav.account}</span>
+              <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{nav.accountSubtitle}</span>
+            </div>
+          </button>
+          <button className={appShellStyles.logoutBtn} onClick={handleLogout} aria-label={nav.logOut} title={nav.logOut}>
+            <Icon name="logOut" size={16} />
+          </button>
         </div>
       </aside>
     </>

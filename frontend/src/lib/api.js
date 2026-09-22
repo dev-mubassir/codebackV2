@@ -209,6 +209,20 @@ export async function getBrandDeals(status) {
   return data;
 }
 
+/**
+ * Re-fetch one contact's profile from Instagram and return the updated row.
+ *
+ * Called by <Avatar> when a stored profile picture URL fails to load, because
+ * Instagram CDN URLs are signed and expire after a few days. The server
+ * refuses to call Instagram more than once an hour per contact and answers 429
+ * when it is too soon, so callers must treat a rejection as "keep the
+ * fallback", not as an error worth surfacing.
+ */
+export async function refreshContactProfile(contactId) {
+  const { data } = await api.post(`/api/contacts/${contactId}/refresh-profile`);
+  return data;
+}
+
 export async function getBrandDeal(id) {
   const { data } = await api.get(`/api/brand-deals/${id}`);
   return data;

@@ -1,79 +1,65 @@
-/* ============================================
- * Siffty Profile Page — Modern SaaS Aesthetic
- * User details, password change, connected IG accounts,
- * account preferences, and danger zone.
- * ============================================ */
-
 .container {
-  max-width: 860px;
+  max-width: 900px;
   margin: 0 auto;
-  padding: 8px 0 64px;
+  padding: 32px 24px 64px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
 }
 
 .pageHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 4px;
 }
 
 .pageTitle {
-  font-size: 26px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(24px, 3vw, 30px);
   font-weight: 800;
-  color: #0f172a;
+  color: #0c0c0e;
   letter-spacing: -0.03em;
-  margin: 0 0 4px;
-  line-height: 1.2;
+  margin: 0;
 }
 
 .pageSubtitle {
-  font-size: 14px;
-  color: #64748b;
-  margin: 0;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 
 /* Header User Profile Banner */
 .profileHero {
-  background: #ffffff;
-  border: 1px solid #f1f5f9;
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(228, 228, 231, 0.9);
+  border-radius: 18px;
   padding: 26px 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03), 0 1px 2px rgba(15, 23, 42, 0.02);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(0, 0, 0, 0.02);
   gap: 20px;
   flex-wrap: wrap;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.profileHero:hover {
-  border-color: #e2e8f0;
-  box-shadow: 0 8px 30px -4px rgba(15, 23, 42, 0.05);
 }
 
 .profileHeroLeft {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 18px;
 }
 
 .heroAvatar {
   width: 64px;
   height: 64px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  color: #ffffff;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-ai), var(--color-ai-light));
+  color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 24px;
-  font-weight: 800;
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(65, 105, 225, 0.25);
   flex-shrink: 0;
 }
 
@@ -84,97 +70,85 @@
 }
 
 .heroName {
-  font-size: 19px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .heroEmail {
-  font-size: 13px;
-  color: #64748b;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
 .heroBadges {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
 }
 
 .roleBadge {
   font-size: 11px;
-  font-weight: 700;
-  padding: 2px 10px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #2563eb;
-  border: 1px solid #dbeafe;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(65, 105, 225, 0.1);
+  color: var(--color-primary);
+}
+
+.planBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--color-success);
 }
 
 .heroDate {
-  font-size: 12px;
-  color: #64748b;
-  background: #f8fafc;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid #f1f5f9;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
 /* Card Styling */
 .card {
-  background: #ffffff;
-  border: 1px solid #f1f5f9;
-  border-radius: 20px;
-  padding: 28px 30px;
-  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03), 0 1px 2px rgba(15, 23, 42, 0.02);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.card:hover {
-  border-color: #e2e8f0;
-  box-shadow: 0 8px 30px -4px rgba(15, 23, 42, 0.05);
+  gap: 18px;
 }
 
 .cardHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #f1f5f9;
-  padding-bottom: 16px;
-  gap: 12px;
-  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
 }
 
 .cardTitle {
-  font-size: 17px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: -0.02em;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 0 2px;
 }
 
 .cardDescription {
-  font-size: 13px;
-  color: #64748b;
-  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
 }
 
 /* Form Styles */
 .formGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 18px;
+  gap: 16px;
 }
 
 .formGroup {
@@ -184,40 +158,34 @@
 }
 
 .formLabel {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .formInput {
   width: 100%;
   padding: 10px 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  color: #0f172a;
-  font-size: 13px;
-  transition: all 0.2s ease;
-  outline: none;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--form-text);
+  transition: all var(--transition-fast);
 }
 
+/* Glow is keyed to --color-primary (blue); it previously used the purple AI
+   accent, which read as a mismatched halo around a blue border. */
 .formInput:focus {
-  border-color: #2563eb;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.12);
+  background: var(--bg-surface);
 }
 
 .formInput:disabled {
   opacity: 0.7;
   cursor: not-allowed;
-  background: #f1f5f9;
-}
-
-.formHint {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-top: 4px;
-  display: block;
+  background: rgba(0, 0, 0, 0.03);
 }
 
 .formActions {
@@ -228,48 +196,41 @@
   margin-top: 8px;
 }
 
-/* Connected Accounts */
+/* Accounts List */
 .accountList {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .accountCard {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 18px;
-  background: #f8fafc;
-  border: 1px solid #f1f5f9;
-  border-radius: 16px;
-  transition: all 0.2s ease;
-}
-
-.accountCard:hover {
-  border-color: #cbd5e1;
-  background: #ffffff;
+  padding: 12px 16px;
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
 }
 
 .accountLeft {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .accountAvatar {
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #2563eb;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
-  font-size: 15px;
+  font-weight: 700;
+  font-size: var(--text-sm);
   overflow: hidden;
-  border: 1px solid #dbeafe;
 }
 
 .accountAvatar img {
@@ -285,43 +246,55 @@
 }
 
 .accountUsername {
-  font-size: 14px;
-  font-weight: 700;
-  color: #0f172a;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .accountStatus {
-  font-size: 12px;
-  color: #16a34a;
+  font-size: 11px;
+  color: var(--color-success);
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-weight: 600;
+  gap: 4px;
 }
 
 /* Business Snapshot */
-.summaryLabel {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #94a3b8;
-  font-weight: 700;
+.businessGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
 }
 
-.summaryValue {
-  font-size: 13px;
-  color: #0f172a;
-  margin-top: 2px;
-  white-space: pre-line;
+.businessItem {
+  background: var(--bg-surface-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.businessItemLabel {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.businessItemValue {
+  font-size: var(--text-sm);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 /* Danger Zone */
 .dangerCard {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 20px;
-  padding: 26px 28px;
+  background: var(--color-error-subtle);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -334,19 +307,18 @@
 }
 
 .dangerTitle {
-  font-size: 16px;
-  font-weight: 800;
-  color: #991b1b;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--color-error);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .dangerText {
-  font-size: 13px;
-  color: #7f1d1d;
+  font-size: var(--text-xs);
+  color: var(--color-error-text);
   line-height: 1.5;
-  margin: 0;
 }
 
 .dangerActions {
@@ -355,53 +327,45 @@
 }
 
 .btnDanger {
-  background: #dc2626;
+  background: var(--color-error);
   color: white;
   border: none;
-  font-weight: 700;
-  padding: 8px 18px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  font-weight: 600;
 }
 
 .btnDanger:hover {
-  background: #b91c1c;
-  transform: translateY(-1px);
+  background: var(--color-error-hover);
 }
 
 /* Alert Banners */
 .successBanner {
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  color: #065f46;
-  padding: 12px 16px;
-  border-radius: 14px;
-  font-size: 13px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--color-success-text);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
 .errorBanner {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  color: #991b1b;
-  padding: 12px 16px;
-  border-radius: 14px;
-  font-size: 13px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--color-error-text);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  font-weight: 500;
 }
 
 /* Modal Overlay */
 .modalOverlay {
   position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -413,41 +377,36 @@
 .modalCard {
   width: 100%;
   max-width: 480px;
-  background: #ffffff;
-  border: 1px solid #f1f5f9;
-  border-radius: 24px;
-  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
-  padding: 30px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 28px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 }
 
 .modalHeader {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .modalIcon {
-  color: #dc2626;
-  display: flex;
-  align-items: center;
+  font-size: 28px;
 }
 
 .modalTitle {
-  font-size: 19px;
-  font-weight: 800;
-  color: #991b1b;
-  letter-spacing: -0.02em;
-  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-error);
 }
 
 .modalBody {
-  font-size: 13px;
-  color: #475569;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
   line-height: 1.6;
-  margin: 0;
 }
 
 .modalActions {
@@ -455,16 +414,75 @@
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 @media (max-width: 640px) {
+  .container {
+    padding: 16px 12px 48px;
+    gap: 20px;
+  }
+
   .profileHero {
     flex-direction: column;
     align-items: flex-start;
-    padding: 20px;
+    padding: 16px;
+    gap: 14px;
   }
+
   .card {
-    padding: 20px;
+    padding: 16px;
   }
+
+  .dangerCard {
+    padding: 16px;
+  }
+
+  .modalCard {
+    padding: 20px 16px;
+    max-width: 100%;
+  }
+
+  .accountCard {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .accountCard button {
+    width: 100%;
+  }
+
+  .formActions button {
+    width: 100%;
+  }
+
+  .dangerActions button {
+    width: 100%;
+  }
+}
+
+/* ---- Copy audit additions ---- */
+
+/* Eyebrow label above a summarised profile field. */
+.summaryLabel {
+  font-size: 10px;
+  text-transform: none;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  font-weight: 700;
+}
+
+.summaryValue {
+  font-size: 12px;
+  color: var(--text-primary);
+  margin-top: 2px;
+  white-space: pre-line;
+}
+
+.formHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  display: block;
 }

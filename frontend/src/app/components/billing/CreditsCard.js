@@ -16,7 +16,6 @@
  * instead of leaving a stuck 90% that no purchase can clear.
  */
 
-import Icon from '@/app/components/Icon';
 import { formatCount } from '@/content/format';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
@@ -36,12 +35,7 @@ export default function CreditsCard({ summary }) {
   return (
     <section className={styles.panel} aria-label={billing.credits.heading}>
       <div className={styles.panelHeader}>
-        <div className={styles.panelTitleGroup}>
-          <span className={styles.panelIcon}>
-            <Icon name="sparkle" size={18} />
-          </span>
-          <h2 className={styles.panelTitle}>{billing.credits.heading}</h2>
-        </div>
+        <h2 className={styles.panelTitle}>{billing.credits.heading}</h2>
       </div>
 
       <div className={styles.creditsHero}>
