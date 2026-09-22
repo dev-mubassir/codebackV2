@@ -85,7 +85,7 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
 
   async function handleLogout() {
     try {
-      await logout().catch(() => { });
+      await logout().catch(() => {});
       router.push('/login');
     } catch (err) {
       console.error('Logout failed:', err);
@@ -109,7 +109,7 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
         <div className={appShellStyles.sidebarHeader}>
           <button className={appShellStyles.brand} onClick={() => navigate('/dashboard')}>
             <div className={appShellStyles.brandIcon}>
-              <img src="/assets/siffty-logo-tight.png" alt="" className={appShellStyles.brandIconImg} />
+              <img src="/logo.png" alt="" className={appShellStyles.brandIconImg} />
             </div>
             <span className={appShellStyles.brandName}>Siffty</span>
           </button>

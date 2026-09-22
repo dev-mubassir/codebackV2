@@ -28,9 +28,22 @@ export default function AdminAccountsPage() {
     }
   }, [search, statusFilter]);
 
+  // Initial load — see the note on the same effect in admin/users.
   useEffect(() => {
-    loadAccounts('', '');
-  }, [loadAccounts]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getAdminAccounts('', '');
+        if (cancelled) return;
+        setAccounts(data);
+      } catch (err) {
+        if (!cancelled) setNotice({ tone: 'error', text: errors.admin.accounts });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function handleFilterSubmit(e) {
     e.preventDefault();

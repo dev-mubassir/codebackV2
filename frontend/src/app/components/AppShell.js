@@ -31,7 +31,7 @@ export default function AppShell({ children, activeRoute }) {
         setUser(userData);
         getNotifications()
           .then((d) => setNotifCount(d.unreadCount || 0))
-          .catch(() => { });
+          .catch(() => {});
       } catch {
         router.push('/login');
       } finally {
@@ -43,7 +43,7 @@ export default function AppShell({ children, activeRoute }) {
 
   async function handleLogout() {
     try {
-      await logout().catch(() => { });
+      await logout().catch(() => {});
       router.push('/login');
     } catch (err) {
       console.error('Logout failed:', err);
@@ -74,7 +74,7 @@ export default function AppShell({ children, activeRoute }) {
         <div className={styles.sidebarHeader}>
           <button className={styles.brand} onClick={() => router.push('/dashboard')}>
             <div className={styles.brandIcon}>
-              <img src="/assets/siffty-logo-tight.png" alt="" className={styles.brandIconImg} />
+              <img src="/logo.png" alt="" className={styles.brandIconImg} />
             </div>
             <span className={styles.brandName}>Siffty</span>
           </button>

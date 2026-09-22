@@ -7,12 +7,11 @@
 }
 
 .pageTitle {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: clamp(24px, 3vw, 30px);
-  font-weight: 800;
-  color: #0c0c0e;
-  letter-spacing: -0.03em;
-  margin: 0 0 6px;
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
 }
 
 .pageSubtitle {
@@ -57,7 +56,7 @@
 .tabBtnActive {
   color: var(--color-primary) !important;
   background: var(--color-primary-subtle) !important;
-  border-color: rgba(65, 105, 225, 0.2) !important;
+  border-color: rgba(124, 58, 237, 0.2) !important;
 }
 
 .loadingContainer {
@@ -75,11 +74,10 @@
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(228, 228, 231, 0.9);
-  border-radius: 18px;
-  padding: 26px 28px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(0, 0, 0, 0.02);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 24px;
 }
 
 .cardHeader {
@@ -87,11 +85,10 @@
 }
 
 .cardTitle {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 16px;
-  font-weight: 800;
-  color: #0c0c0e;
-  margin-bottom: 4px;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
 }
 
 .cardDesc {
@@ -406,7 +403,7 @@
   font-size: 10px;
   font-weight: 700;
   color: var(--color-primary);
-  background: rgba(65, 105, 225, 0.15);
+  background: rgba(124, 58, 237, 0.15);
   padding: 1px 6px;
   border-radius: var(--radius-full);
 }
@@ -414,8 +411,8 @@
 .templateActionBanner {
   margin-top: 12px;
   padding: 10px 14px;
-  background: rgba(65, 105, 225, 0.06);
-  border: 1px dashed rgba(65, 105, 225, 0.35);
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px dashed rgba(124, 58, 237, 0.35);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -500,7 +497,7 @@
 
 .modeOptionActive {
   border-color: var(--color-primary);
-  background: rgba(65, 105, 225, 0.06);
+  background: rgba(124, 58, 237, 0.06);
 }
 
 .modeOptionTop {

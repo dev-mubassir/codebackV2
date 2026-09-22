@@ -31,9 +31,27 @@ export default function AdminUsersPage() {
     }
   }, [search]);
 
+  // Initial load, written out rather than calling loadUsers(): loadUsers opens
+  // with a synchronous setLoading(true), and a synchronous setState in an
+  // effect body is a cascading render. Every setState below lands after an
+  // await, and the cancelled flag stops a late response writing into an
+  // unmounted page.
   useEffect(() => {
-    loadUsers(1, '');
-  }, [loadUsers]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getAdminUsers('', 1, 10);
+        if (cancelled) return;
+        setUsers(data.users);
+        setPagination(data.pagination);
+      } catch (err) {
+        if (!cancelled) setError(errors.admin.users);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function handleSearchSubmit(e) {
     e.preventDefault();
@@ -69,7 +87,7 @@ export default function AdminUsersPage() {
     if (!confirm(`${confirmCopy.adminImpersonate.title}\n\n${confirmCopy.adminImpersonate.body}`)) return;
     try {
       const data = await impersonateUser(userId);
-      window.location.href = data.redirectUrl || '/dashboard';
+      window.location.assign(data.redirectUrl || '/dashboard');
     } catch (err) {
       setError(errors.admin.impersonate);
     }

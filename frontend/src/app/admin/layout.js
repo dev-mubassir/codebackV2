@@ -12,17 +12,16 @@ export default function AdminLayout({ children }) {
   const pathname = usePathname();
   const router = useRouter();
   const [adminUsername, setAdminUsername] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => pathname !== '/admin/login');
   const [authenticated, setAuthenticated] = useState(false);
   const [impersonating, setImpersonating] = useState(false);
 
   const isLoginPage = pathname === '/admin/login';
 
   useEffect(() => {
-    if (isLoginPage) {
-      setLoading(false);
-      return;
-    }
+    // The login page has nothing to check, so it starts unlocked rather than
+    // starting locked and synchronously unlocking itself inside this effect.
+    if (isLoginPage) return;
 
     async function checkAdmin() {
       try {

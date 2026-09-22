@@ -591,7 +591,7 @@ function InboxPageContent() {
         <div className={styles.globalNavLeft}>
           <button className={styles.navBrand} onClick={() => router.push('/dashboard')}>
             <div className={styles.navBrandIcon}>
-              <img src="/assets/siffty-logo-tight.png" alt="" className={styles.navBrandImg} />
+              <img src="/logo.png" alt="" className={styles.navBrandImg} />
             </div>
             <span className={styles.navBrandText}>Siffty</span>
           </button>

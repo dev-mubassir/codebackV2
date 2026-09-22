@@ -1,5 +1,7 @@
 import "./globals.css";
-import "./landing.css";
+// Internal design tokens, namespaced --ui-* so they cannot collide with the
+// globals.css tokens the approved external pages render through.
+import "./tokens.css";
 import { meta } from "@/content/copy";
 
 export const metadata = {

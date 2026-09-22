@@ -1,0 +1,274 @@
+/* ==========================================================================
+   AppShell — the frame every internal page sits in, including /inbox.
+   ========================================================================== */
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--ui-surface-sunken);
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
+}
+
+/* ---------- Sidebar ----------------------------------------------------- */
+
+.sidebar {
+  width: var(--ui-sidebar-w);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ui-surface);
+  border-right: 1px solid var(--ui-border);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  height: var(--ui-topbar-h);
+  padding: 0 var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border);
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.brandMark { width: 22px; height: 22px; display: block; }
+
+.brandName {
+  font-size: var(--ui-text-md);
+  font-weight: 700;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
+}
+
+.nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--ui-space-3) var(--ui-space-2);
+}
+
+.navSection { margin-bottom: var(--ui-space-4); }
+
+.navSectionLabel {
+  display: block;
+  padding: 0 var(--ui-space-2) var(--ui-space-1);
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ui-text-faint);
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  width: 100%;
+  padding: var(--ui-space-2);
+  margin-bottom: 1px;
+  background: none;
+  border: none;
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-text-body);
+  font-family: inherit;
+  font-size: var(--ui-text-md);
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--ui-transition), color var(--ui-transition);
+}
+
+.navItem:hover { background: var(--ui-surface-subtle); color: var(--ui-ink); }
+
+.navItem:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ui-accent-ring);
+}
+
+/* No left bar, no pill — the tint and the weight are enough. */
+.navItemActive {
+  background: var(--ui-accent-tint);
+  color: var(--ui-accent-hover);
+  font-weight: 600;
+}
+
+.navItemLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navCount {
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  color: var(--ui-text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.navItemActive .navCount { color: var(--ui-accent-hover); }
+
+/* ---------- Sidebar footer --------------------------------------------- */
+
+.sidebarFooter {
+  flex-shrink: 0;
+  border-top: 1px solid var(--ui-border);
+  padding: var(--ui-space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+}
+
+.userBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-2);
+  background: none;
+  border: none;
+  border-radius: var(--ui-radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--ui-transition);
+}
+
+.userBtn:hover { background: var(--ui-surface-subtle); }
+
+.userMeta { min-width: 0; display: flex; flex-direction: column; }
+
+.userName {
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userSub {
+  font-size: var(--ui-text-xs);
+  color: var(--ui-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Main -------------------------------------------------------- */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  height: var(--ui-topbar-h);
+  flex-shrink: 0;
+  padding: 0 var(--ui-space-4);
+  background: var(--ui-surface);
+  border-bottom: 1px solid var(--ui-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbarTitle {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ui-text-md);
+  font-weight: 600;
+  color: var(--ui-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbarActions { display: flex; align-items: center; gap: var(--ui-space-2); }
+
+.menuBtn { display: none; }
+
+/* A dot, not a number: the exact count lives on the Notifications nav item. */
+.notifDot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--ui-radius-full);
+  background: var(--ui-accent);
+}
+
+.notifBtnWrap { position: relative; display: inline-flex; }
+
+/* Normal pages scroll the document and get padding. */
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--ui-space-6) var(--ui-space-4);
+}
+
+.contentInner { max-width: var(--ui-content-max); margin: 0 auto; }
+
+/* The inbox manages its own scrolling in three columns, so it opts out of
+   both the padding and the document scroll. */
+.contentFull {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.shellFull { height: 100vh; min-height: 0; overflow: hidden; }
+.shellFull .main { min-height: 0; overflow: hidden; }
+
+/* ---------- Mobile drawer ---------------------------------------------- */
+
+.scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: var(--ui-z-drawer);
+  background: rgba(12, 12, 14, 0.4);
+}
+
+@media (max-width: 1023px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: calc(var(--ui-z-drawer) + 1);
+    transform: translateX(-100%);
+    transition: transform var(--ui-transition);
+    box-shadow: none;
+  }
+
+  .sidebarOpen { transform: translateX(0); box-shadow: var(--ui-shadow-modal); }
+
+  .scrimOpen { display: block; }
+
+  .menuBtn { display: inline-flex; }
+
+  .content { padding: var(--ui-space-4) var(--ui-space-3); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}

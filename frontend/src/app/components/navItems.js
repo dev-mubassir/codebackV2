@@ -41,6 +41,3 @@ export function buildNavItems({ billingEnabled = false } = {}) {
     },
   ];
 }
-    },
-  ];
-}

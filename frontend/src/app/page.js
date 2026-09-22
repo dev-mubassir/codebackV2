@@ -3,6 +3,9 @@
 import { useEffect, useState, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+// Imported here rather than in the root layout: 5,553 lines of landing styles
+// were shipping on every page in the product, including /inbox and /dashboard.
+import './landing.css';
 import { getMe } from '@/lib/api';
 import { errors } from '@/content/copy';
 

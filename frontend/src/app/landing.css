@@ -3,7 +3,16 @@
    Scoped to .landing-root to prevent cross-page style collisions
    ========================================================================== */
 
-:root,
+/* Scoped to .landing-root ONLY.
+ *
+ * This block used to open `:root, .landing-root { … }`. Because layout.js
+ * imported this file into the ROOT layout, after globals.css, that `:root,`
+ * redefined shared token names — --radius-sm/md/lg/xl, --border-subtle,
+ * --shadow-sm/md, --transition-fast/normal — for every page in the product,
+ * not just the landing page. Measured on /login: --radius-md was 10px where
+ * globals.css says 6px, --radius-lg 16px where it says 8px.
+ *
+ * The header above always claimed this file was scoped. Now it is. */
 .landing-root {
   /* Color Tokens */
   --bg-canvas: #fbfbfc;
