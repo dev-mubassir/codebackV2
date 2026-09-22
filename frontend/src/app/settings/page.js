@@ -216,9 +216,16 @@ function SettingsPageContent() {
     <AppShell activeRoute="/settings">
       {/* Page Header */}
       <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>{t.title}</h1>
-          <p className={styles.pageSubtitle}>{t.subtitle}</p>
+        <div className={styles.pageHeaderTop}>
+          <div className={styles.headerLeft}>
+            <div className={styles.headerIconBadge}>
+              <Icon name="settings" size={24} />
+            </div>
+            <div>
+              <h1 className={styles.pageTitle}>{t.title}</h1>
+              <p className={styles.pageSubtitle}>{t.subtitle}</p>
+            </div>
+          </div>
         </div>
 
         <div className={styles.tabNav}>
@@ -226,19 +233,20 @@ function SettingsPageContent() {
             className={`${styles.tabBtn} ${activeTab === 'profile' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('profile')}
           >
-            <Icon name="briefcase" size={14} /> {t.tabs.profile}
+            <Icon name="briefcase" size={15} /> {t.tabs.profile}
           </button>
           <button
             className={`${styles.tabBtn} ${activeTab === 'replies' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('replies')}
           >
-            <Icon name="sparkle" size={14} /> {t.tabs.replies}
+            <Icon name="sparkle" size={15} /> {t.tabs.replies}
           </button>
           <button
             className={`${styles.tabBtn} ${activeTab === 'conversations' ? styles.tabBtnActive : ''}`}
             onClick={() => setActiveTab('conversations')}
           >
-            <Icon name="zap" size={14} /> {t.tabs.conversations} ({activeAutoReplyCount})
+            <Icon name="zap" size={15} /> {t.tabs.conversations}
+            <span className={styles.tabBadge}>{activeAutoReplyCount}</span>
           </button>
         </div>
       </div>
@@ -400,16 +408,21 @@ function SettingsPageContent() {
                   </div>
 
                   <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.prohibitedLabel}</label>
-                    <textarea
-                      className="textarea"
-                      rows={2}
-                      value={businessProfile.prohibitedTopics || ''}
-                      onChange={(e) => updateProfileField('prohibitedTopics', e.target.value)}
-                      placeholder={t.businessProfile.prohibitedPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                    <span className={styles.prefSublabel}>{t.businessProfile.prohibitedHint}</span>
+                    <div className={styles.forbiddenBox}>
+                      <div className={styles.forbiddenBoxHeader}>
+                        <Icon name="shieldAlert" size={16} />
+                        <span>{t.businessProfile.prohibitedLabel}</span>
+                      </div>
+                      <span className={styles.prefSublabel}>{t.businessProfile.prohibitedHint}</span>
+                      <textarea
+                        className="textarea"
+                        rows={3}
+                        value={businessProfile.prohibitedTopics || ''}
+                        onChange={(e) => updateProfileField('prohibitedTopics', e.target.value)}
+                        placeholder={t.businessProfile.prohibitedPlaceholder}
+                        style={{ marginTop: '8px', background: '#ffffff' }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -9,7 +9,7 @@ import GoogleIcon from '@/app/components/GoogleIcon';
 import BrandLogo from '@/app/components/BrandLogo';
 import PasswordInput from '@/app/components/PasswordInput';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
-import { auth, errors, validation } from '@/content/copy';
+import { auth, errors, validation, legal } from '@/content/copy';
 import styles from '../login/login.module.css';
 
 export default function RegisterPage() {
@@ -49,22 +49,54 @@ export default function RegisterPage() {
 
   return (
     <div className={styles.authContainer}>
+      {/* Background Decorative Grid & Ambient Cones */}
+      <div className={styles.bgGridOverlay} aria-hidden="true" />
+      <div className={styles.ambientGlow} aria-hidden="true" />
+
+      {/* Top Brand Link */}
+      <Link href="/" className={styles.topBrandNav} title="Back to Siffty.com">
+        <BrandLogo size={36} className={styles.topBrandLogo} />
+        <span className={styles.topBrandTitle}>Siffty</span>
+      </Link>
+
+      {/* Auth Card */}
       <div className={styles.authCard}>
         <AuthErrorBanner />
 
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}><BrandLogo size={40} /></div>
+          <div className={styles.statusBadge}>
+            <span className={styles.pulseDot} />
+            <span>Start Free Trial</span>
+          </div>
           <h1 className={styles.authTitle}>{auth.register.title}</h1>
           <p className={styles.authSubtitle}>{auth.register.subtitle}</p>
         </div>
 
         {error && (
           <div className={styles.errorBanner} role="alert">
-            <Icon name="alertTriangle" size={14} />
+            <Icon name="alertTriangle" size={16} />
             <span>{error}</span>
           </div>
         )}
 
+        {/* Google OAuth Button */}
+        <div>
+          <a
+            href={getGoogleAuthUrl()}
+            className={styles.googleBtn}
+            id="register-google-btn"
+          >
+            <GoogleIcon size={18} />
+            <span>Continue with Google</span>
+          </a>
+        </div>
+
+        {/* Divider */}
+        <div className={styles.divider}>
+          <span>or register with email</span>
+        </div>
+
+        {/* Registration Form */}
         <form onSubmit={handleSubmit} className={styles.authForm}>
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="name">
@@ -104,10 +136,11 @@ export default function RegisterPage() {
             <PasswordInput
               id="password"
               className="input"
-              placeholder="••••••••"
+              placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              minLength={6}
             />
           </div>
 
@@ -118,56 +151,62 @@ export default function RegisterPage() {
             <PasswordInput
               id="confirmPassword"
               className="input"
-              placeholder="••••••••"
+              placeholder="••••••••••••"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
+              minLength={6}
             />
           </div>
 
           <button
             type="submit"
-            className={`btn btn-primary ${styles.submitBtn}`}
+            className={styles.submitBtn}
             disabled={loading}
             id="register-submit-btn"
           >
-            {loading ? auth.register.submitting : auth.register.submit}
+            {loading ? (
+              <span>Creating account...</span>
+            ) : (
+              <>
+                <span>{auth.register.submit}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </>
+            )}
           </button>
         </form>
 
-        {/*
-          Same entry point as the login page. The backend route is identical
-          for both: /auth/google creates the account if the Google address is
-          new and logs in if it already exists, so signup and sign-in need no
-          separate handling here.
-
-          A plain <a>, not a Link or fetch — this starts an OAuth redirect
-          chain that ends on the backend, so it must leave the SPA entirely.
-        */}
-        <div style={{ marginTop: 16 }}>
-          <a
-            href={getGoogleAuthUrl()}
-            className={`btn ${styles.submitBtn}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              minHeight: 40,
-            }}
-          >
-            <GoogleIcon size={18} />
-            <span>Continue with Google</span>
-          </a>
-        </div>
-
+        {/* Footer Navigation */}
         <div className={styles.authFooter}>
-          {auth.register.footer}
+          {auth.register.footer}{' '}
           <Link href="/login" className={styles.authLink}>
             {auth.register.footerAction}
           </Link>
         </div>
+
+        {/* Terms & Privacy Policy Consent */}
+        <p className={styles.termsConsent}>
+          By creating an account, you agree to our{' '}
+          <Link href="/terms" target="_blank" rel="noopener noreferrer">
+            Terms of Service
+          </Link>{' '}
+          and acknowledge our{' '}
+          <Link href="/privacy" target="_blank" rel="noopener noreferrer">
+            Privacy Policy
+          </Link>.
+        </p>
       </div>
+
+      {/* Bottom Legal Navigation */}
+      <nav aria-label="Legal" className={styles.legalNav}>
+        <Link href="/privacy" className={styles.legalLink}>{legal.footerLinks.privacy}</Link>
+        <Link href="/terms" className={styles.legalLink}>{legal.footerLinks.terms}</Link>
+        <Link href="/data-deletion" className={styles.legalLink}>{legal.footerLinks.dataDeletion}</Link>
+        <Link href="/support" className={styles.legalLink}>{legal.footerLinks.support}</Link>
+      </nav>
     </div>
   );
 }

@@ -1,0 +1,477 @@
+﻿/* ==========================================================================
+   SIFFTY ERROR & SYSTEM STATUS PAGES (404 & 500)
+   Designed to match Siffty Landing Page Aesthetics (Linear / Stripe style)
+   ========================================================================== */
+
+.errorPageWrapper {
+  min-height: 100vh;
+  background-color: #fbfbfc;
+  background-image: 
+    radial-gradient(ellipse 90% 50% at 50% -10%, rgba(65, 105, 225, 0.08) 0%, rgba(251, 251, 252, 0.4) 60%, #f4f6fa 100%);
+  color: #0c0c0e;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  position: relative;
+  overflow-x: clip;
+  display: flex;
+  flex-direction: column;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Background Boxy Grid Overlay (matches Landing Page hero & footer) */
+.bgGridOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 680px;
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  mask-image: radial-gradient(ellipse 70% 65% at 50% 18%, #000 25%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 65% at 50% 18%, #000 25%, transparent 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Ambient Radial Glow */
+.ambientGlow {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(65, 105, 225, 0.12) 0%, rgba(139, 92, 246, 0.05) 50%, transparent 70%);
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ambientGlowWarning {
+  position: absolute;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.12) 0%, rgba(239, 68, 68, 0.06) 50%, transparent 70%);
+  filter: blur(60px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Main Section Content */
+.mainContainer {
+  flex: 1;
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Eyebrow Status Badge */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(65, 105, 225, 0.22);
+  box-shadow: 0 2px 10px -2px rgba(65, 105, 225, 0.1);
+  backdrop-filter: blur(10px);
+  font-size: 13px;
+  font-weight: 600;
+  color: #4169e1;
+  letter-spacing: 0.02em;
+  margin-bottom: 24px;
+}
+
+.statusBadgeWarning {
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #d97706;
+  box-shadow: 0 2px 10px -2px rgba(245, 158, 11, 0.1);
+}
+
+.pulseDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #4169e1;
+  position: relative;
+}
+
+.pulseDot::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
+  border-radius: 50%;
+  background-color: rgba(65, 105, 225, 0.4);
+  animation: pulseBreath 2s infinite ease-out;
+}
+
+.pulseDotWarning {
+  background-color: #f59e0b;
+}
+
+.pulseDotWarning::after {
+  background-color: rgba(245, 158, 11, 0.45);
+}
+
+@keyframes pulseBreath {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* Numeric Hero Code */
+.errorCodeGraphic {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: clamp(84px, 14vw, 136px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+  background: linear-gradient(180deg, #0c0c0e 35%, #4169e1 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0 0 12px;
+  user-select: none;
+  filter: drop-shadow(0 12px 28px rgba(65, 105, 225, 0.12));
+}
+
+.errorCodeGraphicWarning {
+  background: linear-gradient(180deg, #0c0c0e 35%, #d97706 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 12px 28px rgba(245, 158, 11, 0.12));
+}
+
+/* Display Headline */
+.errorHeadline {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: clamp(26px, 4vw, 40px);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+  color: #0c0c0e;
+  max-width: 680px;
+  margin: 0 auto 16px;
+}
+
+.highlightBlue {
+  color: #4169e1;
+  position: relative;
+  display: inline-block;
+}
+
+.highlightAmber {
+  color: #d97706;
+  position: relative;
+  display: inline-block;
+}
+
+/* Reassuring Subtitle */
+.errorSubtitle {
+  font-size: clamp(15px, 1.8vw, 17px);
+  line-height: 1.65;
+  color: #4b5563;
+  max-width: 580px;
+  margin: 0 auto 36px;
+}
+
+/* CTA Action Buttons Group */
+.ctaButtonGroup {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 54px;
+}
+
+/* Primary Dark Pill Button */
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 26px;
+  border-radius: 9999px;
+  background-color: #0c0c0e;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid #1e1e24;
+  box-shadow: 0 4px 14px -2px rgba(12, 12, 14, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.btnPrimary:hover {
+  background-color: #1e1e24;
+  color: #ffffff;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px -4px rgba(12, 12, 14, 0.3);
+}
+
+.btnPrimary svg {
+  transition: transform 0.2s ease;
+}
+
+.btnPrimary:hover svg {
+  transform: translateX(3px);
+}
+
+/* Secondary Outlined Pill Button */
+.btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 22px;
+  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.85);
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid #e4e4e7;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.btnSecondary:hover {
+  background-color: #ffffff;
+  color: #0c0c0e;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+}
+
+/* Quick Navigation Bento Box */
+.quickLinksSection {
+  width: 100%;
+  max-width: 820px;
+  margin-top: 12px;
+}
+
+.quickLinksTitle {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+  margin-bottom: 18px;
+}
+
+.quickLinksGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.quickLinkCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 16px 18px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.04);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.quickLinkCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #4169e1, #8b5cf6);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.quickLinkCard:hover {
+  transform: translateY(-2px);
+  border-color: rgba(65, 105, 225, 0.35);
+  box-shadow: 0 10px 24px -6px rgba(65, 105, 225, 0.12), 0 2px 6px -1px rgba(0, 0, 0, 0.04);
+}
+
+.quickLinkCard:hover::before {
+  opacity: 1;
+}
+
+.cardIconBox {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background-color: rgba(65, 105, 225, 0.08);
+  color: #4169e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+  transition: transform 0.2s ease;
+}
+
+.quickLinkCard:hover .cardIconBox {
+  transform: scale(1.08);
+  background-color: rgba(65, 105, 225, 0.14);
+}
+
+.cardTitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0c0c0e;
+  margin: 0 0 4px;
+}
+
+.cardDesc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* System Safety Intercept Card (for error.js) */
+.safetyCard {
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto 36px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+}
+
+.safetyIconBox {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.safetyTextTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #92400e;
+  margin: 0 0 2px;
+}
+
+.safetyTextBody {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #78350f;
+  margin: 0;
+}
+
+/* Dev details panel */
+.devDetails {
+  width: 100%;
+  max-width: 620px;
+  margin: 16px auto 0;
+  text-align: left;
+  border-radius: 10px;
+  background: #f4f5f8;
+  border: 1px solid #e5e7eb;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+
+.devSummary {
+  font-weight: 600;
+  color: #4b5563;
+  cursor: pointer;
+  user-select: none;
+}
+
+.devCode {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #18181b;
+  color: #f43f5e;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Responsive adjustments */
+@media (max-width: 900px) {
+  .quickLinksGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .mainContainer {
+    padding: 32px 18px 60px;
+  }
+  .errorCodeGraphic {
+    font-size: 76px;
+  }
+  .errorHeadline {
+    font-size: 24px;
+  }
+  .ctaButtonGroup {
+    flex-direction: column;
+    width: 100%;
+  }
+  .btnPrimary,
+  .btnSecondary {
+    width: 100%;
+    justify-content: center;
+  }
+  .quickLinksGrid {
+    grid-template-columns: 1fr;
+  }
+  .safetyCard {
+    flex-direction: column;
+    text-align: center;
+    align-items: center;
+  }
+}

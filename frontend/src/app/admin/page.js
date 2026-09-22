@@ -69,13 +69,23 @@ export default function AdminDashboardHome() {
 
       <div className={styles.metricsGrid}>
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.users.label}</div>
+          <div className={styles.metricTop}>
+            <span className={styles.metricTitle}>{t.dashboard.metrics.users.label}</span>
+            <div className={styles.metricIcon}>
+              <Icon name="users" size={18} />
+            </div>
+          </div>
           <div className={styles.metricValue}>{formatCount(stats?.totalUsers)}</div>
           <div className={styles.metricSub}>{t.dashboard.metrics.users.hint}</div>
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.accounts.label}</div>
+          <div className={styles.metricTop}>
+            <span className={styles.metricTitle}>{t.dashboard.metrics.accounts.label}</span>
+            <div className={styles.metricIcon}>
+              <Icon name="instagram" size={18} />
+            </div>
+          </div>
           <div className={styles.metricValue}>{formatCount(stats?.totalAccounts)}</div>
           <div className={styles.metricSub}>
             {formatCount(stats?.activeAccounts)} active, {formatCount(stats?.expiredAccounts)} need reconnecting
@@ -83,13 +93,23 @@ export default function AdminDashboardHome() {
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.messages.label}</div>
+          <div className={styles.metricTop}>
+            <span className={styles.metricTitle}>{t.dashboard.metrics.messages.label}</span>
+            <div className={styles.metricIcon}>
+              <Icon name="messageSquare" size={18} />
+            </div>
+          </div>
           <div className={styles.metricValue}>{formatCount(stats?.messagesToday)}</div>
           <div className={styles.metricSub}>{formatCount(stats?.messagesThisWeek)} in the last 7 days</div>
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.failedWebhooks.label}</div>
+          <div className={styles.metricTop}>
+            <span className={styles.metricTitle}>{t.dashboard.metrics.failedWebhooks.label}</span>
+            <div className={styles.metricIcon}>
+              <Icon name="alertTriangle" size={18} />
+            </div>
+          </div>
           <div
             className={styles.metricValue}
             style={{ color: (stats?.failedWebhooks24h || 0) > 0 ? 'var(--color-error)' : 'var(--text-primary)' }}
@@ -226,7 +246,8 @@ export default function AdminDashboardHome() {
                     ) : (
                       user.instagramAccounts.map((acc) => (
                         <span key={acc.id} className={styles.badgeValid} style={{ marginRight: '6px' }}>
-                          @{acc.igUsername || 'account'}
+                          <Icon name="instagram" size={11} />
+                          <span>@{acc.igUsername || 'account'}</span>
                         </span>
                       ))
                     )}

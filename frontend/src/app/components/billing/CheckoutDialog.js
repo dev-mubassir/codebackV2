@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import Icon from '@/app/components/Icon';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
 
@@ -79,7 +80,12 @@ export default function CheckoutDialog({
         }}
       >
         <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={blocked.title}>
-          <h2 className={styles.dialogTitle}>{blocked.title}</h2>
+          <div className={styles.dialogHeader}>
+            <div className={styles.dialogHeaderIcon}>
+              <Icon name="alertTriangle" size={20} />
+            </div>
+            <h2 className={styles.dialogTitle}>{blocked.title}</h2>
+          </div>
           <p className={styles.fieldHelp}>{blocked.body}</p>
           <div className={styles.dialogActions}>
             <button type="button" className="btn btn-primary" onClick={onClose}>
@@ -111,7 +117,12 @@ export default function CheckoutDialog({
       }}
     >
       <div className={styles.dialog} role="dialog" aria-modal="true" aria-label={title}>
-        <h2 className={styles.dialogTitle}>{title}</h2>
+        <div className={styles.dialogHeader}>
+          <div className={styles.dialogHeaderIcon}>
+            <Icon name="creditCard" size={20} />
+          </div>
+          <h2 className={styles.dialogTitle}>{title}</h2>
+        </div>
 
         <div className={styles.dialogAmount}>
           <span className={styles.label}>{billing.checkout.amountLabel}</span>

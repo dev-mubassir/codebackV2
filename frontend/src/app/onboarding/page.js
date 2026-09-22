@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { getMe, getOnboarding, saveOnboarding } from '@/lib/api';
-import styles from './onboarding.module.css';
-
 import { BUSINESS_CATEGORIES, combineKnowledgeTemplates, toggleBusinessType } from '@/lib/businessTemplates';
 import Icon from '@/app/components/Icon';
+import BrandLogo from '@/app/components/BrandLogo';
 import { onboarding as t, settings as settingsCopy, common, errors } from '@/content/copy';
 import { TONE_ORDER, toneLabel } from '@/content/labels';
+import styles from './onboarding.module.css';
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -22,9 +23,6 @@ export default function OnboardingPage() {
   const [businessName, setBusinessName] = useState('');
 
   // Step 2: What do you do? (Multi-select)
-  // NOTHING is pre-selected — not a real type, not "Something else", not a
-  // previously saved answer. The user picks on this step, and cannot continue
-  // until they have picked at least one.
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [customCategory, setCustomCategory] = useState('');
   const [customPlaceholder] = useState(
@@ -69,9 +67,6 @@ export default function OnboardingPage() {
         if (data.businessProfile) {
           const bp = data.businessProfile;
           setBusinessName(bp.businessName || data.user?.name || '');
-          // The saved business types are deliberately NOT loaded into the
-          // selection: a new profile holds the "Something else" placeholder,
-          // which is not an answer the user gave. Saved facts still load below.
           if (bp.description) {
             setDescription(bp.description);
             setProductsServices(bp.productsServices || '');
@@ -83,7 +78,6 @@ export default function OnboardingPage() {
             setAiInstructions(bp.aiInstructions || '');
             setTone(bp.tone || 'friendly');
           }
-          // No saved facts: starter content loads once the user picks a type.
         }
       } catch (err) {
         router.push('/login');
@@ -96,8 +90,6 @@ export default function OnboardingPage() {
 
   function handleCategoryToggle(catId) {
     setSelectedCategories((prev) => {
-      // Plain add/remove — nothing is selected until the user picks, and
-      // turning off the last type leaves the step empty (see allowEmpty).
       const updated = toggleBusinessType(prev, catId, { allowEmpty: true });
       if (updated.length > 0) applyCategoriesTemplates(updated, true);
       return updated;
@@ -136,40 +128,66 @@ export default function OnboardingPage() {
   if (loading) {
     return (
       <div className={styles.onboardingLayout} aria-busy="true" aria-label={common.loading}>
-        <div className="spinner spinner-lg" style={{ marginTop: '100px' }} />
+        <div className="spinner spinner-lg" style={{ marginTop: '140px' }} />
       </div>
     );
   }
 
   return (
     <div className={styles.onboardingLayout}>
+      {/* Background Decorative Grid & Ambient Cones */}
+      <div className={styles.bgGridOverlay} aria-hidden="true" />
+      <div className={styles.ambientGlow} aria-hidden="true" />
+
+      {/* Top Brand Link */}
+      <Link href="/" className={styles.topBrandNav} title="Back to Siffty.com">
+        <BrandLogo size={36} className={styles.topBrandLogo} />
+        <span className={styles.topBrandTitle}>Siffty</span>
+      </Link>
+
       <div className={styles.wizardContainer}>
         {/* Wizard Header */}
         <div className={styles.wizardHeader}>
-          <div className={styles.logoBadge}><Icon name="zap" size={18} /></div>
+          <div className={styles.statusBadge}>
+            <span className={styles.pulseDot} />
+            <span>Workspace Setup • Step {currentStep} of 3</span>
+          </div>
           <h1 className={styles.wizardTitle}>{t.title}</h1>
           <p className={styles.wizardSubtitle}>{t.subtitle}</p>
 
-          {/* Step Progress */}
-          <div className={styles.stepProgress}>
-            <div className={`${styles.stepDot} ${currentStep === 1 ? styles.stepActive : currentStep > 1 ? styles.stepCompleted : ''}`}>
-              <span className={styles.stepNumber}>{currentStep > 1 ? <Icon name="check" size={11} /> : '1'}</span>
+          {/* Step Progress Track */}
+          <div className={styles.stepProgress} aria-label="Setup progress">
+            <div className={[styles.stepDot, currentStep === 1 ? styles.stepActive : currentStep > 1 ? styles.stepCompleted : ''].join(' ')}>
+              <span className={styles.stepNumber}>
+                {currentStep > 1 ? <Icon name="check" size={13} /> : '1'}
+              </span>
               <span>{t.steps.identity}</span>
             </div>
+
             <div className={styles.stepDivider} />
-            <div className={`${styles.stepDot} ${currentStep === 2 ? styles.stepActive : currentStep > 2 ? styles.stepCompleted : ''}`}>
-              <span className={styles.stepNumber}>{currentStep > 2 ? <Icon name="check" size={11} /> : '2'}</span>
+
+            <div className={[styles.stepDot, currentStep === 2 ? styles.stepActive : currentStep > 2 ? styles.stepCompleted : ''].join(' ')}>
+              <span className={styles.stepNumber}>
+                {currentStep > 2 ? <Icon name="check" size={13} /> : '2'}
+              </span>
               <span>{t.steps.category}</span>
             </div>
+
             <div className={styles.stepDivider} />
-            <div className={`${styles.stepDot} ${currentStep === 3 ? styles.stepActive : ''}`}>
+
+            <div className={[styles.stepDot, currentStep === 3 ? styles.stepActive : ''].join(' ')}>
               <span className={styles.stepNumber}>3</span>
               <span>{t.steps.knowledge}</span>
             </div>
           </div>
         </div>
 
-        {error && <div className={styles.errorBanner} role="alert">{error}</div>}
+        {error && (
+          <div className={styles.errorBanner} role="alert">
+            <Icon name="alertTriangle" size={16} />
+            <span>{error}</span>
+          </div>
+        )}
 
         {/* Step 1: Basic Identity */}
         {currentStep === 1 && (
@@ -206,29 +224,33 @@ export default function OnboardingPage() {
             <div className={styles.wizardActions}>
               <div />
               <button
-                className="btn btn-primary btn-md"
+                type="button"
+                className={styles.btnPrimary}
                 onClick={() => setCurrentStep(2)}
                 disabled={!displayName.trim()}
+                id="onboarding-step1-next"
               >
-                {t.step1.next}
+                <span>{t.step1.next}</span>
                 <Icon name="arrowRight" size={14} />
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 2: What do you do? */}
+        {/* Step 2: What do you do? (Business Categories) */}
         {currentStep === 2 && (
           <div className={styles.card}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
               <h2 className={styles.stepTitle} style={{ margin: 0 }}>{t.step2.title}</h2>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-primary)', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 10px', borderRadius: 'var(--radius-full)' }}>
+              <span className={styles.counterBadge}>
                 {selectedCategories.length} selected
               </span>
             </div>
             <p className={styles.stepDesc}>{t.step2.description}</p>
             {selectedCategories.length === 0 && (
-              <p className={styles.formHint} role="status">{t.step2.pickOne}</p>
+              <p className={styles.formHint} role="status" style={{ color: '#d97706', marginBottom: '14px', fontWeight: 500 }}>
+                {t.step2.pickOne}
+              </p>
             )}
 
             <div className={styles.categoryGrid}>
@@ -237,20 +259,37 @@ export default function OnboardingPage() {
                 return (
                   <div
                     key={cat.id}
-                    className={`${styles.categoryCard} ${isSelected ? styles.categoryCardActive : ''}`}
+                    className={[styles.categoryCard, isSelected ? styles.categoryCardActive : ''].join(' ')}
                     onClick={() => handleCategoryToggle(cat.id)}
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        handleCategoryToggle(cat.id);
+                      }
+                    }}
                   >
-                    <span className={styles.categoryIcon}><Icon name={cat.icon} size={18} /></span>
-                    <span className={styles.categoryLabel}>
-                      {isSelected && <Icon name="check" size={11} />} {cat.label}
-                    </span>
+                    <div className={styles.categoryIconBox}>
+                      <Icon name={cat.icon} size={18} />
+                    </div>
+                    <div className={styles.categoryTextWrap}>
+                      <span className={styles.categoryLabel}>{cat.label}</span>
+                      {cat.summary && <span className={styles.categorySummary}>{cat.summary}</span>}
+                    </div>
+                    {isSelected && (
+                      <div className={styles.categoryCheckBadge}>
+                        <Icon name="check" size={15} />
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
             {selectedCategories.includes('other') && (
-              <div className={styles.formRow} style={{ marginTop: '12px' }}>
+              <div className={styles.formRow} style={{ marginTop: '14px', marginBottom: '10px' }}>
                 <label className={styles.formLabel}>{t.step2.customLabel}</label>
                 <input
                   type="text"
@@ -263,41 +302,52 @@ export default function OnboardingPage() {
             )}
 
             <div className={styles.wizardActions}>
-              <button className="btn btn-secondary btn-md" onClick={() => setCurrentStep(1)}>
-                <Icon name="arrowLeft" size={14} /> {common.back}
-              </button>
               <button
-                className="btn btn-primary btn-md"
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setCurrentStep(1)}
+              >
+                <Icon name="arrowLeft" size={14} />
+                <span>{common.back}</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.btnPrimary}
                 onClick={() => setCurrentStep(3)}
                 disabled={selectedCategories.length === 0}
+                id="onboarding-step2-next"
               >
-                {t.step2.next}
+                <span>{t.step2.next}</span>
                 <Icon name="arrowRight" size={14} />
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Business Information */}
+        {/* Step 3: Knowledge Base & AI Instructions */}
         {currentStep === 3 && (
           <div className={styles.card}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '8px' }}>
               <div>
-                <h2 className={styles.stepTitle}>{t.step3.title}</h2>
-                <p className={styles.stepDesc}>{t.step3.description}</p>
+                <h2 className={styles.stepTitle} style={{ margin: 0 }}>{t.step3.title}</h2>
+                <p className={styles.stepDesc} style={{ margin: '4px 0 0' }}>{t.step3.description}</p>
               </div>
+
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className={styles.btnReset}
                 onClick={() => applyCategoriesTemplates(selectedCategories, true)}
-                style={{ alignSelf: 'flex-start' }}
+                title="Reset starter templates"
               >
-                <Icon name="refresh" size={13} /> {t.step3.reset}
+                <Icon name="refresh" size={13} />
+                <span>{t.step3.reset}</span>
               </button>
             </div>
 
-            <div style={{ padding: '8px 12px', background: 'rgba(124, 58, 237, 0.08)', border: '1px solid rgba(124, 58, 237, 0.2)', borderRadius: 'var(--radius-md)', fontSize: '12px', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-              <Icon name="sparkle" size={14} />
+            {/* Template Notice Banner */}
+            <div className={styles.templateBanner} role="status">
+              <Icon name="sparkle" size={16} />
               <span>
                 {t.step3.banner}{' '}
                 <strong>
@@ -406,20 +456,37 @@ export default function OnboardingPage() {
             </div>
 
             <div className={styles.wizardActions}>
-              <button className="btn btn-secondary btn-md" onClick={() => setCurrentStep(2)}>
-                <Icon name="arrowLeft" size={14} /> {common.back}
-              </button>
               <button
-                className="btn btn-primary btn-lg"
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => setCurrentStep(2)}
+              >
+                <Icon name="arrowLeft" size={14} />
+                <span>{common.back}</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.btnPrimary}
                 onClick={handleFinish}
                 disabled={saving}
                 id="finish-onboarding-btn"
               >
-                {saving ? t.step3.finishing : t.step3.finish}
+                <span>{saving ? t.step3.finishing : t.step3.finish}</span>
+                <Icon name="arrowRight" size={14} />
               </button>
             </div>
           </div>
         )}
+
+        {/* Bottom Safety Guarantee */}
+        <div className={styles.safetyGuarantee}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <span>AI Auto-Reply is Default OFF until reviewed &bull; Official Instagram Graph API</span>
+        </div>
       </div>
     </div>
   );

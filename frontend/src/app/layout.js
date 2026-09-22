@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./landing.css";
 import { meta } from "@/content/copy";
 
 export const metadata = {

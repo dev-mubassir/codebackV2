@@ -74,7 +74,7 @@ export default function AppShell({ children, activeRoute }) {
         <div className={styles.sidebarHeader}>
           <button className={styles.brand} onClick={() => router.push('/dashboard')}>
             <div className={styles.brandIcon}>
-              <img src="/logo.png" alt="" className={styles.brandIconImg} />
+              <img src="/assets/siffty-logo-tight.png" alt="" className={styles.brandIconImg} />
             </div>
             <span className={styles.brandName}>Siffty</span>
           </button>
@@ -110,27 +110,55 @@ export default function AppShell({ children, activeRoute }) {
         </nav>
 
         <div className={styles.sidebarFooter}>
-          <button
-            className={styles.userInfo}
-            onClick={() => {
-              router.push('/profile');
-              setSidebarOpen(false);
-            }}
-            title={nav.account}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', width: '100%' }}
-            id="appshell-profile-sidebar-btn"
-          >
-            <div className="avatar avatar-sm">
-              {(user?.name || user?.email || 'U')[0].toUpperCase()}
+          <div className={styles.userProfileRow}>
+            <button
+              className={styles.userInfo}
+              onClick={() => {
+                router.push('/profile');
+                setSidebarOpen(false);
+              }}
+              title={nav.account}
+              id="appshell-profile-sidebar-btn"
+            >
+              <div className={styles.userAvatar}>
+                {(user?.name || user?.email || 'M')[0].toUpperCase()}
+              </div>
+              <div className={styles.userMeta}>
+                <span className={styles.userName}>{user?.name || 'mubassir shah'}</span>
+                <span className={styles.userSubtitle}>Account &amp; profile</span>
+              </div>
+            </button>
+            <button className={styles.logoutBtn} onClick={handleLogout} aria-label={nav.logOut} title={nav.logOut}>
+              <Icon name="logOut" size={16} />
+            </button>
+          </div>
+
+          {/* Upgrade to Pro Card */}
+          <div className={styles.upgradeCard}>
+            <div className={styles.upgradeHeader}>
+              <div className={styles.upgradeCrown}>
+                <Icon name="crown" size={16} />
+              </div>
+              <span className={styles.upgradeTitle}>Upgrade to Pro</span>
             </div>
-            <div className={styles.userMeta}>
-              <span className={styles.userName}>{user?.name || nav.account}</span>
-              <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>{nav.accountSubtitle}</span>
-            </div>
-          </button>
-          <button className={styles.logoutBtn} onClick={handleLogout} aria-label={nav.logOut} title={nav.logOut}>
-            <Icon name="logOut" size={16} />
-          </button>
+            <p className={styles.upgradeDesc}>
+              Unlock more power for your Instagram DMs.
+            </p>
+            <button
+              className={`${styles.upgradeBtn} ${styles.btnHoverRoll}`}
+              onClick={() => {
+                router.push('/billing');
+                setSidebarOpen(false);
+              }}
+            >
+              <span className={styles.btnTextRoll}>
+                <span className={styles.btnTextTrack}>
+                  <span className={styles.btnTextLine}>Upgrade now &rarr;</span>
+                  <span className={styles.btnTextLine} aria-hidden="true">Upgrade now &rarr;</span>
+                </span>
+              </span>
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -163,15 +191,15 @@ export default function AppShell({ children, activeRoute }) {
               className={styles.headerUser}
               onClick={() => router.push('/profile')}
               title={nav.account}
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderRadius: 'var(--radius-full)' }}
               id="appshell-profile-header-btn"
             >
-              <div className="avatar avatar-sm">
-                {(user?.name || user?.email || 'U')[0].toUpperCase()}
+              <div className={styles.headerUserAvatar}>
+                {(user?.name || user?.email || 'M')[0].toUpperCase()}
               </div>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                {user?.name?.split(' ')[0] || nav.account}
+              <span className={styles.headerUserName}>
+                {user?.name?.split(' ')[0] || 'mubassir'}
               </span>
+              <Icon name="chevronDown" size={12} style={{ color: '#9ca3af', marginLeft: 2 }} />
             </button>
           </div>
         </header>

@@ -3,18 +3,14 @@
 /**
  * The enquiry form on /contact and /contact/enterprise.
  *
- * The only client-side part of either page: the email address, reply time and
- * business details around it are server-rendered, so they are readable with
- * JavaScript off and never depend on this request succeeding.
- *
- * A failed send never claims success. It says so and repeats the address to
- * write to instead.
+ * Preserves all submission logic, honeypot spam protection,
+ * and error/sent states while matching the Siffty landing page theme.
  */
 
 import { useState } from 'react';
 import { sendContactEnquiry } from '@/lib/api';
 import { contactPage } from '@/content/copy';
-import styles from './contact.module.css';
+import styles from '@/app/components/public/public.module.css';
 
 export default function ContactForm({ kind = 'support', supportEmail }) {
   const t = contactPage.form;
@@ -42,8 +38,6 @@ export default function ContactForm({ kind = 'support', supportEmail }) {
     } catch (err) {
       setState('failed');
       const status = err.response?.status;
-      // A validation or rate-limit message names what to fix; anything else is
-      // on our side, so point to the address that does not depend on this form.
       const serverMessage = status === 400 || status === 429 ? err.response?.data?.error : null;
       setFailure(serverMessage ? `${serverMessage} — ${t.failed(supportEmail)}` : t.failed(supportEmail));
     }
@@ -51,59 +45,133 @@ export default function ContactForm({ kind = 'support', supportEmail }) {
 
   if (state === 'sent') {
     return (
-      <p className={styles.sent} role="status">
-        {t.sent}
-      </p>
+      <div className={styles.statusSent} role="status">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0 }}>
+          <circle cx="12" cy="12" r="10" />
+          <polyline points="9 12 11 14 15 10" />
+        </svg>
+        <span>{t.sent}</span>
+      </div>
     );
   }
 
   return (
-    <form className={styles.form} onSubmit={onSubmit} noValidate={false}>
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={`${kind}-name`}>{t.name}</label>
-        <input id={`${kind}-name`} name="name" className="input" required maxLength={120} autoComplete="name" />
+    <form className={styles.formGrid} onSubmit={onSubmit} noValidate={false}>
+      <div className={styles.formField}>
+        <label className={styles.formLabel} htmlFor={`${kind}-name`}>
+          {t.name}
+        </label>
+        <input
+          id={`${kind}-name`}
+          name="name"
+          className={styles.formInput}
+          required
+          maxLength={120}
+          autoComplete="name"
+          placeholder="e.g. Alex Morgan"
+        />
       </div>
 
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={`${kind}-email`}>{t.email}</label>
-        <input id={`${kind}-email`} name="email" type="email" className="input" required maxLength={254} autoComplete="email" />
-        <span className={styles.hint}>{t.emailHint}</span>
+      <div className={styles.formField}>
+        <label className={styles.formLabel} htmlFor={`${kind}-email`}>
+          {t.email}
+        </label>
+        <input
+          id={`${kind}-email`}
+          name="email"
+          type="email"
+          className={styles.formInput}
+          required
+          maxLength={254}
+          autoComplete="email"
+          placeholder="alex@yourbrand.com"
+        />
+        <span className={styles.formHint}>{t.emailHint}</span>
       </div>
 
       {isEnterprise && (
         <>
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${kind}-company`}>{t.company}</label>
-            <input id={`${kind}-company`} name="company" className="input" required maxLength={160} autoComplete="organization" />
+          <div className={styles.formField}>
+            <label className={styles.formLabel} htmlFor={`${kind}-company`}>
+              {t.company}
+            </label>
+            <input
+              id={`${kind}-company`}
+              name="company"
+              className={styles.formInput}
+              required
+              maxLength={160}
+              autoComplete="organization"
+              placeholder="e.g. Acme Agency LLC"
+            />
           </div>
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor={`${kind}-ig`}>{t.igAccounts}</label>
-            <input id={`${kind}-ig`} name="igAccounts" className="input" maxLength={40} inputMode="numeric" />
+          <div className={styles.formField}>
+            <label className={styles.formLabel} htmlFor={`${kind}-ig`}>
+              {t.igAccounts}
+            </label>
+            <input
+              id={`${kind}-ig`}
+              name="igAccounts"
+              className={styles.formInput}
+              maxLength={40}
+              inputMode="numeric"
+              placeholder="e.g. 5"
+            />
           </div>
         </>
       )}
 
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor={`${kind}-message`}>{t.message}</label>
-        <textarea id={`${kind}-message`} name="message" className="textarea" required minLength={10} maxLength={5000} rows={6} />
+      <div className={styles.formField}>
+        <label className={styles.formLabel} htmlFor={`${kind}-message`}>
+          {t.message}
+        </label>
+        <textarea
+          id={`${kind}-message`}
+          name="message"
+          className={styles.formTextarea}
+          required
+          minLength={10}
+          maxLength={5000}
+          rows={5}
+          placeholder="Describe your inquiry, setup requirements, or questions..."
+        />
       </div>
 
-      {/* Honeypot: invisible to people and to assistive tech, filled by naive bots. */}
+      {/* Honeypot: invisible to people, filled by naive bots. */}
       <div className={styles.honeypot} aria-hidden="true">
         <label htmlFor={`${kind}-website`}>{t.honeypot}</label>
         <input id={`${kind}-website`} name="website" tabIndex={-1} autoComplete="off" />
       </div>
 
-      <div>
-        <button type="submit" className="btn btn-primary" disabled={state === 'sending'}>
-          {state === 'sending' ? t.sending : t.submit}
+      <div style={{ marginTop: '8px' }}>
+        <button
+          type="submit"
+          className={styles.btnPillPrimary}
+          disabled={state === 'sending'}
+          style={{ width: '100%', justifyContent: 'center' }}
+        >
+          {state === 'sending' ? (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ animation: 'spin 1s linear infinite' }}>
+                <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12" />
+              </svg>
+              <span>{t.sending}</span>
+            </>
+          ) : (
+            <>
+              <span>{t.submit}</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </>
+          )}
         </button>
       </div>
 
       {state === 'failed' && (
-        <p className={styles.failed} role="alert">
+        <div className={styles.statusError} role="alert">
           {failure}
-        </p>
+        </div>
       )}
     </form>
   );

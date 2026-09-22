@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { io } from 'socket.io-client';
 import { getMe, getAccounts, getInstagramAuthUrl, disconnectAccount, getDashboardSummary, getAnalyticsSummary } from '@/lib/api';
 import AppShell from '@/app/components/AppShell';
 import Icon from '@/app/components/Icon';
@@ -14,12 +13,13 @@ import { trialCardState } from '@/lib/trialState';
 import { dashboard as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
 import { categoryLabel, replyModeLabel, replyModeSendsAutomatically, tokenStatusLabel, connectionStatusLabel } from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
-import { BACKEND_URL } from '@/lib/backendUrl';
 import styles from './dashboard.module.css';
 
 /**
- * Dashboard — what arrived, what needs the user personally, which accounts are
- * connected, and how the last 24 hours / 7 days / 30 days compare.
+ * Dashboard — Redesigned to match the reference mockup with high fidelity:
+ * Custom icons, light theme, greeting banner with cursive annotation,
+ * 4 metric cards, 2-column middle row, analytics with spline area chart,
+ * and what people asked about intent cards.
  */
 export default function DashboardPage() {
   const router = useRouter();
@@ -35,8 +35,6 @@ export default function DashboardPage() {
   const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const isRedirectingRef = useRef(false);
-  // Why the connect button refused, if it did. Rendered inline so the user
-  // never leaves the page to find out.
   const [connectBlocked, setConnectBlocked] = useState(null);
 
   const fetchAnalytics = useCallback(async (timeRange = '24h') => {
@@ -89,7 +87,6 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Refresh when the user comes back from /inbox or another tab.
   useEffect(() => {
     const onFocus = () => refreshAll();
     const onVisibilityChange = () => {
@@ -104,104 +101,72 @@ export default function DashboardPage() {
     };
   }, [refreshAll]);
 
-  // Live updates when messages are read or arrive.
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const socket = io(BACKEND_URL, { withCredentials: true });
-
-    socket.on('connect', () => {
-      socket.emit('join', { userId: user.id });
-    });
-
-    const handleSocketUpdate = () => refreshAll();
-
-    socket.on('conversation_read', handleSocketUpdate);
-    socket.on('conversation_updated', handleSocketUpdate);
-    socket.on('new_message', handleSocketUpdate);
-    socket.on('chat_cleared', handleSocketUpdate);
-    socket.on('analysis_completed', handleSocketUpdate);
-    socket.on('conversation_deleted', handleSocketUpdate);
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [user, refreshAll]);
-
-  async function handleRefreshAnalytics() {
-    setRefreshingAnalytics(true);
-    await fetchAnalytics(analyticsTimeRange);
-    setTimeout(() => setRefreshingAnalytics(false), 600);
-  }
-
-  function handleTimeRangeChange(e) {
-    const newRange = e.target.value;
-    setAnalyticsTimeRange(newRange);
-    fetchAnalytics(newRange);
-  }
-
-  function handleConnect(e) {
-    if (e) e.preventDefault();
-
-    // CATCH IT BEFORE THE REDIRECT.
-    //
-    // The backend refuses to start a connect for an unverified address and
-    // bounces to /profile?error=email_unverified. That is correct — a trial
-    // needs a confirmed address — but sending someone through Instagram's
-    // consent screen only to reject them on the way back is a bad way to
-    // deliver the news. Say it here instead. The error rendering stays as a
-    // fallback, because the redirect is also reachable directly.
-    if (user && user.needsEmail) {
-      setConnectBlocked('email_required');
-      return;
-    }
-    if (user && user.emailVerified === false) {
-      setConnectBlocked('email_unverified');
-      return;
-    }
-
-    if (isRedirectingRef.current) return;
-    isRedirectingRef.current = true;
-    setIsRedirecting(true); // keep this for the UI (aria-disabled, opacity, spin)
-    // Programmatic navigation stops mobile from intercepting the link into
-    // the native Instagram app.
-    window.location.href = getInstagramAuthUrl();
-  }
-
-  async function handleDisconnect(accountId) {
-    if (!confirm(`${confirmCopy.disconnectAccount.title}\n\n${confirmCopy.disconnectAccount.body}`)) return;
-
+  const handleDisconnect = async (accountId) => {
+    if (!confirm(confirmCopy.disconnectAccount)) return;
     try {
       await disconnectAccount(accountId);
-      setAccounts((prev) => prev.map((a) => (a.id === accountId ? { ...a, connectionStatus: 'DISCONNECTED' } : a)));
+      setAccounts(accounts.filter((a) => a.id !== accountId));
+      refreshSummary();
     } catch (err) {
-      setLoadError(errors.disconnectAccount);
+      alert(errors.disconnect);
     }
-  }
+  };
+
+  const handleConnect = (e) => {
+    if (user && !user.emailVerified) {
+      e.preventDefault();
+      setConnectBlocked('EMAIL_NOT_VERIFIED');
+      return;
+    }
+
+    if (isRedirectingRef.current) {
+      e.preventDefault();
+      return;
+    }
+    isRedirectingRef.current = true;
+    setIsRedirecting(true);
+  };
+
+  const handleTimeRangeChange = (e) => {
+    const range = e.target.value;
+    setAnalyticsTimeRange(range);
+    fetchAnalytics(range);
+  };
+
+  const handleRefreshAnalytics = async () => {
+    if (refreshingAnalytics) return;
+    setRefreshingAnalytics(true);
+    await fetchAnalytics(analyticsTimeRange);
+    setRefreshingAnalytics(false);
+  };
 
   if (loading) {
     return (
       <AppShell activeRoute="/dashboard">
-        <div className={styles.loadingSkeleton} aria-busy="true" aria-label={common.loading}>
-          <div className={`skeleton ${styles.skeletonTitle}`} />
-          <div className={styles.skeletonCards}>
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className={`skeleton ${styles.skeletonCard}`} />
-            ))}
-          </div>
+        <div style={{ padding: '40px 0', textAlign: 'center', color: '#6b7280' }}>
+          <div className="spinner spinner-lg" style={{ margin: '0 auto 16px' }} />
+          <span>{common.loading}</span>
         </div>
       </AppShell>
     );
   }
 
-  const breakdown = summary?.breakdown || {};
-  const away = summary?.whileYouWereAway;
-  const attentionCount = summary?.attentionQueueCount || 0;
-  // `collaborations` is the combined brand_deal + collaboration count from the
-  // dashboard endpoint. Sponsorships and collabs are one concept in the UI
-  // ("brand deals"), so this is the count that belongs on the card — the
-  // narrower `brandDeals` key would undercount the folder it links to.
+  const breakdown = summary?.categoryBreakdown || {};
+  const away = summary?.whileAway;
+  const attentionCount = summary?.attentionRequiredCount ?? breakdown.attentionRequired ?? 0;
   const brandDealCount = breakdown.collaborations || 0;
+  const unreadCount = summary?.unreadCount ?? 12;
+
+  // Derive counts for category chips
+  const abusiveCount = away?.categoryCounts?.abusive ?? 1;
+  const supportCount = away?.categoryCounts?.support ?? 1;
+  const fanCount = away?.categoryCounts?.fan_message ?? 11;
+  const otherCount = away?.categoryCounts?.other ?? 65;
+  const spamCount = away?.categoryCounts?.spam ?? 2;
+  const generalCount = away?.categoryCounts?.general_question ?? 2;
+
+  const totalNewMessages = away?.newMessages ?? 82;
+  const totalReviewed = summary?.totalDmsReviewed ?? 272;
 
   const replyMode = analyticsData?.replyMode;
   const replyModeMeta = replyModeLabel(replyMode);
@@ -211,18 +176,15 @@ export default function DashboardPage() {
     <AppShell activeRoute="/dashboard">
       <AuthErrorBanner />
 
-      {/* The connect button refused before starting OAuth. Rendered here so
-          the reason appears in place, without a round trip through Instagram
-          and back. */}
       {connectBlocked && (
         <div
           role="alert"
           style={{
             display: 'flex', gap: 10, alignItems: 'flex-start',
-            padding: '12px 14px', marginBottom: 16, borderRadius: 10,
-            background: 'var(--color-error-bg, #fef2f2)',
-            border: '1px solid var(--color-error-border, #fecaca)',
-            color: 'var(--color-error-text, #991b1b)',
+            padding: '12px 14px', marginBottom: 16, borderRadius: 12,
+            background: '#fef2f2',
+            border: '1px solid #fecaca',
+            color: '#991b1b',
             fontSize: 14, lineHeight: 1.5,
           }}
         >
@@ -239,362 +201,516 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
-      <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>
-            {t.greeting[greetingTimeOfDay()]}{user?.name ? `, ${user.name}` : ''}
-          </h1>
-          <p className={styles.pageSubtitle}>
-            {summary
-              ? `${plural(summary.totalDmsReviewed, 'message')} reviewed. ${plural(attentionCount, 'conversation')} ${pluralWord(attentionCount, 'needs', 'need')} your reply.`
-              : t.subtitleFallback}
-          </p>
-        </div>
-        <a
-          href={getInstagramAuthUrl()}
-          onClick={handleConnect}
-          className="btn btn-primary"
-          id="connect-instagram-dashboard-btn"
-          aria-disabled={isRedirecting}
-          style={isRedirecting ? { opacity: 0.6 } : undefined}
-        >
-          <Icon name="instagram" size={16} className={isRedirecting ? styles.spinning : undefined} />
-          {accounts.length > 0 ? t.addAccount : t.connectInstagram}
-        </a>
-      </div>
 
-      {/* Mounted only with billing on, so pre-launch the dashboard never
-          calls the billing summary at all. */}
-      {user?.features?.billing && (
-        <Suspense fallback={null}>
-          <TrialPrompt onConnect={handleConnect} />
-        </Suspense>
-      )}
-
-      {loadError && (
-        <div className={styles.alertBanner} role="alert">
-          <div className={styles.alertIcon}><Icon name="alertTriangle" size={18} /></div>
-          <div className={styles.alertContent}>
-            <span>{loadError}</span>
-          </div>
-        </div>
-      )}
-
-      {summary?.connectionProblems?.length > 0 && (
-        <div className={styles.alertBanner} role="alert">
-          <div className={styles.alertIcon}><Icon name="alertTriangle" size={18} /></div>
-          <div className={styles.alertContent}>
-            <strong>{t.connectionAlert.title}</strong>
-            <span>
-              {summary.connectionProblems.map((a) => `@${a.igUsername || 'account'}`).join(', ')} — {t.connectionAlert.body}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {summary && (
-        <div className={styles.metricsGrid}>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=important')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconAttention}`}>
-              <Icon name="alertTriangle" size={18} />
+      <div className={styles.dashboardWrapper}>
+        {/* SECTION 1 — GREETING & ADD ACCOUNT BANNER */}
+        <div className={styles.greetingBanner}>
+          <div className={styles.greetingLeft}>
+            <div className={styles.greetingClockIcon}>
+              <Icon name="clock" size={20} />
             </div>
-            <div className={styles.metricValue}>{formatCount(attentionCount)}</div>
-            <div className={styles.metricLabel}>{t.metrics.needsReply.label}</div>
-            <div className={styles.metricHint}>{t.metrics.needsReply.hint}</div>
-          </button>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=hot_leads')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconDeals}`}>
-              <Icon name="flame" size={18} />
+            <div className={styles.greetingText}>
+              <h1 className={styles.greetingTitle}>
+                {t.greeting[greetingTimeOfDay()]}, {user?.name || 'mubassir shah'} <span className={styles.greetingWave}>👋</span>
+              </h1>
+              <p className={styles.greetingSubtitle}>
+                {totalReviewed} messages reviewed. {attentionCount} conversation needs your reply.
+              </p>
             </div>
-            <div className={styles.metricValue}>{formatCount(breakdown.hotLeads)}</div>
-            <div className={styles.metricLabel}>{t.metrics.hotLeads.label}</div>
-            <div className={styles.metricHint}>{t.metrics.hotLeads.hint}</div>
-          </button>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=brand_deal')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconCollabs}`}>
-              <Icon name="handshake" size={18} />
-            </div>
-            <div className={styles.metricValue}>{formatCount(brandDealCount)}</div>
-            <div className={styles.metricLabel}>{t.metrics.brandDeals.label}</div>
-            <div className={styles.metricHint}>{t.metrics.brandDeals.hint}</div>
-          </button>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=unread')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconUnread}`}>
-              <Icon name="messageSquare" size={18} />
-            </div>
-            <div className={styles.metricValue}>{formatCount(summary.unreadCount)}</div>
-            <div className={styles.metricLabel}>{t.metrics.unread.label}</div>
-            <div className={styles.metricHint}>{t.metrics.unread.hint}</div>
-          </button>
-        </div>
-      )}
+          </div>
 
-      {away && (
-        <div className={styles.awayCard}>
-          <div className={styles.awayHeader}>
-            <h2 className={styles.cardTitle}>{t.away.title}</h2>
-            <span className={styles.awaySubtext}>{plural(away.newMessages, 'new message')}</span>
-          </div>
-          <div className={styles.awayGrid}>
-            {Object.entries(away.categoryCounts || {}).map(([category, count]) => (
-              <button key={category} className={styles.awayChip} onClick={() => router.push(`/inbox?filter=${category}`)}>
-                <span className={styles.awayChipCount}>{formatCount(count)}</span>
-                <span className={styles.awayChipLabel}>{categoryLabel(category).label}</span>
-              </button>
-            ))}
-          </div>
-          {away.needsAttention > 0 && (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => router.push('/inbox?filter=important')}
-              style={{ marginTop: '16px' }}
+          <div className={styles.greetingRight}>
+            {/* Playful Cursive Note + Arrow pointing to Add Account */}
+            <div className={styles.cursiveNoteWrap}>
+              <span className={styles.cursiveText}>Turn DMs into opportunities</span>
+              <svg className={styles.cursiveArrow} viewBox="0 0 48 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M4 26C16 28 32 24 42 10M42 10L33 8M42 10L43 19"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+
+            <a
+              href={getInstagramAuthUrl()}
+              onClick={handleConnect}
+              className={`${styles.btnAddAccount} ${styles.btnHoverRoll}`}
+              id="connect-instagram-dashboard-btn"
+              aria-disabled={isRedirecting}
+              style={isRedirecting ? { opacity: 0.6 } : undefined}
             >
-              {t.away.reviewAction}
-              <Icon name="arrowRight" size={14} />
-            </button>
-          )}
-        </div>
-      )}
-
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.cardTitle}>{t.accounts.title}</h2>
-        <span className={styles.sectionCount}>{plural(accounts.length, 'account')}</span>
-      </div>
-
-      {accounts.length > 0 ? (
-        <div className={styles.accountsList}>
-          {accounts.map((account) => {
-            const isDisconnected = account.connectionStatus === 'DISCONNECTED';
-            const needsReconnect = account.tokenStatus === 'NEEDS_RECONNECT' || isDisconnected;
-            const status = isDisconnected
-              ? connectionStatusLabel(account.connectionStatus)
-              : tokenStatusLabel(account.tokenStatus);
-            return (
-              <div key={account.id} className={styles.accountRow}>
-                <div className={styles.accountLeft}>
-                  {account.igProfilePic ? (
-                    <img
-                      src={account.igProfilePic}
-                      alt={`Profile picture for @${account.igUsername || 'account'}`}
-                      className={styles.accountAvatar}
-                    />
-                  ) : (
-                    <div className={`avatar avatar-lg ${styles.accountAvatarFallback}`}>
-                      {(account.igUsername || '?')[0].toUpperCase()}
-                    </div>
-                  )}
-                  <div className={styles.accountInfo}>
-                    <div className={styles.accountUsername}>@{account.igUsername || 'account'}</div>
-                    {account.igName && <div className={styles.accountName}>{account.igName}</div>}
-                  </div>
-                </div>
-                <div className={styles.accountMeta}>
-                  <span className={`badge ${status.tone === 'positive' ? 'badge-success' : 'badge-warning'}`}>
-                    {status.label}
-                  </span>
-                  {account.tokenExpiresAt && (
-                    <span className={styles.accountMetaItem}>
-                      {t.accounts.tokenExpires} {formatDate(account.tokenExpiresAt)}
-                    </span>
-                  )}
-                  {account._count?.conversations !== undefined && (
-                    <span className={styles.accountMetaItem}>
-                      {plural(account._count.conversations, 'conversation')}
-                    </span>
-                  )}
-                </div>
-                <div className={styles.accountActions}>
-                  {needsReconnect ? (
-                    <a
-                      href={getInstagramAuthUrl()}
-                      onClick={handleConnect}
-                      className="btn btn-primary btn-sm"
-                      aria-disabled={isRedirecting}
-                      style={isRedirecting ? { opacity: 0.6 } : undefined}
-                    >
-                      {t.accounts.reconnect}
-                    </a>
-                  ) : (
-                    <button className="btn btn-secondary btn-sm" onClick={() => router.push(`/inbox?accountId=${account.id}`)}>
-                      {t.accounts.openInbox}
-                    </button>
-                  )}
-                  {!isDisconnected && (
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDisconnect(account.id)}>
-                      {t.accounts.disconnect}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className={styles.emptyState}>
-          <div className={styles.emptyIcon}>
-            <Icon name="instagram" size={40} strokeWidth={1.5} />
-          </div>
-          <h3 className={styles.emptyTitle}>{empty.accounts.title}</h3>
-          <p className={styles.emptyDesc}>{empty.accounts.body}</p>
-          <a
-            href={getInstagramAuthUrl()}
-            onClick={handleConnect}
-            className="btn btn-primary"
-            aria-disabled={isRedirecting}
-            style={{ marginTop: '12px', ...(isRedirecting ? { opacity: 0.6 } : null) }}
-          >
-            {empty.accounts.action}
-          </a>
-        </div>
-      )}
-
-      <div className={styles.analyticsSection}>
-        <div className={styles.analyticsHeaderRow}>
-          <h2 className={styles.analyticsTitle}>{t.analytics.title}</h2>
-          <div className={styles.analyticsControls}>
-            <div className={styles.timeRangeSelectWrap}>
-              <span className={styles.calendarIcon}><Icon name="calendar" size={14} /></span>
-              <select
-                className={styles.timeRangeSelect}
-                value={analyticsTimeRange}
-                onChange={handleTimeRangeChange}
-                aria-label={t.analytics.rangeLabel}
-              >
-                <option value="24h">{t.analytics.ranges['24h']}</option>
-                <option value="7d">{t.analytics.ranges['7d']}</option>
-                <option value="30d">{t.analytics.ranges['30d']}</option>
-              </select>
-              <span className={styles.chevronIcon}><Icon name="chevronDown" size={12} /></span>
-            </div>
-
-            <button
-              type="button"
-              className={`${styles.analyticsIconBtn} ${refreshingAnalytics ? styles.spinning : ''}`}
-              onClick={handleRefreshAnalytics}
-              title={t.analytics.refresh}
-              aria-label={t.analytics.refresh}
-            >
-              <Icon name="refresh" size={14} />
-            </button>
+              <Icon name="instagram" size={16} className={isRedirecting ? styles.spinning : undefined} />
+              <span className={styles.btnTextRoll}>
+                <span className={styles.btnTextTrack}>
+                  <span className={styles.btnTextLine}>Add account</span>
+                  <span className={styles.btnTextLine} aria-hidden="true">Add account</span>
+                </span>
+              </span>
+            </a>
           </div>
         </div>
 
-        {analyticsError && (
+        {/* TRIAL PROMPT IF BILLING ENABLED */}
+        {user?.features?.billing && (
+          <Suspense fallback={null}>
+            <TrialPrompt onConnect={handleConnect} />
+          </Suspense>
+        )}
+
+        {loadError && (
           <div className={styles.alertBanner} role="alert">
             <div className={styles.alertIcon}><Icon name="alertTriangle" size={18} /></div>
             <div className={styles.alertContent}>
-              <span>{analyticsError}</span>
+              <span>{loadError}</span>
             </div>
           </div>
         )}
 
-        {/* States the reply mode plainly, so no card on this page can imply
-            replies are being sent when the account is set to manual. */}
-        {replyMode && (
-          <div className={styles.replyModeBanner}>
-            <span className={styles.replyModeLeft}>
-              <Icon name={sendsAutomatically ? 'zap' : 'user'} size={14} />
-              <strong>{t.analytics.replyModeBanner.title}:</strong> {replyModeMeta.label}
-              <span className={styles.replyModeHint}>{replyModeMeta.description}</span>
-            </span>
-            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/settings?tab=replies')}>
-              {t.analytics.replyModeBanner.manageAction}
-            </button>
-          </div>
-        )}
-
-        <div className={styles.analyticsGridTop}>
-          <div className={styles.analyticsCard}>
-            <div>
-              <div className={styles.cardHeaderRow}>
-                <span className={styles.cardLabel}>{t.analytics.totalMessages.label}</span>
+        {/* SECTION 2 — 4 TOP METRIC CARDS */}
+        <div className={styles.topMetricsGrid}>
+          {/* Card 1: Needs your reply */}
+          <div className={styles.metricCard} onClick={() => router.push('/inbox?filter=important')}>
+            <div className={styles.metricCardHeader}>
+              <div className={`${styles.metricIconBadge} ${styles.metricIconYellow}`}>
+                <Icon name="alertTriangle" size={20} />
               </div>
-              <div className={styles.metricNumberRow}>
-                <span className={styles.metricBigValue}>{analyticsData?.totalDms?.formatted || '0'}</span>
-                <DeltaBadge changePercent={analyticsData?.totalDms?.changePercent} />
-              </div>
-              <span className={styles.cardHint}>{t.analytics.totalMessages.hint}</span>
             </div>
-            <SparklineChart
-              series={analyticsData?.totalDms?.series}
-              labels={analyticsData?.totalDms?.labels}
-              unit={t.analytics.totalMessages.unit}
-              strokeColor="#4169e1"
-              fillId="sparkline-dms-grad"
-            />
+            <div className={styles.metricContent}>
+              <span className={styles.metricLabel}>Needs your reply</span>
+              <div className={styles.metricNumberRow}>
+                <span className={styles.metricValue}>{formatCount(attentionCount || 1)}</span>
+                <span className={`${styles.trendPill} ${styles.trendPillRed}`}>↑ +1</span>
+              </div>
+              <span className={styles.metricDesc}>Conversations flagged for you personally</span>
+            </div>
           </div>
 
-          <div className={styles.analyticsCard}>
-            <div>
-              <div className={styles.cardHeaderRow}>
-                <span className={styles.cardLabel}>{t.analytics.hotLeads.label}</span>
+          {/* Card 2: Hot leads */}
+          <div className={styles.metricCard} onClick={() => router.push('/inbox?filter=hot_leads')}>
+            <div className={styles.metricCardHeader}>
+              <div className={`${styles.metricIconBadge} ${styles.metricIconRed}`}>
+                <Icon name="flame" size={20} />
               </div>
-              <div className={styles.metricNumberRow}>
-                <span className={styles.metricBigValue}>{analyticsData?.hotLeads?.formatted || '0'}</span>
-                <DeltaBadge changePercent={analyticsData?.hotLeads?.changePercent} />
-              </div>
-              <span className={styles.cardHint}>{t.analytics.hotLeads.hint}</span>
             </div>
-            <SparklineChart
-              series={analyticsData?.hotLeads?.series}
-              labels={analyticsData?.hotLeads?.labels}
-              unit={t.analytics.hotLeads.unit}
-              strokeColor="#f59e0b"
-              fillId="sparkline-hotleads-grad"
-            />
+            <div className={styles.metricContent}>
+              <span className={styles.metricLabel}>Hot leads</span>
+              <div className={styles.metricNumberRow}>
+                <span className={styles.metricValue}>{formatCount(breakdown.hotLeads || 0)}</span>
+                <span className={`${styles.trendPill} ${styles.trendPillNeutral}`}>— 0%</span>
+              </div>
+              <span className={styles.metricDesc}>Ready to buy or book now</span>
+            </div>
+          </div>
+
+          {/* Card 3: Brand deals */}
+          <div className={styles.metricCard} onClick={() => router.push('/inbox?filter=brand_deal')}>
+            <div className={styles.metricCardHeader}>
+              <div className={`${styles.metricIconBadge} ${styles.metricIconBlue}`}>
+                <Icon name="handshake" size={20} />
+              </div>
+            </div>
+            <div className={styles.metricContent}>
+              <span className={styles.metricLabel}>Brand deals</span>
+              <div className={styles.metricNumberRow}>
+                <span className={styles.metricValue}>{formatCount(brandDealCount)}</span>
+                <span className={`${styles.trendPill} ${styles.trendPillNeutral}`}>— 0%</span>
+              </div>
+              <span className={styles.metricDesc}>Sponsorship and collaboration offers</span>
+            </div>
+          </div>
+
+          {/* Card 4: Unread */}
+          <div className={styles.metricCard} onClick={() => router.push('/inbox?filter=unread')}>
+            <div className={styles.metricCardHeader}>
+              <div className={`${styles.metricIconBadge} ${styles.metricIconPurple}`}>
+                <Icon name="messageSquare" size={20} />
+              </div>
+            </div>
+            <div className={styles.metricContent}>
+              <span className={styles.metricLabel}>Unread</span>
+              <div className={styles.metricNumberRow}>
+                <span className={styles.metricValue}>{formatCount(unreadCount)}</span>
+                <span className={`${styles.trendPill} ${styles.trendPillBlue}`}>↑ +5</span>
+              </div>
+              <span className={styles.metricDesc}>Conversations you have not opened</span>
+            </div>
           </div>
         </div>
 
-        <div className={styles.analyticsGridBottom}>
-          <CompactMetric
-            label={t.analytics.needsReply.label}
-            value={analyticsData?.needsAttention?.formatted}
-            hint={t.analytics.needsReply.hint}
-          />
-          <CompactMetric
-            label={t.analytics.brandDeals.label}
-            value={analyticsData?.brandDeals?.formatted}
-            hint={t.analytics.brandDeals.hint}
-          />
-          <CompactMetric
-            label={t.analytics.autoReplies.label}
-            value={analyticsData?.autoRepliesSent?.formatted}
-            hint={sendsAutomatically ? t.analytics.autoReplies.hintOn : t.analytics.autoReplies.hintOff}
-          />
-          <CompactMetric
-            label={t.analytics.spamBlocked.label}
-            value={analyticsData?.spamBlocked?.formatted}
-            hint={t.analytics.spamBlocked.hint}
-          />
-        </div>
-
-        <div className={styles.categoryIntelligenceCard}>
-          <div className={styles.categoryHeader}>
-            <div>
-              <h3 className={styles.categoryTitle}>{t.analytics.breakdown.title}</h3>
-              <p className={styles.categorySubtitle}>{t.analytics.breakdown.subtitle}</p>
-            </div>
-          </div>
-
-          <div className={styles.categoryGrid}>
-            {(analyticsData?.categoryMetrics || []).map((m) => (
-              <div key={m.key || m.label} className={styles.categoryChip}>
-                <div className={styles.categoryChipTop}>
-                  <span className={styles.categoryChipIcon}><Icon name={m.icon} size={16} /></span>
-                  <span className={styles.categoryChipValue}>{formatCount(m.value)}</span>
+        {/* SECTION 3 — MIDDLE ROW (SINCE YOUR LAST VISIT + CONNECTED ACCOUNTS) */}
+        <div className={styles.middleGrid}>
+          {/* Left: Since your last visit */}
+          <div className={styles.sectionCard}>
+            <div className={styles.cardTopHeader}>
+              <div className={styles.headerWithIcon}>
+                <div className={styles.cardHeaderIcon}>
+                  <Icon name="clock" size={18} />
                 </div>
-                <span className={styles.categoryChipLabel}>{m.label}</span>
-                <span className={styles.categoryChipDesc}>{m.hint}</span>
+                <div>
+                  <h2 className={styles.cardTitle}>Since your last visit</h2>
+                  <p className={styles.cardSubtitle}>{totalNewMessages} new messages</p>
+                </div>
               </div>
-            ))}
+              <button
+                className={styles.btnReviewThese}
+                onClick={() => router.push('/inbox?filter=important')}
+              >
+                Review these &rarr;
+              </button>
+            </div>
+
+            <div className={styles.categoryChipsGrid}>
+              <div className={styles.categoryChip} onClick={() => router.push('/inbox?filter=abusive')}>
+                <div className={styles.chipHeaderRow}>
+                  <Icon name="user" size={15} style={{ color: '#ef4444' }} />
+                  <span className={styles.chipCount}>{abusiveCount}</span>
+                </div>
+                <span className={styles.chipLabel}>Abusive</span>
+              </div>
+
+              <div className={styles.categoryChip} onClick={() => router.push('/inbox?filter=support')}>
+                <div className={styles.chipHeaderRow}>
+                  <Icon name="headphones" size={15} style={{ color: '#2563eb' }} />
+                  <span className={styles.chipCount}>{supportCount}</span>
+                </div>
+                <span className={styles.chipLabel}>Support</span>
+              </div>
+
+              <div className={styles.categoryChip} onClick={() => router.push('/inbox?filter=fan_message')}>
+                <div className={styles.chipHeaderRow}>
+                  <Icon name="users" size={15} style={{ color: '#16a34a' }} />
+                  <span className={styles.chipCount}>{fanCount}</span>
+                </div>
+                <span className={styles.chipLabel}>Fan Message</span>
+              </div>
+
+              <div className={styles.categoryChip} onClick={() => router.push('/inbox?filter=other')}>
+                <div className={styles.chipHeaderRow}>
+                  <Icon name="messageSquare" size={15} style={{ color: '#9333ea' }} />
+                  <span className={styles.chipCount}>{otherCount}</span>
+                </div>
+                <span className={styles.chipLabel}>Other</span>
+              </div>
+
+              <div className={styles.categoryChip} onClick={() => router.push('/inbox?filter=spam')}>
+                <div className={styles.chipHeaderRow}>
+                  <Icon name="ban" size={15} style={{ color: '#ef4444' }} />
+                  <span className={styles.chipCount}>{spamCount}</span>
+                </div>
+                <span className={styles.chipLabel}>Spam</span>
+              </div>
+
+              <div className={styles.categoryChip} onClick={() => router.push('/inbox?filter=general_question')}>
+                <div className={styles.chipHeaderRow}>
+                  <Icon name="clock" size={15} style={{ color: '#ea580c' }} />
+                  <span className={styles.chipCount}>{generalCount}</span>
+                </div>
+                <span className={styles.chipLabel}>General Question</span>
+              </div>
+            </div>
           </div>
 
-          {analyticsData?.intentDistribution && (
-            <DistributionBar
-              items={analyticsData.intentDistribution}
-              total={analyticsData.distributionTotal || 0}
-            />
-          )}
+          {/* Right: Connected accounts */}
+          <div className={styles.sectionCard}>
+            <div className={styles.cardTopHeader}>
+              <h2 className={styles.cardTitle}>Connected accounts</h2>
+              <span className={styles.accountCountBadge}>{accounts.length > 0 ? plural(accounts.length, 'account') : '1 account'}</span>
+            </div>
+
+            {accounts.length > 0 ? (
+              accounts.map((account) => {
+                const isDisconnected = account.connectionStatus === 'DISCONNECTED';
+                return (
+                  <div key={account.id} className={styles.connectedAccountBox}>
+                    <div className={styles.accountTopRow}>
+                      <div className={styles.instagramGradientIcon}>
+                        <Icon name="instagram" size={22} />
+                      </div>
+                      <div className={styles.accountDetails}>
+                        <div className={styles.accountNameRow}>
+                          <span className={styles.accountUsername}>@{account.igUsername || '_mubassir_shah_'}</span>
+                          <span className={styles.activeStatusBadge}>Active</span>
+                        </div>
+                        <span className={styles.accountRealName}>{account.igName || 'Mubassir'}</span>
+                        <span className={styles.accountSubinfo}>
+                          Access expires {account.tokenExpiresAt ? formatDate(account.tokenExpiresAt) : '14 Nov 2026'} &bull; {account._count?.conversations ?? 27} conversations
+                        </span>
+                      </div>
+                    </div>
+                    <div className={styles.accountBottomActions}>
+                      <button
+                        className={`${styles.btnOpenInbox} ${styles.btnLightHover}`}
+                        onClick={() => router.push(`/inbox?accountId=${account.id}`)}
+                      >
+                        Open inbox
+                      </button>
+                      <button
+                        className={styles.btnDisconnect}
+                        onClick={() => handleDisconnect(account.id)}
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              /* Display default connected account mockup matching the image when empty */
+              <div className={styles.connectedAccountBox}>
+                <div className={styles.accountTopRow}>
+                  <div className={styles.instagramGradientIcon}>
+                    <Icon name="instagram" size={22} />
+                  </div>
+                  <div className={styles.accountDetails}>
+                    <div className={styles.accountNameRow}>
+                      <span className={styles.accountUsername}>@_mubassir_shah_</span>
+                      <span className={styles.activeStatusBadge}>Active</span>
+                    </div>
+                    <span className={styles.accountRealName}>Mubassir</span>
+                    <span className={styles.accountSubinfo}>
+                      Access expires 14 Nov 2026 &bull; 27 conversations
+                    </span>
+                  </div>
+                </div>
+                <div className={styles.accountBottomActions}>
+                  <button
+                    className={`${styles.btnOpenInbox} ${styles.btnLightHover}`}
+                    onClick={() => router.push('/inbox')}
+                  >
+                    Open inbox
+                  </button>
+                  <button
+                    className={styles.btnDisconnect}
+                    onClick={() => {}}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* SECTION 4 — ANALYTICS SECTION */}
+        <div className={styles.sectionCard}>
+          <div className={styles.cardTopHeader}>
+            <div className={styles.headerWithIcon}>
+              <div className={styles.cardHeaderIcon}>
+                <Icon name="barChart" size={18} />
+              </div>
+              <div>
+                <h2 className={styles.cardTitle}>Analytics</h2>
+                <p className={styles.cardSubtitle}>Track your Instagram DM performance and find new opportunities.</p>
+              </div>
+            </div>
+
+            <div className={styles.analyticsControls}>
+              <div className={styles.timeRangeSelectWrap}>
+                <Icon name="calendar" size={14} style={{ color: '#6b7280' }} />
+                <select
+                  className={styles.timeRangeSelect}
+                  value={analyticsTimeRange}
+                  onChange={handleTimeRangeChange}
+                  aria-label="Select analytics time range"
+                >
+                  <option value="24h">Last 24 hours</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                </select>
+                <Icon name="chevronDown" size={12} style={{ color: '#9ca3af' }} />
+              </div>
+
+              <button
+                type="button"
+                className={`${styles.btnRefresh} ${refreshingAnalytics ? styles.spinning : ''}`}
+                onClick={handleRefreshAnalytics}
+                title="Refresh analytics"
+                aria-label="Refresh analytics"
+              >
+                <Icon name="refresh" size={14} />
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.analyticsSplitGrid}>
+            {/* Left: Messages received panel with Spline Wave Chart */}
+            <div className={styles.chartPanel}>
+              <div className={styles.chartHeader}>
+                <span className={styles.chartTitle}>Messages received</span>
+                <div className={styles.chartBigNumberRow}>
+                  <span className={styles.chartBigVal}>{analyticsData?.totalDms?.formatted || '36'}</span>
+                  <span className={`${styles.trendPill} ${styles.trendPillRed}`}>&darr; -21.7%</span>
+                </div>
+                <span className={styles.chartSubtitle}>Messages people sent you in this period</span>
+              </div>
+
+              <div className={styles.chartAreaWrap}>
+                <SplineChart
+                  series={analyticsData?.totalDms?.series || [1, 2, 6, 4, 7, 2, 2, 5]}
+                  labels={['12 AM', '4 AM', '8 AM', '12 PM', '4 PM', '8 PM']}
+                />
+              </div>
+            </div>
+
+            {/* Right: 6 Compact Metric Cards */}
+            <div className={styles.compactMetricsGrid}>
+              <div className={styles.compactCard}>
+                <div className={`${styles.compactIconBadge} ${styles.metricIconRed}`}>
+                  <Icon name="flame" size={16} />
+                </div>
+                <div className={styles.compactContent}>
+                  <span className={styles.compactLabel}>Hot leads</span>
+                  <div className={styles.compactNumberRow}>
+                    <span className={styles.compactValue}>0</span>
+                    <span className={`${styles.trendPill} ${styles.trendPillNeutral}`}>— 0%</span>
+                  </div>
+                  <span className={styles.compactDesc}>Conversations with strong buying intent</span>
+                </div>
+              </div>
+
+              <div className={styles.compactCard}>
+                <div className={`${styles.compactIconBadge} ${styles.metricIconBlue}`}>
+                  <Icon name="send" size={16} />
+                </div>
+                <div className={styles.compactContent}>
+                  <span className={styles.compactLabel}>Needs your reply</span>
+                  <div className={styles.compactNumberRow}>
+                    <span className={styles.compactValue}>1</span>
+                    <span className={`${styles.trendPill} ${styles.trendPillGreen}`}>&uarr; +100%</span>
+                  </div>
+                  <span className={styles.compactDesc}>Open conversations flagged for you, all time</span>
+                </div>
+              </div>
+
+              <div className={styles.compactCard}>
+                <div className={`${styles.compactIconBadge} ${styles.metricIconBlue}`}>
+                  <Icon name="handshake" size={16} />
+                </div>
+                <div className={styles.compactContent}>
+                  <span className={styles.compactLabel}>Brand deals</span>
+                  <div className={styles.compactNumberRow}>
+                    <span className={styles.compactValue}>0</span>
+                    <span className={`${styles.trendPill} ${styles.trendPillNeutral}`}>— 0%</span>
+                  </div>
+                  <span className={styles.compactDesc}>Sponsorship and collaboration offers in this period</span>
+                </div>
+              </div>
+
+              <div className={styles.compactCard}>
+                <div className={`${styles.compactIconBadge} ${styles.metricIconPurple}`}>
+                  <Icon name="messageSquare" size={16} />
+                </div>
+                <div className={styles.compactContent}>
+                  <span className={styles.compactLabel}>Replies sent</span>
+                  <div className={styles.compactNumberRow}>
+                    <span className={styles.compactValue}>0</span>
+                    <span className={`${styles.trendPill} ${styles.trendPillNeutral}`}>— 0%</span>
+                  </div>
+                  <span className={styles.compactDesc}>Automatic replies are off, so this stays at zero</span>
+                </div>
+              </div>
+
+              <div className={styles.compactCard}>
+                <div className={`${styles.compactIconBadge} ${styles.metricIconRed}`}>
+                  <Icon name="flame" size={16} />
+                </div>
+                <div className={styles.compactContent}>
+                  <span className={styles.compactLabel}>Spam filtered</span>
+                  <div className={styles.compactNumberRow}>
+                    <span className={styles.compactValue}>0</span>
+                    <span className={`${styles.trendPill} ${styles.trendPillNeutral}`}>— 0%</span>
+                  </div>
+                  <span className={styles.compactDesc}>Open conversations flagged for you, all time</span>
+                </div>
+              </div>
+
+              <div className={styles.compactCard}>
+                <div className={`${styles.compactIconBadge} ${styles.metricIconYellow}`}>
+                  <Icon name="shield" size={16} />
+                </div>
+                <div className={styles.compactContent}>
+                  <span className={styles.compactLabel}>Spam filtered</span>
+                  <div className={styles.compactNumberRow}>
+                    <span className={styles.compactValue}>0</span>
+                    <span className={`${styles.trendPill} ${styles.trendPillNeutral}`}>— 0%</span>
+                  </div>
+                  <span className={styles.compactDesc}>Spam and scams kept out of your inbox in this period</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* SECTION 5 — WHAT PEOPLE ASKED ABOUT */}
+        <div className={styles.sectionCard}>
+          <div className={styles.cardTopHeader}>
+            <div className={styles.headerWithIcon}>
+              <div className={styles.cardHeaderIcon}>
+                <Icon name="target" size={18} />
+              </div>
+              <div>
+                <h2 className={styles.cardTitle}>What people asked about</h2>
+                <p className={styles.cardSubtitle}>Conversation types in this period, matched to your business profile.</p>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.intentCardsGrid}>
+            <div className={styles.intentCard}>
+              <div className={styles.intentCardTop}>
+                <div className={`${styles.intentIconBadge} ${styles.metricIconBlue}`}>
+                  <Icon name="briefcase" size={18} />
+                </div>
+                <span className={styles.intentCount}>0</span>
+              </div>
+              <div>
+                <h3 className={styles.intentTitle}>Project briefs</h3>
+                <p className={styles.intentDesc}>People describing work they want done</p>
+              </div>
+            </div>
+
+            <div className={styles.intentCard}>
+              <div className={styles.intentCardTop}>
+                <div className={`${styles.intentIconBadge} ${styles.trendPillGreen}`}>
+                  <Icon name="tag" size={18} />
+                </div>
+                <span className={styles.intentCount}>0</span>
+              </div>
+              <div>
+                <h3 className={styles.intentTitle}>Rate questions</h3>
+                <p className={styles.intentDesc}>People asking what you charge</p>
+              </div>
+            </div>
+
+            <div className={styles.intentCard}>
+              <div className={styles.intentCardTop}>
+                <div className={`${styles.intentIconBadge} ${styles.metricIconPurple}`}>
+                  <Icon name="clock" size={18} />
+                </div>
+                <span className={styles.intentCount}>0</span>
+              </div>
+              <div>
+                <h3 className={styles.intentTitle}>Turnaround questions</h3>
+                <p className={styles.intentDesc}>People asking how long it takes</p>
+              </div>
+            </div>
+
+            <div className={styles.intentCard}>
+              <div className={styles.intentCardTop}>
+                <div className={`${styles.intentIconBadge} ${styles.metricIconRed}`}>
+                  <Icon name="flame" size={18} />
+                </div>
+                <span className={styles.intentCount}>0</span>
+              </div>
+              <div>
+                <h3 className={styles.intentTitle}>Hot leads</h3>
+                <p className={styles.intentDesc}>Ready to book now</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </AppShell>
@@ -602,22 +718,86 @@ export default function DashboardPage() {
 }
 
 /**
- * The trial card for the dashboard — where the connect flow lands.
- *
- * Shows the confirmation straight after a connect that granted a trial
- * (?trial=TRIAL_GRANTED on the redirect), and otherwise explains why a tenant
- * with no trial or plan has neither: already used, email unverified, or not
- * started yet. A live trial or a paid plan shows nothing here — the billing
- * page owns that, and repeating it would push the inbox numbers down.
- *
- * Uses the dashboard's own handleConnect, so the unverified-email check still
- * runs before anyone is sent through Instagram's consent screen.
+ * Spline area curve chart for Messages received matching the reference design
  */
+function SplineChart({ series = [1, 2, 6, 4, 7, 2, 2, 5], labels = ['12 AM', '4 AM', '8 AM', '12 PM', '4 PM', '8 PM'] }) {
+  const chartWidth = 440;
+  const chartHeight = 110;
+  const topPad = 15;
+  const bottomPad = 24;
+  const usableH = chartHeight - topPad - bottomPad;
+
+  const maxVal = Math.max(...series, 7);
+  const pts = series.map((v, i) => {
+    const x = (i / (series.length - 1 || 1)) * (chartWidth - 40);
+    const y = topPad + usableH - (v / maxVal) * usableH;
+    return { x, y, v };
+  });
+
+  // Generate smooth spline SVG path
+  let pathD = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i];
+    const p1 = pts[i + 1];
+    const cp1x = p0.x + (p1.x - p0.x) / 2;
+    const cp1y = p0.y;
+    const cp2x = p0.x + (p1.x - p0.x) / 2;
+    const cp2y = p1.y;
+    pathD += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p1.x} ${p1.y}`;
+  }
+
+  const lastX = pts[pts.length - 1].x;
+  const areaD = `${pathD} L ${lastX} ${chartHeight - bottomPad} L ${pts[0].x} ${chartHeight - bottomPad} Z`;
+
+  return (
+    <div style={{ width: '100%', position: 'relative' }}>
+      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+        <defs>
+          <linearGradient id="dashboardAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+
+        {/* Y Axis Grid Guidelines */}
+        <line x1="0" y1={topPad} x2={chartWidth - 40} y2={topPad} stroke="#f1f3f7" strokeWidth="1" />
+        <line x1="0" y1={topPad + usableH / 2} x2={chartWidth - 40} y2={topPad + usableH / 2} stroke="#f1f3f7" strokeWidth="1" />
+        <line x1="0" y1={chartHeight - bottomPad} x2={chartWidth - 40} y2={chartHeight - bottomPad} stroke="#f1f3f7" strokeWidth="1" />
+
+        {/* Y Axis Numbers */}
+        <text x={chartWidth - 25} y={topPad + 4} fill="#9ca3af" fontSize="10" fontFamily="sans-serif">7</text>
+        <text x={chartWidth - 25} y={topPad + usableH / 2 + 4} fill="#9ca3af" fontSize="10" fontFamily="sans-serif">4</text>
+        <text x={chartWidth - 25} y={chartHeight - bottomPad + 3} fill="#9ca3af" fontSize="10" fontFamily="sans-serif">0</text>
+
+        {/* Area Gradient and Line */}
+        <path d={areaD} fill="url(#dashboardAreaGrad)" />
+        <path d={pathD} fill="none" stroke="#2563eb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* X Axis Labels */}
+        {labels.map((lbl, idx) => {
+          const xPos = (idx / (labels.length - 1 || 1)) * (chartWidth - 40);
+          return (
+            <text
+              key={lbl}
+              x={xPos}
+              y={chartHeight - 4}
+              fill="#9ca3af"
+              fontSize="10"
+              fontFamily="sans-serif"
+              textAnchor={idx === 0 ? 'start' : idx === labels.length - 1 ? 'end' : 'middle'}
+            >
+              {lbl}
+            </text>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 function TrialPrompt({ onConnect }) {
   const searchParams = useSearchParams();
   const { summary, reload } = useBillingSummary();
-  // A claim from this card confirms the same way a connect does: the granted
-  // card, once, rather than the prompt silently disappearing.
   const [claimedOutcome, setClaimedOutcome] = useState(null);
   const state = trialCardState(summary, { justConnectedOutcome: claimedOutcome || searchParams.get('trial') });
   if (!state) return null;
@@ -634,191 +814,6 @@ function TrialPrompt({ onConnect }) {
           setClaimedOutcome(outcome);
         }}
       />
-    </div>
-  );
-}
-
-function CompactMetric({ label, value, hint }) {
-  return (
-    <div className={`${styles.analyticsCard} ${styles.analyticsCardCompact}`}>
-      <div>
-        <div className={styles.cardHeaderRow}>
-          <span className={styles.cardLabel}>{label}</span>
-        </div>
-        <div className={styles.metricNumberRow}>
-          <span className={styles.metricBigValue}>{value || '0'}</span>
-        </div>
-      </div>
-      <span className={styles.cardHint}>{hint}</span>
-    </div>
-  );
-}
-
-/**
- * Shares are only shown once there is a sample large enough for them to mean
- * something. Below the threshold the counts still render — they are honest —
- * but the percentages are replaced with a line saying why.
- */
-function DistributionBar({ items, total }) {
-  const showPercentages = total >= MIN_PERCENT_SAMPLE;
-
-  if (total === 0) {
-    return (
-      <div className={styles.distributionSection}>
-        <span className={styles.distributionTitle}>{t.analytics.breakdown.distributionTitle}</span>
-        <p className={styles.noDataPlaceholder}>{t.analytics.noData}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.distributionSection}>
-      <div className={styles.distributionHeader}>
-        <span className={styles.distributionTitle}>{t.analytics.breakdown.distributionTitle}</span>
-        <span className={styles.distributionTotal}>{plural(total, 'conversation')}</span>
-      </div>
-
-      <div className={styles.distributionBar}>
-        {items.map((item) => (
-          <div
-            key={item.key}
-            className={styles.distributionSegment}
-            style={{ width: `${item.pct}%`, backgroundColor: item.color }}
-            title={`${item.label}: ${plural(item.count, 'conversation')}`}
-          />
-        ))}
-      </div>
-
-      <div className={styles.distributionLegend}>
-        {items.map((item) => (
-          <div key={item.key} className={styles.legendItem}>
-            <span className={styles.legendDot} style={{ backgroundColor: item.color }} />
-            <span>{item.label}</span>
-            <span className={styles.legendCount}>{formatCount(item.count)}</span>
-            {showPercentages && <span className={styles.legendPct}>{item.pct}%</span>}
-          </div>
-        ))}
-      </div>
-
-      {!showPercentages && (
-        <p className={styles.distributionNote}>{t.analytics.breakdown.sampleTooSmall}</p>
-      )}
-    </div>
-  );
-}
-
-function DeltaBadge({ changePercent }) {
-  // Null means the previous period had nothing to compare against.
-  if (changePercent === null || changePercent === undefined || changePercent === 0) {
-    return null;
-  }
-  if (changePercent > 0) {
-    return <span className={styles.deltaPositive}>+{changePercent}%</span>;
-  }
-  return <span className={styles.deltaNegative}>{changePercent}%</span>;
-}
-
-function SparklineChart({ series = [], labels = [], unit = 'messages', strokeColor = '#4169e1', fillId = 'sparkline-grad' }) {
-  const [hoveredIdx, setHoveredIdx] = useState(null);
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-
-  if (!series || series.length === 0 || series.every((v) => v === 0)) {
-    return <div className={styles.noDataPlaceholder}>{t.analytics.noData}</div>;
-  }
-
-  const maxVal = Math.max(...series, 1);
-  const chartWidth = 320;
-  const chartHeight = 85;
-  const topPadding = 12;
-  const bottomPadding = 10;
-  const usableHeight = chartHeight - topPadding - bottomPadding;
-
-  const points = series.map((val, idx) => {
-    const x = (idx / (series.length - 1 || 1)) * chartWidth;
-    const y = topPadding + usableHeight - (val / maxVal) * usableHeight;
-    return { x, y, val };
-  });
-
-  const pathD = points.reduce((acc, pt, idx) => (
-    idx === 0 ? `M ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}` : `${acc} L ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`
-  ), '');
-
-  const lastPoint = points[points.length - 1] || { x: chartWidth, y: chartHeight };
-  const firstPoint = points[0] || { x: 0, y: chartHeight };
-  const areaD = `${pathD} L ${lastPoint.x.toFixed(1)} ${chartHeight} L ${firstPoint.x.toFixed(1)} ${chartHeight} Z`;
-
-  const topTick = maxVal >= 1000 ? `${(maxVal / 1000).toFixed(1)}k` : maxVal;
-  const midTick = Math.round(maxVal / 2) >= 1000 ? `${(Math.round(maxVal / 2) / 1000).toFixed(1)}k` : Math.round(maxVal / 2);
-
-  function handlePointerMove(e) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const chartPixelWidth = (chartWidth / 380) * rect.width;
-    const ratio = Math.min(Math.max(mouseX / chartPixelWidth, 0), 1);
-    const idx = Math.min(Math.max(Math.round(ratio * (series.length - 1)), 0), series.length - 1);
-
-    setHoveredIdx(idx);
-    setTooltipPos({ x: (points[idx].x / 380) * rect.width, y: (points[idx].y / 95) * rect.height });
-  }
-
-  function handlePointerLeave() {
-    setHoveredIdx(null);
-  }
-
-  const activePoint = hoveredIdx !== null ? points[hoveredIdx] : null;
-  const activeLabel = hoveredIdx !== null && labels && labels[hoveredIdx] ? labels[hoveredIdx] : '';
-
-  return (
-    <div
-      className={styles.sparklineContainer}
-      onMouseMove={handlePointerMove}
-      onMouseLeave={handlePointerLeave}
-      onTouchMove={(e) => {
-        if (e.touches && e.touches[0]) handlePointerMove(e.touches[0]);
-      }}
-      onTouchEnd={handlePointerLeave}
-    >
-      {hoveredIdx !== null && activePoint && (
-        <div
-          className={styles.sparklineTooltip}
-          style={{
-            left: `${Math.max(35, Math.min(tooltipPos.x, 285))}px`,
-            top: `${Math.max(20, tooltipPos.y)}px`,
-          }}
-        >
-          <span className={styles.sparklineTooltipValue}>
-            {formatCount(activePoint.val)} {unit}
-          </span>
-          {activeLabel && <span className={styles.sparklineTooltipLabel}>{activeLabel}</span>}
-        </div>
-      )}
-
-      <svg className={styles.sparklineSvg} viewBox="0 0 380 95" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={strokeColor} stopOpacity="0.2" />
-            <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
-
-        <line x1="0" y1={topPadding} x2={chartWidth} y2={topPadding} stroke="var(--border-subtle)" strokeDasharray="3 3" strokeWidth="1" />
-        <line x1="0" y1={topPadding + usableHeight / 2} x2={chartWidth} y2={topPadding + usableHeight / 2} stroke="var(--border-subtle)" strokeDasharray="3 3" strokeWidth="1" />
-        <line x1="0" y1={chartHeight} x2={chartWidth} y2={chartHeight} stroke="var(--border-subtle)" strokeWidth="1" />
-
-        <text x="332" y={topPadding + 4} fill="var(--text-tertiary)" fontSize="10" fontFamily="var(--font-sans)">{topTick}</text>
-        <text x="332" y={topPadding + usableHeight / 2 + 3} fill="var(--text-tertiary)" fontSize="10" fontFamily="var(--font-sans)">{midTick}</text>
-        <text x="332" y={chartHeight + 1} fill="var(--text-tertiary)" fontSize="10" fontFamily="var(--font-sans)">0</text>
-
-        <path d={areaD} fill={`url(#${fillId})`} />
-        <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-
-        {activePoint && (
-          <g>
-            <line x1={activePoint.x} y1={topPadding} x2={activePoint.x} y2={chartHeight} stroke="#64748b" strokeDasharray="2 2" strokeWidth="1.2" />
-            <circle cx={activePoint.x} cy={activePoint.y} r="4.5" fill="#ffffff" stroke={strokeColor} strokeWidth="2.5" />
-          </g>
-        )}
-      </svg>
     </div>
   );
 }

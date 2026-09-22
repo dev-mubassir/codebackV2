@@ -17,6 +17,7 @@
  * number on a page someone is about to pay from is worse than a missing one.
  */
 
+import Icon from '@/app/components/Icon';
 import { formatPrice, priceFor } from '@/lib/pricing';
 import { billing } from '@/content/billingCopy';
 import styles from './billing.module.css';
@@ -39,7 +40,12 @@ export default function AddonShelf({ summary, catalogPlan, region, onBuyAddon })
   return (
     <section className={styles.panel} aria-label={billing.addons.heading}>
       <div className={styles.panelHeader}>
-        <h2 className={styles.panelTitle}>{billing.addons.heading}</h2>
+        <div className={styles.panelTitleGroup}>
+          <span className={styles.panelIcon}>
+            <Icon name="plus" size={18} />
+          </span>
+          <h2 className={styles.panelTitle}>{billing.addons.heading}</h2>
+        </div>
       </div>
       <p className={styles.help} style={{ marginBottom: 8 }}>
         {billing.addons.subheading}

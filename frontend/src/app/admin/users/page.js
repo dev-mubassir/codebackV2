@@ -137,14 +137,42 @@ export default function AdminUsersPage() {
               users.map(u => (
                 <tr key={u.id}>
                   <td>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.name || t.users.unnamed}</div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{u.email || t.users.noEmail}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '999px',
+                          background: '#eff6ff',
+                          color: '#2563eb',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          fontSize: '12px',
+                          border: '1px solid #dbeafe',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {(u.name || u.email || 'U')[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{u.name || t.users.unnamed}</div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{u.email || t.users.noEmail}</div>
+                      </div>
+                    </div>
                   </td>
                   <td>
                     {u.isSuspended ? (
-                      <span className={styles.badgeSuspended}>{t.users.suspended}</span>
+                      <span className={styles.badgeSuspended}>
+                        <Icon name="ban" size={12} />
+                        <span>{t.users.suspended}</span>
+                      </span>
                     ) : (
-                      <span className={styles.badgeValid}>{roleLabel(u.role).label}</span>
+                      <span className={styles.badgeValid}>
+                        <Icon name="check" size={12} />
+                        <span>{roleLabel(u.role).label}</span>
+                      </span>
                     )}
                   </td>
                   <td>
@@ -154,7 +182,8 @@ export default function AdminUsersPage() {
                       <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                         {u.instagramAccounts.map(acc => (
                           <span key={acc.id} className={styles.badgeValid}>
-                            @{acc.igUsername || 'account'}
+                            <Icon name="instagram" size={11} />
+                            <span>@{acc.igUsername || 'account'}</span>
                           </span>
                         ))}
                       </div>
@@ -166,20 +195,25 @@ export default function AdminUsersPage() {
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => handleImpersonate(u.id)}
+                        title={t.users.impersonate}
                       >
-                        <Icon name="eye" size={13} /> {t.users.impersonate}
+                        <Icon name="user" size={13} />
+                        <span>{t.users.impersonate}</span>
                       </button>
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => handleToggleSuspend(u)}
                       >
-                        {u.isSuspended ? t.users.unsuspend : t.users.suspend}
+                        <Icon name={u.isSuspended ? 'check' : 'ban'} size={13} />
+                        <span>{u.isSuspended ? t.users.unsuspend : t.users.suspend}</span>
                       </button>
                       <button
                         className="btn btn-danger btn-sm"
                         onClick={() => { setSelectedUser(u); setShowDeleteModal(true); }}
+                        style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}
                       >
-                        {t.users.delete}
+                        <Icon name="trash" size={13} />
+                        <span>{t.users.delete}</span>
                       </button>
                     </div>
                   </td>

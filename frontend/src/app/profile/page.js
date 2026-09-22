@@ -176,7 +176,10 @@ export default function ProfilePage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2 className={styles.cardTitle}>{t.details.title}</h2>
+              <h2 className={styles.cardTitle}>
+                <Icon name="user" size={18} />
+                <span>{t.details.title}</span>
+              </h2>
               <p className={styles.cardDescription}>{t.details.description}</p>
             </div>
           </div>
@@ -260,7 +263,10 @@ export default function ProfilePage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2 className={styles.cardTitle}>{t.businessProfile.title}</h2>
+              <h2 className={styles.cardTitle}>
+                <Icon name="briefcase" size={18} />
+                <span>{t.businessProfile.title}</span>
+              </h2>
               <p className={styles.cardDescription}>{t.businessProfile.description}</p>
             </div>
             <Link
@@ -361,7 +367,10 @@ export default function ProfilePage() {
         <div className={styles.card}>
           <div className={styles.cardHeader}>
             <div>
-              <h2 className={styles.cardTitle}>{t.connectedAccounts.title}</h2>
+              <h2 className={styles.cardTitle}>
+                <Icon name="instagram" size={18} />
+                <span>{t.connectedAccounts.title}</span>
+              </h2>
               <p className={styles.cardDescription}>{t.connectedAccounts.description}</p>
             </div>
             <a

@@ -3,7 +3,7 @@
  * Cloudflare-inspired professional SaaS theme
  * ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 
 /* ---- CSS Custom Properties (Design Tokens) ---- */
 :root {
@@ -156,7 +156,7 @@ a {
   transition: color var(--transition-fast);
 }
 
-a:not(.btn):hover {
+a:not(.btn):not([class*="btn"]):not([class*="btnPill"]):hover {
   color: var(--color-primary-hover);
 }
 
@@ -208,20 +208,77 @@ input, textarea, select {
 /* ============================================
  * Buttons
  * ============================================ */
+/* 1. Text Roll / Flip Mechanism */
+.btn-text-roll {
+  display: inline-flex;
+  flex-direction: column;
+  height: 19px;
+  line-height: 19px;
+  overflow: hidden;
+  position: relative;
+  vertical-align: middle;
+}
+
+.btn-text-track {
+  display: inline-flex;
+  flex-direction: column;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.btn-text-line {
+  display: inline-block;
+  height: 19px;
+  line-height: 19px;
+  white-space: nowrap;
+}
+
+/* 2. Base Button with Substrate Bevels and Tactile Response */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
   padding: 8px 16px;
   border-radius: var(--radius-md);
   font-weight: 500;
   font-size: var(--text-sm);
   line-height: 1.25;
-  transition: all var(--transition-fast);
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
   user-select: none;
   border: 1px solid transparent;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+/* Glass Glare Sweep for Buttons */
+.btn::after {
+  content: '';
+  position: absolute;
+  top: -80px;
+  left: 10%;
+  right: 10%;
+  height: 44px;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 70%);
+  filter: blur(12px);
+  pointer-events: none;
+  opacity: 0.18;
+  border-radius: 50%;
+  transform: translateY(0);
+  transition: transform 0.65s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease;
+  z-index: 1;
+}
+
+.btn:hover:not(:disabled)::after {
+  transform: translateY(120px);
+  opacity: 0.6;
+}
+
+/* Hover: Text track rolls */
+.btn:hover:not(:disabled) .btn-text-track {
+  transform: translateY(-50%);
 }
 
 /* `pointer-events: none` would suppress the not-allowed cursor entirely, so the
@@ -231,41 +288,77 @@ input, textarea, select {
   cursor: not-allowed;
 }
 
+/* Active / Pressed: Tactile Mechanical Switch Press */
+.btn:active:not(:disabled) {
+  transform: translateY(1.5px) scale(0.985) !important;
+  box-shadow: 
+    0 2px 6px -1px rgba(0, 0, 0, 0.3),
+    inset 0 2px 4px rgba(0, 0, 0, 0.35) !important;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
 .btn-primary {
   background: var(--color-primary);
-  color: var(--color-primary-text);
-  border-color: var(--color-primary);
+  color: var(--color-primary-text) !important;
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 
+    0 3px 10px -2px rgba(65, 105, 225, 0.35),
+    0 8px 18px -4px rgba(65, 105, 225, 0.25),
+    inset 0 1.5px 1px rgba(255, 255, 255, 0.25),
+    inset 0 -1.5px 2px rgba(0, 0, 0, 0.25);
 }
 
-/* Each :hover restates `color` so an <a class="btn"> keeps its label colour no
-   matter what the global anchor rules do. */
+.btn-primary .btn-text-line,
+.btn-primary:hover .btn-text-line {
+  color: var(--color-primary-text) !important;
+}
+
+.btn-primary svg,
+.btn-primary:hover svg {
+  color: var(--color-primary-text) !important;
+}
+
 .btn-primary:hover:not(:disabled) {
   background: var(--color-primary-hover);
-  border-color: var(--color-primary-hover);
-  color: var(--color-primary-text);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--color-primary-text) !important;
+  transform: translateY(-1.5px);
+  box-shadow: 
+    0 6px 18px -2px rgba(65, 105, 225, 0.45),
+    0 12px 26px -4px rgba(65, 105, 225, 0.32),
+    inset 0 1.5px 1px rgba(255, 255, 255, 0.35),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.3);
 }
 
-.btn-primary:active:not(:disabled) {
-  background: var(--color-primary-active);
-  border-color: var(--color-primary-active);
-  color: var(--color-primary-text);
+.btn-secondary .btn-text-line,
+.btn-secondary:hover .btn-text-line {
+  color: var(--text-primary) !important;
+}
+
+.btn-secondary svg,
+.btn-secondary:hover svg {
+  color: var(--text-primary) !important;
 }
 
 .btn-secondary {
   background: var(--bg-surface);
   color: var(--text-primary);
   border-color: var(--border-default);
+  box-shadow: 
+    0 2px 6px -1px rgba(0, 0, 0, 0.05),
+    inset 0 1px 1px #ffffff,
+    inset 0 -1px 1px rgba(0, 0, 0, 0.04);
 }
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-surface-hover);
   border-color: var(--border-strong);
   color: var(--text-primary);
-}
-
-.btn-secondary:active:not(:disabled) {
-  background: var(--border-default);
-  color: var(--text-primary);
+  transform: translateY(-1.5px);
+  box-shadow: 
+    0 4px 12px -2px rgba(0, 0, 0, 0.08),
+    inset 0 1px 1px #ffffff,
+    inset 0 -1px 1px rgba(0, 0, 0, 0.05);
 }
 
 .btn-danger {
@@ -580,7 +673,7 @@ input, textarea, select {
  * ============================================ */
 @media (max-width: 768px) {
   html, body {
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   /* Fields deliberately keep --form-text here. This block used to force

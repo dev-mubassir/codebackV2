@@ -19,6 +19,7 @@
  * (summary.trial), never for Starter or Pro.
  */
 
+import Icon from '@/app/components/Icon';
 import { formatCount, formatDate } from '@/content/format';
 import { LOW_CREDIT_PERCENT } from './BillingBanners';
 import { billing } from '@/content/billingCopy';
@@ -34,12 +35,20 @@ export default function UsageStrip({ summary }) {
   return (
     <section className={styles.panel} aria-label={billing.usage.heading}>
       <div className={styles.panelHeader}>
-        <h2 className={styles.panelTitle}>{billing.usage.heading}</h2>
+        <div className={styles.panelTitleGroup}>
+          <span className={styles.panelIcon}>
+            <Icon name="barChart" size={18} />
+          </span>
+          <h2 className={styles.panelTitle}>{billing.usage.heading}</h2>
+        </div>
       </div>
 
       <div className={styles.usageStrip}>
-        <div className={styles.metaItem}>
-          <span className={styles.label}>{billing.usage.classified}</span>
+        <div className={styles.usageTile}>
+          <div className={styles.usageTileHeader}>
+            <Icon name="target" size={14} />
+            <span className={styles.label}>{billing.usage.classified}</span>
+          </div>
           <span className={styles.usageValue}>
             {limit != null ? billing.usage.ofLimit(formatCount(used), formatCount(limit)) : formatCount(used)}
           </span>
@@ -58,16 +67,22 @@ export default function UsageStrip({ summary }) {
           <p className={styles.help}>{billing.usage.classifiedHelp}</p>
         </div>
 
-        <div className={styles.metaItem}>
-          <span className={styles.label}>{billing.usage.autoReplies}</span>
+        <div className={styles.usageTile}>
+          <div className={styles.usageTileHeader}>
+            <Icon name="messageSquare" size={14} />
+            <span className={styles.label}>{billing.usage.autoReplies}</span>
+          </div>
           <span className={styles.usageValue}>{formatCount(usage.autoRepliesThisCycle)}</span>
           <p className={styles.help}>{billing.credits.spentThisCycle(usage.autoRepliesThisCycle)}</p>
         </div>
 
         {cycleStartedAt && (
-          <div className={styles.metaItem}>
-            <span className={styles.label}>{billing.usage.cycleStarted}</span>
-            <span className={styles.usageValue}>{formatDate(cycleStartedAt)}</span>
+          <div className={styles.usageTile}>
+            <div className={styles.usageTileHeader}>
+              <Icon name="clock" size={14} />
+              <span className={styles.label}>{billing.usage.cycleStarted}</span>
+            </div>
+            <span className={styles.usageValue} style={{ fontSize: '18px' }}>{formatDate(cycleStartedAt)}</span>
           </div>
         )}
       </div>

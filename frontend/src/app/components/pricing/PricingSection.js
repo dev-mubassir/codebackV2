@@ -37,7 +37,7 @@ import styles from './PricingSection.module.css';
  */
 function TrustBadge({ metaApproved }) {
   return (
-    <p className={styles.badge}>
+    <p className={styles.badge} data-reveal>
       <span>{marketing.pricing.badgeVerified}</span>
       {metaApproved && (
         <>
@@ -59,13 +59,15 @@ export default function PricingSection() {
 
   return (
     <section className={styles.section} id="pricing">
-      <h2 className={styles.title}>{marketing.pricing.title}</h2>
-      <p className={styles.subtitle}>{marketing.pricing.subtitle}</p>
+      <div className={styles.header} data-reveal>
+        <h2 className={styles.title}>{marketing.pricing.title}</h2>
+        <p className={styles.subtitle}>{marketing.pricing.subtitle}</p>
+      </div>
 
       {/* Only shown when the API actually offers more than one currency —
           a toggle with one option is furniture. */}
       {showCurrencyToggle && (
-        <div className={styles.toggle} role="group" aria-label="Currency">
+        <div className={styles.toggle} role="group" aria-label="Currency" data-reveal>
           {availableRegions.map((r) => (
             <button
               key={r}
@@ -81,36 +83,42 @@ export default function PricingSection() {
       )}
 
       <div className={styles.grid}>
-        {plans.map((plan) => {
+        {plans.map((plan, idx) => {
           const price = priceFor(plan.prices, region);
           const isQuoteOnly = plan.isQuoteOnly;
 
           return (
-            <PlanCard
+            <div
               key={plan.code}
-              plan={plan}
-              region={region}
-              recommended={plan.code === 'PRO'}
-              // A quote-only tier still shows a real "from" figure, because
-              // the catalogue has one — but it is prefixed, so it reads as a
-              // starting point rather than a checkout price.
-              priceOverride={
-                isQuoteOnly && price
-                  ? `${marketing.pricing.fromPrefix} ${formatPrice(price.amount, price.currency)}`
-                  : null
-              }
-              action={
-                isQuoteOnly ? (
-                  <a className="btn btn-secondary" href="/contact/enterprise">
-                    {marketing.pricing.contactCta}
-                  </a>
-                ) : (
-                  <a className="btn btn-primary" href="/register">
-                    {marketing.pricing.startCta}
-                  </a>
-                )
-              }
-            />
+              className={styles.planCardWrap}
+              data-reveal
+              data-reveal-step={(idx % 4) + 1}
+            >
+              <PlanCard
+                plan={plan}
+                region={region}
+                recommended={plan.code === 'PRO'}
+                // A quote-only tier still shows a real "from" figure, because
+                // the catalogue has one — but it is prefixed, so it reads as a
+                // starting point rather than a checkout price.
+                priceOverride={
+                  isQuoteOnly && price
+                    ? `${marketing.pricing.fromPrefix} ${formatPrice(price.amount, price.currency)}`
+                    : null
+                }
+                action={
+                  isQuoteOnly ? (
+                    <a className="btn btn-secondary" href="/contact/enterprise">
+                      {marketing.pricing.contactCta}
+                    </a>
+                  ) : (
+                    <a className="btn btn-primary" href="/register">
+                      {marketing.pricing.startCta}
+                    </a>
+                  )
+                }
+              />
+            </div>
           );
         })}
       </div>
@@ -118,7 +126,7 @@ export default function PricingSection() {
       {/* Given real visual weight, not treated as fine print: with no autopay
           doing the work, "we will never charge you without you asking" is the
           strongest thing this page says. */}
-      <div className={styles.noMandate}>
+      <div className={styles.noMandate} data-reveal>
         <p className={styles.noMandateTitle}>{marketing.pricing.noMandateTitle}</p>
         <p className={styles.noMandateBody}>{marketing.pricing.noMandateBody}</p>
         <p className={styles.noMandateBody}>

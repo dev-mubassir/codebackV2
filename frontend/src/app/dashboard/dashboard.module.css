@@ -1,907 +1,850 @@
 /* ============================================
- * Dashboard — Cloudflare-inspired Layout
+ * Siffty Dashboard Styles — Redesigned SaaS Aesthetic
+ * Matches Reference Mockup with Pixel Precision
  * ============================================ */
 
-.loadingSkeleton {
-  padding: 8px 0;
-}
-
-.skeletonTitle {
-  height: 28px;
-  width: 300px;
-  margin-bottom: 24px;
-}
-
-.skeletonCards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.skeletonCard {
-  height: 100px;
-  border-radius: var(--radius-lg);
-}
-
-/* ---- Page Header ---- */
-.pageHeader {
+.dashboardWrapper {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+/* ---- Greeting / Banner Row ---- */
+.greetingBanner {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  margin-bottom: 28px;
+  gap: 20px;
+  padding: 8px 0 4px;
+  position: relative;
+  flex-wrap: wrap;
+}
+
+.greetingLeft {
+  display: flex;
+  align-items: center;
   gap: 16px;
 }
 
-.pageHeader a {
-  text-decoration: none;
-  flex-shrink: 0;
-}
-
-.pageTitle {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-  letter-spacing: -0.02em;
-}
-
-.pageSubtitle {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-/* ---- Alert Banner ---- */
-.alertBanner {
+.greetingClockIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #eff4ff;
+  color: #2563eb;
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--color-warning-subtle);
-  border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: var(--radius-lg);
-  margin-bottom: 24px;
-}
-
-.alertIcon {
-  font-size: var(--text-md);
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
 }
 
-.alertContent {
+.greetingText {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.alertContent strong {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-warning-text);
-}
-
-.alertContent span {
-  font-size: var(--text-sm);
-  color: var(--color-warning-text);
-  opacity: 0.8;
-}
-
-/* ---- Metrics Grid ---- */
-.metricsGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 28px;
-}
-
-.metricCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  cursor: pointer;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-  text-align: left;
-  color: var(--text-primary);
-  width: 100%;
-}
-
-.metricCard:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
-}
-
-.metricIconWrap {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
+.greetingTitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: clamp(22px, 2.5vw, 26px);
+  font-weight: 800;
+  color: #0c0c0e;
+  letter-spacing: -0.03em;
+  margin: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: var(--text-md);
-}
-
-.metricIconAttention {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-}
-
-.metricIconDeals {
-  background: var(--color-error-subtle);
-}
-
-.metricIconCollabs {
-  background: var(--color-info-subtle);
-}
-
-.metricIconUnread {
-  background: var(--color-primary-subtle);
-  color: var(--color-primary);
-}
-
-.metricValue {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1;
-}
-
-.metricLabel {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-/* ---- While You Were Away ---- */
-.awayCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  margin-bottom: 28px;
-}
-
-.awayHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.cardTitle {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.awaySubtext {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
-.awayGrid {
-  display: flex;
-  flex-wrap: wrap;
   gap: 8px;
 }
 
-.awayChip {
+.greetingWave {
+  display: inline-block;
+}
+
+.greetingSubtitle {
+  font-size: 13.5px;
+  color: #6b7280;
+  margin: 0;
+  font-weight: 500;
+}
+
+.greetingRight {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-left: auto;
+}
+
+/* Handwritten Cursive Note + Arrow */
+.cursiveNoteWrap {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
-}
-
-.awayChip:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-subtle);
-}
-
-.awayChipCount {
-  font-weight: 700;
-  font-size: var(--text-md);
-}
-
-.awayChipLabel {
-  color: var(--text-secondary);
-  text-transform: capitalize;
-}
-
-/* ---- Section Header ---- */
-.sectionHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.sectionCount {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-}
-
-/* ---- Connected Accounts ---- */
-.accountsList {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.accountRow {
-  display: flex;
-  align-items: center;
-  padding: 16px 20px;
-  gap: 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  transition: background var(--transition-fast);
-}
-
-.accountRow:last-child {
-  border-bottom: none;
-}
-
-.accountRow:hover {
-  background: var(--bg-surface-secondary);
-}
-
-.accountLeft {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  min-width: 0;
-}
-
-.accountAvatar {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-full);
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.accountAvatarFallback {
-  flex-shrink: 0;
-}
-
-.accountInfo {
-  min-width: 0;
-}
-
-.accountUsername {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.accountName {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  margin-top: 1px;
-}
-
-.accountMeta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.accountMetaItem {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
-
-.accountActions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-/* ---- Empty State ---- */
-.emptyState {
-  text-align: center;
-  padding: 60px 24px;
-  background: var(--bg-surface);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-lg);
-}
-
-.emptyIcon {
-  margin-bottom: 16px;
-  color: var(--text-tertiary);
-}
-
-.emptyTitle {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-}
-
-.emptyDesc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  max-width: 360px;
-  margin: 0 auto;
-}
-
-/* ---- Responsive ---- */
-@media (max-width: 900px) {
-  .metricsGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .pageHeader {
-    flex-direction: column;
-  }
-
-  .accountRow {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .accountMeta {
-    flex-wrap: wrap;
-  }
-}
-
-@media (max-width: 480px) {
-  .pageTitle {
-    font-size: var(--text-xl);
-  }
-
-  .metricsGrid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-
-  .metricCard {
-    padding: 14px 12px;
-    gap: 6px;
-  }
-
-  .metricValue {
-    font-size: var(--text-xl);
-  }
-
-  .metricLabel {
-    font-size: 11px;
-  }
-
-  .skeletonCards {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
-
-  .awayCard {
-    padding: 16px;
-  }
-
-  .card {
-    padding: 16px;
-  }
-}
-
-/* ============================================
- * Cloudflare-Inspired Analytics Section
- * ============================================ */
-
-.analyticsSection {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.analyticsHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.analyticsTitle {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
-}
-
-.analyticsControls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.timeRangeSelectWrap {
+  color: #3b82f6;
   position: relative;
-  display: inline-flex;
-  align-items: center;
 }
 
-.timeRangeSelect {
-  appearance: none;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: 6px 32px 6px 32px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.timeRangeSelect:hover,
-.timeRangeSelect:focus {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
-}
-
-.calendarIcon {
-  position: absolute;
-  left: 10px;
-  pointer-events: none;
-  color: var(--text-secondary);
-}
-
-.chevronIcon {
-  position: absolute;
-  right: 10px;
-  pointer-events: none;
-  color: var(--text-tertiary);
-}
-
-.analyticsIconBtn {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.analyticsIconBtn:hover {
-  background: var(--bg-surface-secondary);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.spinning {
-  animation: spinIcon 0.8s linear infinite;
-}
-
-@keyframes spinIcon {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.analyticsGridTop {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-}
-
-.analyticsGridBottom {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.analyticsCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 20px 22px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 190px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-
-.analyticsCard:hover {
-  border-color: var(--border-strong);
-}
-
-.analyticsCardCompact {
-  min-height: 155px;
-}
-
-.cardHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.cardLabel {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  letter-spacing: -0.01em;
-}
-
-.cardDots {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  line-height: 1;
-  padding: 0 4px;
-}
-
-.cardDots:hover {
-  color: var(--text-primary);
-}
-
-.metricNumberRow {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.metricBigValue {
-  font-size: 30px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.03em;
+.cursiveText {
+  font-family: 'Caveat', 'Segoe Script', 'Comic Sans MS', cursive;
+  font-size: 20px;
+  font-weight: 600;
   line-height: 1.1;
-}
-
-.deltaPositive {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-success);
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.deltaNegative {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-error);
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.deltaNeutral {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
-
-.sparklineContainer {
-  width: 100%;
-  height: 110px;
-  position: relative;
-  margin-top: 10px;
-  cursor: crosshair;
-}
-
-.sparklineSvg {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.sparklineTooltip {
-  position: absolute;
-  top: 0;
-  background: #0f172a;
-  color: #ffffff;
-  padding: 4px 8px;
-  border-radius: 5px;
-  font-size: 11px;
-  pointer-events: none;
+  transform: rotate(-3deg);
+  color: #3b82f6;
   white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.cursiveArrow {
+  width: 38px;
+  height: 24px;
+  color: #3b82f6;
+  transform: rotate(5deg);
+}
+
+/* Connect / Add Account Button */
+.btnAddAccount {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 20px;
+  border-radius: 9999px;
+  background: #0c0c0e !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  font-size: 13.5px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* ---- Top 4 Metric Cards Grid ---- */
+.topMetricsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.metricCard {
+  background: #ffffff;
+  border: 1px solid #f1f3f7;
+  border-radius: 18px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+  position: relative;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.03);
+}
+
+.metricCard:hover {
+  transform: translateY(-2px);
+  border-color: #dbeafe;
+  box-shadow: 0 10px 28px -4px rgba(37, 99, 235, 0.08);
+}
+
+.metricCardHeader {
+  display: flex;
   align-items: center;
-  gap: 1px;
-  z-index: 20;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transform: translate(-50%, -115%);
-  transition: left 0.05s ease-out;
+  justify-content: flex-start;
 }
 
-.sparklineTooltipValue {
-  font-weight: 700;
-  color: #38bdf8;
-  font-size: 12px;
-}
-
-.sparklineTooltipLabel {
-  font-size: 10px;
-  color: #94a3b8;
-  font-weight: 500;
-}
-
-.noDataPlaceholder {
+.metricIconBadge {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 90px;
-  color: var(--text-tertiary);
-  font-size: 13px;
-  font-weight: 400;
-  text-align: center;
 }
 
-/* ---- Category-Adaptive Intelligence Card ---- */
-.categoryIntelligenceCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 22px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+.metricIconYellow {
+  background: #fef9c3;
+  color: #d97706;
 }
 
-.categoryHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+.metricIconRed {
+  background: #fee2e2;
+  color: #ef4444;
 }
 
-.categoryTitle {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
+.metricIconBlue {
+  background: #e0f2fe;
+  color: #0284c7;
 }
 
-.categorySubtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 2px;
+.metricIconPurple {
+  background: #ede9fe;
+  color: #6366f1;
 }
 
-.categoryGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.categoryChip {
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 14px 16px;
+.metricContent {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.categoryChipTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.categoryChipIcon {
-  font-size: 16px;
-}
-
-.categoryChipValue {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.categoryChipLabel {
-  font-size: 12px;
+.metricLabel {
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: #4b5563;
 }
 
-.categoryChipDesc {
-  font-size: 11px;
-  color: var(--text-tertiary);
+.metricNumberRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.metricValue {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  color: #0c0c0e;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.trendPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
   line-height: 1.3;
 }
 
-/* ---- Intent Distribution Progress Visualizer ---- */
-.distributionSection {
+.trendPillRed {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
+.trendPillNeutral {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.trendPillBlue {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.trendPillGreen {
+  background: #f0fdf4;
+  color: #16a34a;
+}
+
+.metricDesc {
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.35;
+}
+
+/* ---- Middle 2-Column Section ---- */
+.middleGrid {
+  display: grid;
+  grid-template-columns: 1.55fr 1fr;
+  gap: 16px;
+}
+
+/* Card Container Common */
+.sectionCard {
+  background: #ffffff;
+  border: 1px solid #f1f3f7;
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.distributionHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.distributionTitle {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.distributionBar {
-  width: 100%;
-  height: 10px;
-  background: var(--bg-surface-secondary);
-  border-radius: var(--radius-full);
-  display: flex;
-  overflow: hidden;
-}
-
-.distributionSegment {
-  height: 100%;
-  transition: width 0.3s ease-in-out;
-}
-
-.distributionLegend {
-  display: flex;
-  flex-wrap: wrap;
   gap: 16px;
-  margin-top: 4px;
 }
 
-.legendItem {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.legendDot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-}
-
-.legendCount {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.legendPct {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-@media (max-width: 1024px) {
-  .analyticsGridBottom {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .categoryGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 768px) {
-  .analyticsGridTop {
-    grid-template-columns: 1fr;
-  }
-
-  .analyticsGridBottom {
-    grid-template-columns: 1fr;
-  }
-
-  .categoryGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .analyticsHeaderRow {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
-
-/* ---- Copy audit additions ---- */
-
-/* Stat-card eyebrow labels are written in caps in content/copy.js. The
-   tracking here is what makes them read as a label rather than shouting. */
-.cardLabel {
-  text-transform: none;
-  letter-spacing: 0.06em;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-}
-
-/* One-line definition under a number, so the card explains itself. */
-.cardHint {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.35;
-  display: block;
-}
-
-.metricHint {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.35;
-  margin-top: 2px;
-}
-
-/* Reply mode banner — states plainly whether anything sends without the user. */
-.replyModeBanner {
+.cardTopHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
-.replyModeLeft {
+.headerWithIcon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cardHeaderIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #eff4ff;
+  color: #2563eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cardTitle {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 16.5px;
+  font-weight: 800;
+  color: #0c0c0e;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.cardSubtitle {
+  font-size: 12.5px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.btnReviewThese {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #dbeafe;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btnReviewThese:hover {
+  background: #dbeafe;
+  transform: translateY(-1px);
+}
+
+/* Category Chips Grid */
+.categoryChipsGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+
+.categoryChip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 6px;
+  border-radius: 14px;
+  background: #fafafa;
+  border: 1px solid #f1f3f7;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: center;
+  gap: 4px;
+}
+
+.categoryChip:hover {
+  transform: translateY(-2px);
+  background: #ffffff;
+  border-color: #dbeafe;
+  box-shadow: 0 6px 16px -2px rgba(37, 99, 235, 0.08);
+}
+
+.chipHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chipCount {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0c0c0e;
+}
+
+.chipLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4b5563;
+  white-space: nowrap;
+}
+
+/* Connected Accounts Right Card */
+.accountCountBadge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.connectedAccountBox {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #fafbfe;
+  border: 1px solid #edf0f8;
+  border-radius: 14px;
+}
+
+.accountTopRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.instagramGradientIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 3px 10px rgba(220, 39, 67, 0.25);
+}
+
+.accountDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.accountNameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.replyModeLeft strong {
-  color: var(--text-primary);
-  font-weight: 600;
+.accountUsername {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #0c0c0e;
 }
 
-.replyModeHint {
-  color: var(--text-tertiary);
-}
-
-.distributionTotal {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
-.distributionNote {
-  margin-top: 8px;
+.activeStatusBadge {
   font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.4;
+  font-weight: 700;
+  background: #dcfce7;
+  color: #15803d;
+  padding: 1px 7px;
+  border-radius: 9999px;
+}
+
+.accountRealName {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.accountSubinfo {
+  font-size: 11.5px;
+  color: #9ca3af;
+}
+
+.accountBottomActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid #f1f3f7;
+  padding-top: 10px;
+}
+
+.btnOpenInbox {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  color: #0c0c0e;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btnDisconnect {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  color: #ef4444;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---- Analytics Section ---- */
+.analyticsControls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.timeRangeSelectWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.timeRangeSelect {
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0c0c0e;
+  cursor: pointer;
+  outline: none;
+  padding-right: 4px;
+}
+
+.btnRefresh {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #4b5563;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btnRefresh:hover {
+  background: #ffffff;
+  color: #0c0c0e;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Analytics Split Grid */
+.analyticsSplitGrid {
+  display: grid;
+  grid-template-columns: 1.15fr 1.3fr;
+  gap: 20px;
+  align-items: stretch;
+}
+
+.chartPanel {
+  background: #fafbfe;
+  border: 1px solid #edf0f8;
+  border-radius: 16px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.chartHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chartTitle {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.chartBigNumberRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.chartBigVal {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 34px;
+  font-weight: 800;
+  color: #0c0c0e;
+  line-height: 1;
+}
+
+.chartSubtitle {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.chartAreaWrap {
+  margin-top: 14px;
+  position: relative;
+  width: 100%;
+}
+
+/* 6-Grid Compact Metrics */
+.compactMetricsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.compactCard {
+  background: #fafbfe;
+  border: 1px solid #edf0f8;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  transition: all 0.2s ease;
+}
+
+.compactCard:hover {
+  border-color: #dbeafe;
+  background: #ffffff;
+}
+
+.compactIconBadge {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.compactContent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.compactLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b5563;
+}
+
+.compactNumberRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.compactValue {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0c0c0e;
+  line-height: 1;
+}
+
+.compactDesc {
+  font-size: 11px;
+  color: #9ca3af;
+  line-height: 1.35;
+}
+
+/* ---- What people asked about Section ---- */
+.intentCardsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.intentCard {
+  background: #fafbfe;
+  border: 1px solid #edf0f8;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.intentCard:hover {
+  border-color: #dbeafe;
+  background: #ffffff;
+}
+
+.intentCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.intentIconBadge {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.intentCount {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0c0c0e;
+}
+
+.intentTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0c0c0e;
+  margin: 0;
+}
+
+.intentDesc {
+  font-size: 11.5px;
+  color: #9ca3af;
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* ---- Button System: Glare Sweep & Text Roll ---- */
+.btnHoverRoll {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 14px -2px rgba(0, 0, 0, 0.16);
+}
+
+.btnHoverRoll::after {
+  content: '';
+  position: absolute;
+  top: -60px;
+  left: 10%;
+  right: 10%;
+  height: 38px;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 70%);
+  filter: blur(10px);
+  pointer-events: none;
+  opacity: 0.2;
+  border-radius: 50%;
+  transform: translateY(0);
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease;
+  z-index: 1;
+}
+
+.btnHoverRoll:hover::after {
+  transform: translateY(110px);
+  opacity: 0.65;
+}
+
+.btnHoverRoll:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px -3px rgba(0, 0, 0, 0.28);
+}
+
+.btnHoverRoll:hover .btnTextTrack {
+  transform: translateY(-50%);
+}
+
+.btnTextRoll {
+  display: inline-flex;
+  flex-direction: column;
+  height: 18px;
+  line-height: 18px;
+  overflow: hidden;
+  position: relative;
+}
+
+.btnTextTrack {
+  display: inline-flex;
+  flex-direction: column;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform;
+}
+
+.btnTextLine {
+  display: inline-block;
+  height: 18px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* Light button hover variant */
+.btnLightHover {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  color: #0c0c0e;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btnLightHover:hover {
+  background: #f9fafb;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1200px) {
+  .middleGrid {
+    grid-template-columns: 1fr;
+  }
+  .analyticsSplitGrid {
+    grid-template-columns: 1fr;
+  }
+  .categoryChipsGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .intentCardsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .topMetricsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .compactMetricsGrid {
+    grid-template-columns: 1fr;
+  }
+  .greetingBanner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .greetingRight {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 580px) {
+  .topMetricsGrid {
+    grid-template-columns: 1fr;
+  }
+  .categoryChipsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .intentCardsGrid {
+    grid-template-columns: 1fr;
+  }
 }

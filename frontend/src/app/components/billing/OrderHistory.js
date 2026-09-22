@@ -16,6 +16,7 @@
  * actually charged even after the price changes.
  */
 
+import Icon from '@/app/components/Icon';
 import { formatDateTime } from '@/content/format';
 import { formatPrice } from '@/lib/pricing';
 import { billing } from '@/content/billingCopy';
@@ -65,7 +66,12 @@ export default function OrderHistory({ orders, plans }) {
   return (
     <section className={styles.panel} aria-label={billing.orders.heading}>
       <div className={styles.panelHeader}>
-        <h2 className={styles.panelTitle}>{billing.orders.heading}</h2>
+        <div className={styles.panelTitleGroup}>
+          <span className={styles.panelIcon}>
+            <Icon name="clock" size={18} />
+          </span>
+          <h2 className={styles.panelTitle}>{billing.orders.heading}</h2>
+        </div>
       </div>
 
       {!orders || orders.length === 0 ? (

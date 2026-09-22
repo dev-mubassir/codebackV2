@@ -171,7 +171,8 @@ export default function AdminAccountsPage() {
 
                   <td>
                     <span className={acc.tokenStatus === 'VALID' ? styles.badgeValid : styles.badgeExpired}>
-                      {tokenStatusLabel(acc.tokenStatus).label}
+                      <Icon name={acc.tokenStatus === 'VALID' ? 'check' : 'alertTriangle'} size={12} />
+                      <span>{tokenStatusLabel(acc.tokenStatus).label}</span>
                     </span>
                   </td>
 
@@ -185,19 +186,23 @@ export default function AdminAccountsPage() {
                         className="btn btn-secondary btn-sm"
                         onClick={() => handleRefresh(acc)}
                       >
-                        <Icon name="refresh" size={13} /> {t.accounts.refreshToken}
+                        <Icon name="refresh" size={13} />
+                        <span>{t.accounts.refreshToken}</span>
                       </button>
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => handleResubscribe(acc)}
                       >
-                        <Icon name="zap" size={13} /> {t.accounts.resubscribe}
+                        <Icon name="zap" size={13} />
+                        <span>{t.accounts.resubscribe}</span>
                       </button>
                       <button
                         className="btn btn-danger btn-sm"
                         onClick={() => handleDisconnect(acc)}
+                        style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}
                       >
-                        {t.accounts.disconnect}
+                        <Icon name="trash" size={13} />
+                        <span>{t.accounts.disconnect}</span>
                       </button>
                     </div>
                   </td>

@@ -924,9 +924,9 @@ export const validation = {
 
 export const meta = {
   root: {
-    title: 'Siffty — Instagram DMs, sorted and answered',
+    title: 'Siffty — Stop reading every Instagram DM manually',
     description:
-      'Siffty sorts every message sent to your Instagram business account, flags the ones worth your time, and drafts replies from your real prices and policies.',
+      'Siffty reads, understands and organizes your DMs so you can spend less time sorting messages and more time on the conversations that matter.',
   },
   dashboard: { title: 'Dashboard — Siffty', description: 'Your connected accounts and conversation activity.' },
   inbox: { title: 'Inbox — Siffty', description: 'Read and reply to Instagram conversations.' },
@@ -944,6 +944,7 @@ export const meta = {
   contact: { title: 'Contact — Siffty', description: 'Email Siffty support or send us a message.' },
   contactEnterprise: { title: 'Enterprise enquiries — Siffty', description: 'Ask about Siffty Enterprise: several Instagram accounts and custom limits.' },
   refundPolicy: { title: 'Refund policy — Siffty', description: 'When a Siffty plan or top-up is refunded, and how to ask for one.' },
+  howToUse: { title: 'How to use Siffty — Step-by-Step Guide', description: 'Step-by-step guide to setting up your business profile, connecting Instagram, managing smart inbox folders, and using AI replies (default off).' },
 };
 
 export const legal = {
