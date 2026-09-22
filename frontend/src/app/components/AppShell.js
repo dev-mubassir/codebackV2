@@ -74,7 +74,7 @@ export default function AppShell({ children, activeRoute }) {
         <div className={styles.sidebarHeader}>
           <button className={styles.brand} onClick={() => router.push('/dashboard')}>
             <div className={styles.brandIcon}>
-              <img src="/logo.png" alt="" className={styles.brandIconImg} />
+              <img src="/assets/siffty-logo-sm.webp" alt="" className={styles.brandIconImg} width={24} height={24} />
             </div>
             <span className={styles.brandName}>Siffty</span>
           </button>

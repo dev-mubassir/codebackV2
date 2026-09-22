@@ -109,7 +109,7 @@ export default function NavSidebar({ open, onClose, activeRoute, user, notifCoun
         <div className={appShellStyles.sidebarHeader}>
           <button className={appShellStyles.brand} onClick={() => navigate('/dashboard')}>
             <div className={appShellStyles.brandIcon}>
-              <img src="/logo.png" alt="" className={appShellStyles.brandIconImg} />
+              <img src="/assets/siffty-logo-sm.webp" alt="" className={appShellStyles.brandIconImg} width={24} height={24} />
             </div>
             <span className={appShellStyles.brandName}>Siffty</span>
           </button>

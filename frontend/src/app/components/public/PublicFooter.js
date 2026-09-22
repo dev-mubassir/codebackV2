@@ -11,7 +11,7 @@ export default function PublicFooter() {
         <div className={styles.footerBrandCol}>
           <Link href="/" className={styles.brandLogo}>
             <img
-              src="/assets/siffty-logo-tight.png"
+              src="/assets/siffty-logo-sm.webp"
               alt="Siffty Logo"
               className={styles.brandLogoImg}
               width="40"

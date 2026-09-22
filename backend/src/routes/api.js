@@ -524,7 +524,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
 
     if (result.failed || !result.text) {
       return res.status(502).json({
-        error: "Couldn't draft a reply just now. Write your own below.",
+        error: "Couldn't draft a reply just now — write your own in the box above.",
         details: result.errorMessage || 'The AI provider did not return a draft.',
       });
     }
@@ -543,7 +543,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
     res.json({ id: saved.id, text: saved.generatedText, model: saved.model, createdAt: saved.createdAt });
   } catch (error) {
     console.error('[API] Error generating reply:', error.message);
-    res.status(500).json({ error: "Couldn't draft a reply just now. Write your own below." });
+    res.status(500).json({ error: "Couldn't draft a reply just now — write your own in the box above." });
   }
 });
 

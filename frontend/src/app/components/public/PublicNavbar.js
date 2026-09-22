@@ -32,7 +32,7 @@ export default function PublicNavbar({ isFounderPage = false }) {
         <div className={styles.navbarLeft}>
           <Link href="/" className={styles.brandLogo} id="public-brand-logo" aria-label="Siffty Home">
             <img
-              src="/assets/siffty-logo-tight.png"
+              src="/assets/siffty-logo-sm.webp"
               alt="Siffty Logo"
               className={styles.brandLogoImg}
               width="44"

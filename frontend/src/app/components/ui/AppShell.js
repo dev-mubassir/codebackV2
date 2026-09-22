@@ -87,7 +87,7 @@ export default function AppShell({
       >
         <button className={s.brand} onClick={() => router.push('/dashboard')}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/assets/siffty-logo-tight.png" alt="" className={s.brandMark} />
+          <img src="/assets/siffty-logo-sm.webp" alt="" className={s.brandMark} width={22} height={22} />
           <span className={s.brandName}>Siffty</span>
         </button>
 
@@ -127,8 +127,7 @@ export default function AppShell({
             </span>
           </button>
           <button
-            className={s.navItem}
-            style={{ width: 'auto', flex: '0 0 auto' }}
+            className={cx(s.navItem, s.iconBtn)}
             onClick={handleLogout}
             aria-label={navCopy.logOut}
             title={navCopy.logOut}
@@ -142,8 +141,7 @@ export default function AppShell({
         <header className={s.topbar}>
           <button
             ref={menuBtnRef}
-            className={cx(s.navItem, s.menuBtn)}
-            style={{ width: 'auto', flex: '0 0 auto' }}
+            className={cx(s.navItem, s.iconBtn, s.menuBtn)}
             onClick={() => setDrawerOpen((v) => !v)}
             aria-label="Open navigation"
             aria-expanded={drawerOpen}
@@ -157,9 +155,8 @@ export default function AppShell({
             {actions}
             <span className={s.notifBtnWrap}>
               <button
-                className={s.navItem}
-                style={{ width: 'auto', flex: '0 0 auto' }}
-                onClick={() => router.push('/notifications')}
+                className={cx(s.navItem, s.iconBtn)}
+                    onClick={() => router.push('/notifications')}
                 aria-label={navCopy.notifications}
                 title={navCopy.notifications}
               >

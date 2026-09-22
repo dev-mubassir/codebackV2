@@ -37,6 +37,7 @@ const oauthState = require('../lib/oauthState');
 const igIdentity = require('../lib/igIdentity');
 const { requireAuth } = require('../middleware/auth');
 const { isBillingEnabled } = require('../lib/billingFlags');
+const { refreshExpiringAccountAvatars } = require('../lib/accountAvatar');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -1397,6 +1398,16 @@ router.get('/me', requireAuth, async (req, res) => {
         billing: isBillingEnabled(),
       },
     });
+
+    // AFTER the response. igProfilePic is a signed Instagram CDN URL that dies
+    // a few days after connect and is written nowhere else, so the owner's own
+    // avatar silently stops loading. /auth/me is the one call every
+    // authenticated screen makes, which makes it the cheapest place to notice.
+    //
+    // Deliberately not awaited, and refreshExpiringAccountAvatars never
+    // rejects: this is cosmetic, and /auth/me is the bootstrap call — slow here
+    // is slow everywhere, and throwing here logs the user out.
+    refreshExpiringAccountAvatars(user.instagramAccounts);
   } catch (error) {
     console.error('[Auth] Error fetching user:', error.message);
     res.status(500).json({ error: "Couldn't load your account. Refresh to try again." });

@@ -641,7 +641,7 @@ function LandingPageContent() {
           <div className="navbar-left">
             <Link href="/" className="brand-logo" id="brand-logo" aria-label="Siffty Home">
               <img
-                src="/assets/siffty-logo-tight.png"
+                src="/assets/siffty-logo-sm.webp"
                 alt="Siffty Logo"
                 className="brand-logo-img"
                 width="48"
@@ -1647,7 +1647,7 @@ function LandingPageContent() {
           {/* Brand column */}
           <div className="footer-brand-col">
             <Link href="/" className="brand-logo footer-logo">
-              <img src="/assets/siffty-logo-tight.png" alt="Siffty Logo" className="brand-logo-img" width="40" height="40" />
+              <img src="/assets/siffty-logo-sm.webp" alt="Siffty Logo" className="brand-logo-img" width="40" height="40" />
               <span className="logo-text">Siffty</span>
             </Link>
             <p className="footer-brand-desc">

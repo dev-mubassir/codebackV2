@@ -40,14 +40,19 @@
 .btnIconOnly { padding: 0; width: 34px; }
 .btnSm.btnIconOnly { width: 28px; }
 
+/* Accent, not ink. The landing page's near-black primary button is right for a
+   marketing page with one call to action on it; inside the product the primary
+   button is the committing action on a screen full of controls, and it should
+   be the same blue as the active folder and the meter fill rather than a third
+   colour that means "important" on its own. */
 .btnPrimary {
-  background: var(--ui-ink);
-  border-color: var(--ui-ink);
+  background: var(--ui-accent);
+  border-color: var(--ui-accent);
   color: var(--ui-text-inverse);
 }
 .btnPrimary:hover:not(:disabled) {
-  background: var(--ui-ink-soft);
-  border-color: var(--ui-ink-soft);
+  background: var(--ui-accent-hover);
+  border-color: var(--ui-accent-hover);
 }
 
 .btnSecondary {
@@ -470,6 +475,24 @@
 .popoverItemDanger { color: var(--ui-danger); }
 .popoverItemDanger:hover { background: var(--ui-danger-bg); }
 
+/* ---------- IconTile ---------------------------------------------------- */
+
+.tile {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ui-radius-md);
+}
+
+.tile_accent { background: var(--ui-tile-accent-bg); color: var(--ui-accent); }
+.tile_success { background: var(--ui-tile-success-bg); color: var(--ui-success); }
+.tile_warning { background: var(--ui-tile-warning-bg); color: var(--ui-warning); }
+.tile_danger { background: var(--ui-tile-danger-bg); color: var(--ui-danger); }
+.tile_neutral { background: var(--ui-tile-neutral-bg); color: var(--ui-tile-neutral-fg); }
+
 /* ---------- Meter ------------------------------------------------------- */
 
 .meter { display: flex; flex-direction: column; gap: var(--ui-space-1); }
@@ -491,14 +514,20 @@
 }
 
 .meterTrack {
-  height: 4px;
+  height: 6px;
   background: var(--ui-surface-subtle);
   border-radius: var(--ui-radius-full);
   overflow: hidden;
 }
 
+/* `display: block` is load-bearing, not tidiness. The fill is a <span>, so it
+   was inline by default — and width/height do not apply to an inline box. The
+   bar computed to 0x0 and every meter rendered as an empty track, which read
+   as "no score" for a conversation that had one. */
 .meterFill {
+  display: block;
   height: 100%;
+  min-width: 2px;
   background: var(--ui-accent);
   border-radius: var(--ui-radius-full);
 }

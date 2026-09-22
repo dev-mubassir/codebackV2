@@ -379,6 +379,29 @@ export function PopoverItem({ danger = false, children, ...rest }) {
   );
 }
 
+/* ============================== IconTile ============================ */
+
+const TILE_TONES = new Set(['accent', 'success', 'warning', 'danger', 'neutral']);
+
+/**
+ * A 32px tinted square holding one icon.
+ *
+ * Deliberately NOT general purpose. It exists for two places — inbox folder
+ * rows and section headings — and `tone` must be a fact about the thing it
+ * labels, never a way to make a row look livelier. An unrecognised tone falls
+ * back to neutral rather than throwing, because a wrong colour is a wrong
+ * claim and grey is the only safe claim to make.
+ */
+export function IconTile({ name, tone = 'neutral', size = 16, className = '' }) {
+  if (!name) return null;
+  const key = TILE_TONES.has(tone) ? tone : 'neutral';
+  return (
+    <span className={`${s.tile} ${s[`tile_${key}`]} ${className}`} aria-hidden="true">
+      <Icon name={name} size={size} />
+    </span>
+  );
+}
+
 /* =============================== Meter ============================== */
 
 /**

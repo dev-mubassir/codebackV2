@@ -7,7 +7,7 @@ import Image from 'next/image';
 export default function BrandLogo({ size = 40, className, style }) {
   return (
     <Image
-      src="/assets/siffty-logo-tight.png"
+      src="/assets/siffty-logo.webp"
       alt="Siffty Logo"
       width={size}
       height={size}

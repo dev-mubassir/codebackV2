@@ -159,13 +159,38 @@ export const inbox = {
     title: 'Pick a conversation',
     body: 'Choose someone on the left to read the history and reply.',
   },
-  windowOpen: 'You can reply for the next 24 hours',
+  /**
+   * How long is left in Instagram's 24-hour reply window.
+   *
+   * This used to be the flat sentence "You can reply for the next 24 hours",
+   * which was wrong from the moment it appeared: it said 24 hours four hours
+   * after the message arrived, and still said 24 hours at hour twenty-three.
+   * The remaining time was already being computed and thrown away.
+   *
+   * Whole hours above 1h, minutes below — "0.4 hours left" is not how anyone
+   * reads a deadline, and the last hour is exactly when the number matters.
+   */
+  windowOpen: (hoursRemaining) => {
+    if (typeof hoursRemaining !== 'number' || !Number.isFinite(hoursRemaining)) {
+      return 'You can reply while their message is recent';
+    }
+    if (hoursRemaining < 1) {
+      const mins = Math.max(1, Math.round(hoursRemaining * 60));
+      return `Reply window closes in ${mins} ${mins === 1 ? 'minute' : 'minutes'}`;
+    }
+    const hrs = Math.floor(hoursRemaining);
+    return `Reply window closes in ${hrs} ${hrs === 1 ? 'hour' : 'hours'}`;
+  },
   windowClosed: 'You can only reply within 24 hours of their last message. Ask them to message you again.',
+  moreActions: 'More actions',
   noMessages: 'No messages here yet',
   openInInstagram: 'Open in Instagram',
   clearChat: 'Clear messages',
   deleteConversation: 'Delete conversation',
   autoReplyOn: 'Automatic replies on',
+  // The third state of the per-conversation override: inherit the account
+  // setting rather than forcing this chat on or off.
+  autoReplyInherit: 'Account default',
   autoReplyOff: 'Automatic replies off',
 
   needsReplyBanner: {
@@ -189,6 +214,7 @@ export const inbox = {
     intent: 'What they want',
     leadQuality: 'Lead quality',
     purchaseIntent: 'Buying intent',
+    scores: 'Scores',
     suggestedAction: 'Suggested next step',
     summary: 'Summary',
     scoreHint: 'Scored from 0 to 100 by reading the conversation.',
@@ -698,7 +724,10 @@ export const errors = {
   messages: "Couldn't open that conversation. Try again.",
   sendReply: "Couldn't send your message. Try again.",
   sendWindowClosed: "You can only reply within 24 hours of their last message. Ask them to message you again.",
-  generateReply: "Couldn't draft a reply just now. Write your own below.",
+  // "below" was wrong: the composer sits ABOVE this line, so the instruction
+  // pointed at the footnote. The backend returns its own copy of this string —
+  // see the comment in inbox/page.js handleGenerateReply.
+  generateReply: "Couldn't draft a reply just now — write your own in the box above.",
   saveSettings: "Couldn't save your settings. Try again.",
   saveProfile: "Couldn't save your details. Try again.",
   passwordMismatch: 'Those passwords do not match.',

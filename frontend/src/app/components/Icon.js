@@ -585,6 +585,44 @@ const ICONS = {
     ),
   },
 
+  // A "more actions" affordance, distinct from `menu` (which opens the mobile
+  // nav drawer). Reusing `menu` for both read as "open navigation".
+  moreHorizontal: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+        <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+        <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+      </>
+    ),
+  },
+
+  // `eraser` and `externalLink` were referenced by the inbox before they
+  // existed here. Icon returns null for an unknown name, so both rendered
+  // nothing at all — silently, with no console warning.
+  eraser: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M13 4.5 4.5 13a2 2 0 0 0 0 2.8l3.7 3.7h5l7.3-7.3a2 2 0 0 0 0-2.8l-4.7-4.9a2 2 0 0 0-2.8 0Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <line x1="9" y1="19.5" x2="20" y2="19.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <line x1="10" y1="7.5" x2="16.5" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
+  externalLink: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points="15 3 21 3 21 9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
   copy: {
     viewBox: '0 0 24 24',
     content: (

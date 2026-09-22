@@ -66,6 +66,23 @@
   --ui-accent-tint: rgba(65, 105, 225, 0.12);
   --ui-accent-ring: rgba(65, 105, 225, 0.12);
 
+  /* ---- Icon tile tints -------------------------------------------------
+     The ONLY tinted surfaces in the product. A tile is 32px, --ui-radius-md,
+     a ~10% wash of its colour behind the icon in the solid colour.
+
+     A tile's colour is a CLAIM, so there are only four and each means one
+     thing: accent = informational (no judgement), success = money already
+     earned, warning = needs a human decision, danger = hostile. Anything that
+     fits none of those gets `neutral` — a grey tile is the default, not a
+     failure. This is why there is no "purple for AI" and no per-folder
+     palette: a colour nobody can state the meaning of is decoration. */
+  --ui-tile-accent-bg: rgba(65, 105, 225, 0.10);
+  --ui-tile-success-bg: rgba(5, 150, 105, 0.10);
+  --ui-tile-warning-bg: rgba(180, 83, 9, 0.10);
+  --ui-tile-danger-bg: rgba(185, 28, 28, 0.10);
+  --ui-tile-neutral-bg: #f0f1f4;
+  --ui-tile-neutral-fg: #6b7280;
+
   /* ---- Status — for status, never for emphasis -------------------------
      Warning means "this needs you to act": a token about to expire, a reply
      window about to close. It does NOT mean "unpleasant" — spam is a neutral
