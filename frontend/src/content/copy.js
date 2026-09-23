@@ -76,6 +76,13 @@ export const dashboard = {
     body: 'Siffty stops receiving new messages until you reconnect.',
   },
 
+  // The page has two halves and they measure different things. Saying so once,
+  // at the top of each, is what stops the same word meaning two numbers.
+  now: {
+    title: 'Right now',
+    hint: 'Your open queue, as it stands this moment.',
+  },
+
   metrics: {
     needsReply: { label: 'Needs your reply', hint: 'Conversations flagged for you personally' },
     hotLeads: { label: 'Hot leads', hint: 'Ready to buy or book now' },
@@ -85,11 +92,13 @@ export const dashboard = {
 
   away: {
     title: 'Since your last visit',
+    sincePrefix: 'since',
     reviewAction: 'Review these',
   },
 
   accounts: {
     title: 'Connected accounts',
+    goToProfile: 'Go to your profile',
     openInbox: 'Open inbox',
     reconnect: 'Reconnect',
     disconnect: 'Disconnect',
@@ -106,32 +115,36 @@ export const dashboard = {
       '30d': 'Last 30 days',
     },
     noData: 'Not enough data yet',
+    // Appended to every figure that IS scoped to the selected range, so a
+    // number can never sit under a range selector without saying whether the
+    // selector applies to it.
+    inRange: (range) => `In the ${range.toLowerCase().replace(/^last /, 'last ')}`,
+    allTimeNote: 'Across all your conversations, not just this period.',
 
     totalMessages: {
-      label: 'MESSAGES RECEIVED',
+      label: 'Messages received',
       hint: 'Messages people sent you in this period',
       unit: 'messages',
     },
+    // "New ...", not "...": the cards in "Right now" already carry these two
+    // words for the LIVE QUEUE. Same label, different basis, one screen — the
+    // reader has no way to tell two numbers apart if both just say "Hot leads".
     hotLeads: {
-      label: 'HOT LEADS',
+      label: 'New hot leads',
       hint: 'Conversations with strong buying intent',
       unit: 'hot leads',
     },
-    needsReply: {
-      label: 'NEEDS YOUR REPLY',
-      hint: 'Open conversations flagged for you, all time',
-    },
     brandDeals: {
-      label: 'BRAND DEALS',
+      label: 'New brand deals',
       hint: 'Sponsorship and collaboration offers in this period',
     },
     autoReplies: {
-      label: 'REPLIES SENT',
+      label: 'Replies sent',
       hintOn: 'Sent for you automatically in this period',
       hintOff: 'Automatic replies are off, so this stays at zero',
     },
     spamBlocked: {
-      label: 'SPAM FILTERED',
+      label: 'Spam filtered',
       hint: 'Spam and scams kept out of your inbox in this period',
     },
 
@@ -142,7 +155,10 @@ export const dashboard = {
 
     breakdown: {
       title: 'What people asked about',
-      subtitle: 'Conversation types in this period, matched to your business profile.',
+      // NOT "in this period": analytics.js counts these across every current
+      // conversation, while the cards above are scoped to the range. Saying
+      // "this period" made two different bases look like one.
+      subtitle: 'Across all your conversations, matched to your business profile.',
       distributionTitle: 'Share of conversations',
       sampleTooSmall: 'Percentages appear once you have at least 10 conversations in this period.',
     },
