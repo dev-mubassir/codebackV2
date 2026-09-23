@@ -267,6 +267,12 @@ export const settings = {
     pricingLabel: 'Pricing',
     pricingPlaceholder: 'Single reel: INR 1,000. Ten-reel pack: INR 7,500.',
     pricingHint: 'These exact rates are quoted to customers. Nothing else is.',
+    // Added for onboarding. `locationDelivery` was already collected by the
+    // starter templates and posted on save, but no screen ever showed it — the
+    // user was saving text they had not seen and could not correct.
+    locationLabel: 'Where you work',
+    locationPlaceholder: 'Remote, worldwide. Local pickup in Bengaluru.',
+    locationHint: 'Used to answer questions about delivery area and turnaround.',
     policiesLabel: 'Delivery and policies',
     policiesPlaceholder: 'Delivered in 48 hours. Two rounds of revisions included.',
     paymentLabel: 'Payment methods',

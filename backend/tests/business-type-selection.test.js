@@ -58,18 +58,41 @@ describe('the default business type', () => {
 describe('onboarding starts with NOTHING selected', () => {
   const src = () => fs.readFileSync(new URL('../../frontend/src/app/onboarding/page.js', import.meta.url), 'utf8');
 
+  /**
+   * These read the wizard's SOURCE, because the frontend has no component test
+   * runner. That makes them sensitive to renames, which is a real cost: the
+   * 2026-09 rebuild renamed `selectedCategories` to `selected` and moved the
+   * toggle out of a setState updater, and all three failed while the behaviour
+   * they pin was intact.
+   *
+   * So the patterns below match on the SHAPE of the rule rather than on one
+   * spelling of the variable: "the selection state initialises to []", "the
+   * Next button is disabled on an empty selection", "the toggle runs in
+   * allowEmpty mode". A rename keeps passing; deleting the rule does not.
+   */
+  const SELECTION_STATE = /const \[(\w+), set\w+\] = useState\(\[\]\);/;
+
   it('the wizard selection starts empty — no real type, no "Something else", no saved placeholder', () => {
-    expect(src()).toMatch(/const \[selectedCategories, setSelectedCategories\] = useState\(\[\]\);/);
-    expect(src(), 'saved types must not be loaded into the selection').not.toMatch(/setSelectedCategories\(initialCats/);
-    expect(src()).not.toContain('DEFAULT_BUSINESS_TYPE');
+    const text = src();
+    const match = text.match(SELECTION_STATE);
+    expect(match, 'the selection state must initialise to an empty array').toBeTruthy();
+
+    const stateName = match[1];
+    // The saved businessTypes must never be pushed into the selection: a fresh
+    // profile holds the "Something else" placeholder, which is nobody's answer.
+    expect(text, 'saved types must not be loaded into the selection').not.toMatch(
+      new RegExp(`set${stateName[0].toUpperCase()}${stateName.slice(1)}\\((?:initialCats|bp\\.|data\\.)`, 'i'),
+    );
+    expect(text).not.toContain('DEFAULT_BUSINESS_TYPE');
   });
 
   it('step 2 cannot continue until at least one type is picked', () => {
-    expect(src()).toMatch(/disabled=\{selectedCategories\.length === 0\}/);
+    const stateName = src().match(SELECTION_STATE)[1];
+    expect(src()).toMatch(new RegExp(`disabled=\\{${stateName}\\.length === 0\\}`));
   });
 
   it('onboarding toggles in allowEmpty mode', () => {
-    expect(src()).toMatch(/toggleBusinessType\(prev, catId, \{ allowEmpty: true \}\)/);
+    expect(src()).toMatch(/toggleBusinessType\(\s*\w+,\s*\w+,\s*\{ allowEmpty: true \}\s*\)/);
   });
 });
 

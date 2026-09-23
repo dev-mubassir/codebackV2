@@ -1,579 +1,303 @@
 /* ==========================================================================
-   SIFFTY ONBOARDING WIZARD DESIGN SYSTEM (CSS MODULE)
-   Linear / Stripe inspired aesthetic matching Siffty Landing Page
+   Onboarding — a centred wizard, outside AppShell.
+
+   One column at every width. Two columns would put a 3,000-character textarea
+   beside a 1,000-character one and make both the wrong size.
    ========================================================================== */
 
-.onboardingLayout {
+.page {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  padding: 40px 20px 80px;
-  background-color: #fbfbfc;
-  background-image: 
-    radial-gradient(ellipse 90% 55% at 50% -12%, rgba(65, 105, 225, 0.09) 0%, rgba(251, 251, 252, 0.5) 60%, #f4f6fa 100%);
-  color: #0c0c0e;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  position: relative;
-  overflow-x: clip;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  background: var(--ui-surface-sunken);
+  font-family: var(--ui-font);
+  color: var(--ui-ink);
+  padding: var(--ui-space-10) var(--ui-space-4);
 }
 
-/* Background Boxy Grid (matching Landing Page hero) */
-.bgGridOverlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 720px;
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
-  mask-image: radial-gradient(ellipse 70% 65% at 50% 18%, #000 25%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 65% at 50% 18%, #000 25%, transparent 100%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* Ambient Radial Glow */
-.ambientGlow {
-  position: absolute;
-  top: 100px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 640px;
-  height: 380px;
-  background: radial-gradient(circle, rgba(65, 105, 225, 0.14) 0%, rgba(139, 92, 246, 0.05) 50%, transparent 70%);
-  filter: blur(60px);
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* Top Back-To-Home Brand Link */
-.topBrandNav {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-  text-decoration: none;
-  color: #0c0c0e;
-  position: relative;
-  z-index: 1;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.topBrandNav:hover {
-  transform: translateY(-1px);
-  opacity: 0.9;
-}
-
-.topBrandLogo {
-  width: 38px;
-  height: 38px;
-  border-radius: 9px;
-  object-fit: contain;
-  filter: drop-shadow(0 4px 10px rgba(65, 105, 225, 0.18));
-}
-
-.topBrandTitle {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #0c0c0e;
-}
-
-/* Wizard Outer Container */
-.wizardContainer {
+.wizard {
   width: 100%;
-  max-width: 820px;
-  position: relative;
-  z-index: 1;
-}
-
-/* Wizard Header */
-.wizardHeader {
-  text-align: center;
-  margin-bottom: 24px;
-}
-
-/* Eyebrow Pill Badge */
-.statusBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 14px;
-  border-radius: 9999px;
-  background: rgba(65, 105, 225, 0.06);
-  border: 1px solid rgba(65, 105, 225, 0.2);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #4169e1;
-  margin-bottom: 14px;
-}
-
-.pulseDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: #4169e1;
-  position: relative;
-}
-
-.pulseDot::after {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: -3px;
-  right: -3px;
-  bottom: -3px;
-  border-radius: 50%;
-  background-color: rgba(65, 105, 225, 0.45);
-  animation: pulseBreath 2s infinite ease-out;
-}
-
-@keyframes pulseBreath {
-  0% { transform: scale(0.9); opacity: 0.9; }
-  70% { transform: scale(2.2); opacity: 0; }
-  100% { transform: scale(2.2); opacity: 0; }
-}
-
-.wizardTitle {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: clamp(26px, 4vw, 34px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  color: #0c0c0e;
-  margin-bottom: 8px;
-}
-
-.wizardSubtitle {
-  font-size: 15px;
-  color: #6b7280;
-  line-height: 1.55;
-  max-width: 540px;
+  max-width: 640px;
   margin: 0 auto;
 }
 
-/* Step Progress Track */
-.stepProgress {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  margin: 24px auto 30px;
-  max-width: 520px;
-}
+/* ---------- Header + step indicator ------------------------------------ */
 
-.stepDot {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #9ca3af;
-  transition: all 0.25s ease;
-}
+.header { position: relative; margin-bottom: var(--ui-space-6); text-align: center; }
 
-.stepNumber {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  color: #6b7280;
-  transition: all 0.25s ease;
-}
-
-.stepActive {
-  color: #0c0c0e;
-}
-
-.stepActive .stepNumber {
-  background: #4169e1;
-  color: #ffffff;
-  border-color: #4169e1;
-  box-shadow: 0 0 16px rgba(65, 105, 225, 0.4);
-}
-
-.stepCompleted {
-  color: #10b981;
-}
-
-.stepCompleted .stepNumber {
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border-color: rgba(16, 185, 129, 0.4);
-}
-
-.stepDivider {
-  flex: 1;
-  max-width: 44px;
-  height: 2px;
-  background: #e5e7eb;
-  border-radius: 1px;
-}
-
-/* Glassmorphic Wizard Card */
-.card {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(228, 228, 231, 0.9);
-  border-radius: 22px;
-  box-shadow: 
-    0 24px 60px -15px rgba(0, 0, 0, 0.08),
-    0 10px 24px -8px rgba(65, 105, 225, 0.06),
-    0 0 0 1px rgba(0, 0, 0, 0.02);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  padding: 38px 40px;
-}
-
-.stepTitle {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-size: 20px;
-  font-weight: 800;
-  color: #0c0c0e;
-  letter-spacing: -0.02em;
-  margin-bottom: 6px;
-}
-
-.stepDesc {
-  font-size: 14px;
-  color: #6b7280;
-  line-height: 1.5;
-  margin-bottom: 24px;
-}
-
-/* Category Selection Grid */
-.categoryGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.categoryCard {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 14px;
+.signOut {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: var(--ui-space-1) var(--ui-space-2);
+  background: none;
+  border: none;
+  border-radius: var(--ui-radius-md);
+  font-family: inherit;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  text-align: left;
-  position: relative;
+  transition: color var(--ui-transition), background-color var(--ui-transition);
 }
 
-.categoryCard:hover {
-  border-color: #cbd5e1;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.06);
+.signOut:hover { color: var(--ui-ink); background: var(--ui-surface-subtle); }
+
+.signOut:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
 }
 
-.categoryCardActive {
-  background: rgba(65, 105, 225, 0.04) !important;
-  border-color: #4169e1 !important;
-  box-shadow: 0 0 0 1px #4169e1, 0 6px 16px -4px rgba(65, 105, 225, 0.15) !important;
+@media (max-width: 767px) {
+  .signOut { position: static; display: block; margin: 0 0 var(--ui-space-3) auto; }
 }
 
-.categoryIconBox {
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
-  background: rgba(65, 105, 225, 0.08);
-  color: #4169e1;
+.title {
+  margin: 0 0 var(--ui-space-1);
+  font-size: var(--ui-text-xl);
+  font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
+}
+
+.subtitle {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.steps {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.2s ease;
+  gap: var(--ui-space-2);
+  margin: var(--ui-space-5) 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.categoryCardActive .categoryIconBox {
-  background: #4169e1;
-  color: #ffffff;
-}
-
-.categoryTextWrap {
-  flex: 1;
+.stepItem {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
   min-width: 0;
 }
 
+/* A dot, not a numbered circle with a ring. The label already says which
+   step this is, so the mark only has to carry done / current / pending. */
+.stepMark {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-full);
+  color: var(--ui-text-inverse);
+}
+
+.stepMarkCurrent {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent);
+}
+
+.stepMarkDone {
+  border-color: var(--ui-text-muted);
+  background: var(--ui-text-muted);
+}
+
+.stepLabel {
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-faint);
+  white-space: nowrap;
+}
+
+.stepLabelCurrent { color: var(--ui-ink); font-weight: 600; }
+
+.stepLine {
+  width: 24px;
+  height: 1px;
+  flex-shrink: 0;
+  background: var(--ui-border);
+  margin-left: var(--ui-space-1);
+}
+
+/* ---------- Card -------------------------------------------------------- */
+
+.card {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  padding: var(--ui-space-6);
+}
+
+.loading { padding: var(--ui-space-2) 0; }
+
+.stepHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  flex-wrap: wrap;
+}
+
+.stepTitle {
+  margin: 0 0 var(--ui-space-1);
+  font-size: var(--ui-text-lg);
+  font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
+}
+
+.stepDesc {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.count {
+  flex-shrink: 0;
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  color: var(--ui-accent-hover);
+  background: var(--ui-accent-tint);
+  padding: 3px var(--ui-space-2);
+  border-radius: var(--ui-radius-full);
+  font-variant-numeric: tabular-nums;
+}
+
+.pickHint {
+  margin: var(--ui-space-3) 0 0;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+}
+
+.errorBanner {
+  margin: 0 0 var(--ui-space-4);
+  padding: var(--ui-space-3);
+  font-size: var(--ui-text-base);
+  color: var(--ui-danger);
+  background: var(--ui-danger-bg);
+  border: 1px solid var(--ui-danger);
+  border-radius: var(--ui-radius-md);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-4);
+  margin-top: var(--ui-space-5);
+}
+
+/* ---------- Step 2: category grid --------------------------------------- */
+
+.categoryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-2);
+  margin-top: var(--ui-space-4);
+}
+
+.categoryCard {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ui-transition), background-color var(--ui-transition);
+}
+
+.categoryCard:hover { border-color: var(--ui-border-strong); background: var(--ui-surface-subtle); }
+
+.categoryCard:focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
+}
+
+/* Selection changes the CARD, never the tile. The tile's colour is reserved
+   for meaning, and "you picked this" is state, not meaning. */
+.categoryCardOn {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent-tint);
+}
+
+.categoryCardOn:hover { background: var(--ui-accent-tint); }
+
+.categoryText { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
 .categoryLabel {
-  font-size: 13px;
-  font-weight: 700;
-  color: #0c0c0e;
-  line-height: 1.3;
-  display: block;
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
 }
 
 .categorySummary {
-  font-size: 11px;
-  color: #6b7280;
-  line-height: 1.3;
-  margin-top: 2px;
-  display: block;
-  white-space: nowrap;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.categoryCheckBadge {
-  color: #4169e1;
+.categoryCheck {
+  position: absolute;
+  top: var(--ui-space-2);
+  right: var(--ui-space-2);
+  display: inline-flex;
+  color: var(--ui-accent);
+}
+
+/* ---------- Step 3: starter-content banner ------------------------------ */
+
+.banner {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  gap: var(--ui-space-3);
+  margin-top: var(--ui-space-4);
+  padding: var(--ui-space-3);
+  background: var(--ui-tile-accent-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
 }
 
-/* Template Info Banner (Step 3) */
-.templateBanner {
-  padding: 12px 16px;
-  background: rgba(65, 105, 225, 0.06);
-  border: 1px solid rgba(65, 105, 225, 0.22);
-  border-radius: 12px;
-  font-size: 13px;
-  color: #1e3a8a;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 24px;
-  line-height: 1.5;
+.bannerText {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
 }
 
-.templateBanner strong {
-  color: #1e40af;
-}
+/* ---------- Actions ----------------------------------------------------- */
 
-.counterBadge {
-  font-size: 12px;
-  font-weight: 700;
-  color: #4169e1;
-  background: rgba(65, 105, 225, 0.09);
-  padding: 4px 12px;
-  border-radius: 9999px;
-  border: 1px solid rgba(65, 105, 225, 0.2);
-}
-
-/* Form Layout */
-.formGrid {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.formRow {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  text-align: left;
-}
-
-.formLabel {
-  font-size: 13px;
-  font-weight: 600;
-  color: #374151;
-  letter-spacing: -0.01em;
-}
-
-.formHint {
-  font-size: 12px;
-  color: #6b7280;
-  margin-top: 2px;
-  line-height: 1.4;
-}
-
-/* Global inputs inside onboarding */
-.onboardingLayout :global(.input),
-.onboardingLayout :global(.textarea),
-.onboardingLayout :global(.select) {
-  width: 100%;
-  padding: 10px 14px;
-  background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 10px;
-  color: #0c0c0e;
-  font-size: 14px;
-  font-family: inherit;
-  transition: all 0.2s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-}
-
-.onboardingLayout :global(.input:focus),
-.onboardingLayout :global(.textarea:focus),
-.onboardingLayout :global(.select:focus) {
-  outline: none;
-  border-color: #4169e1;
-  box-shadow: 0 0 0 4px rgba(65, 105, 225, 0.12);
-}
-
-.onboardingLayout :global(.textarea) {
-  resize: vertical;
-  line-height: 1.5;
-}
-
-/* Actions Bar */
-.wizardActions {
+.actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid #f3f4f6;
-  gap: 12px;
+  gap: var(--ui-space-3);
+  margin-top: var(--ui-space-6);
+  padding-top: var(--ui-space-5);
+  border-top: 1px solid var(--ui-border);
 }
 
-.btnPrimary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 22px;
-  border-radius: 10px;
-  background-color: #0c0c0e !important;
-  color: #ffffff !important;
-  border: 1px solid #1e1e24 !important;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 4px 14px -2px rgba(12, 12, 14, 0.2);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  text-decoration: none;
-}
+/* ---------- Narrow ------------------------------------------------------ */
 
-.btnPrimary:hover:not(:disabled) {
-  background-color: #1e1e24 !important;
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px -4px rgba(12, 12, 14, 0.3);
-}
+@media (max-width: 767px) {
+  .page { padding: var(--ui-space-6) var(--ui-space-4); }
 
-.btnPrimary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
+  .card { padding: var(--ui-space-4); }
 
-.btnSecondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 18px;
-  border-radius: 10px;
-  background-color: #ffffff !important;
-  color: #374151 !important;
-  border: 1.5px solid #e5e7eb !important;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-decoration: none;
-}
+  .categoryGrid { grid-template-columns: minmax(0, 1fr); }
 
-.btnSecondary:hover {
-  background-color: #f9fafb !important;
-  border-color: #cbd5e1 !important;
-}
+  /* The three step labels are short words, not icons, so they stay — but the
+     connecting lines go, or the row wraps into three ragged lines. */
+  .stepLine { display: none; }
 
-.btnReset {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #4b5563;
-  border: 1px solid #e5e7eb;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btnReset:hover {
-  background: #f9fafb;
-  color: #111827;
-  border-color: #d1d5db;
-}
-
-/* Error Banner */
-.errorBanner {
-  padding: 12px 16px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  border-radius: 12px;
-  color: #dc2626;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  line-height: 1.4;
-  text-align: left;
-}
-
-/* Bottom Safety Guarantee */
-.safetyGuarantee {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 24px;
-  font-size: 12px;
-  color: #6b7280;
-  font-weight: 500;
-}
-
-.safetyGuarantee svg {
-  color: #10b981;
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  .categoryGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 640px) {
-  .onboardingLayout {
-    padding: 24px 14px 60px;
-  }
-  .card {
-    padding: 26px 18px;
-    border-radius: 16px;
-  }
-  .categoryGrid {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-  .stepProgress {
-    gap: 6px;
-    margin: 18px 0 24px;
-  }
-  .stepDivider {
-    max-width: 20px;
-  }
-  .stepDot span:last-child {
-    display: none;
-  }
-  .wizardActions {
-    flex-direction: column-reverse;
-  }
-  .btnPrimary,
-  .btnSecondary {
-    width: 100%;
-    justify-content: center;
-  }
+  .steps { gap: var(--ui-space-3); flex-wrap: wrap; }
 }

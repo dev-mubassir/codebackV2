@@ -585,6 +585,184 @@ const ICONS = {
     ),
   },
 
+  /* ---- Business category icons -------------------------------------------
+     BUSINESS_CATEGORIES in content/templates.js names twenty icons; twelve of
+     them were never defined here. Icon returns null for an unknown name, so
+     twelve of the twenty cards on /onboarding rendered no icon at all, with no
+     console warning. Same failure as `eraser` and `externalLink` below.
+     24x24, 2px stroke, round caps — the existing flat set. */
+
+  package: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points="3.3 7 12 12 20.7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <line x1="12" y1="12" x2="12" y2="21.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
+  smartphone: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <rect x="6" y="2" width="12" height="20" rx="2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <line x1="10.5" y1="18.5" x2="13.5" y2="18.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
+  palette: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M12 3a9 9 0 0 0 0 18 2 2 0 0 0 1.6-3.2 2 2 0 0 1 1.6-3.2H18a3 3 0 0 0 3-3c0-4.6-4-8.6-9-8.6Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="7.5" cy="12" r="1.2" fill="currentColor" />
+        <circle cx="9.5" cy="8" r="1.2" fill="currentColor" />
+        <circle cx="14" cy="7" r="1.2" fill="currentColor" />
+      </>
+    ),
+  },
+
+  gem: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M6 3h12l3 6-9 12L3 9Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M3 9h18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M9.5 9 12 21 14.5 9 12 3Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      </>
+    ),
+  },
+
+  lifeBuoy: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
+        <circle cx="12" cy="12" r="3.8" fill="none" stroke="currentColor" strokeWidth="2" />
+        <line x1="5.6" y1="5.6" x2="9.3" y2="9.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <line x1="14.7" y1="14.7" x2="18.4" y2="18.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <line x1="18.4" y1="5.6" x2="14.7" y2="9.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <line x1="9.3" y1="14.7" x2="5.6" y2="18.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
+  camera: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M3 8.5A2 2 0 0 1 5 6.5h2.2l1.2-2h7.2l1.2 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="12" cy="13" r="3.6" fill="none" stroke="currentColor" strokeWidth="2" />
+      </>
+    ),
+  },
+
+  globe: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
+        <line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="2" />
+        <path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+      </>
+    ),
+  },
+
+  flower: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M12 9.4V7a2.6 2.6 0 1 1 2.6 2.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M14.6 12H17a2.6 2.6 0 1 1-2.6 2.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M12 14.6V17a2.6 2.6 0 1 1-2.6-2.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <path d="M9.4 12H7a2.6 2.6 0 1 1 2.6-2.6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
+  dumbbell: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <line x1="9" y1="12" x2="15" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <rect x="5.5" y="8" width="3.5" height="8" rx="1.2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <rect x="15" y="8" width="3.5" height="8" rx="1.2" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <line x1="3" y1="10" x2="3" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <line x1="21" y1="10" x2="21" y2="14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
+  partyPopper: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M3.5 20.5 8 9l7 7Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <line x1="13" y1="5" x2="13" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <line x1="17.5" y1="6.5" x2="19" y2="5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <line x1="19" y1="11" x2="21" y2="11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="16" cy="14.5" r="1.1" fill="currentColor" />
+      </>
+    ),
+  },
+
+  truck: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M2 6.5h11v10H2z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <path d="M13 10h4l4 3.5v3h-8Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+        <circle cx="7" cy="18" r="1.8" fill="none" stroke="currentColor" strokeWidth="2" />
+        <circle cx="17.5" cy="18" r="1.8" fill="none" stroke="currentColor" strokeWidth="2" />
+      </>
+    ),
+  },
+
+  messageCircle: {
+    viewBox: '0 0 24 24',
+    content: (
+      <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.5 9.5 0 0 1-3.6-.7L3 21l1.9-5A8.2 8.2 0 0 1 4 11.5a8.4 8.4 0 0 1 8.5-8.4A8.4 8.4 0 0 1 21 11.5Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    ),
+  },
+
+  /* Three more of the same defect, found by sweeping every icon name used
+     anywhere in src against the ones defined here: `download` (the two admin
+     CSV export buttons), `info` (the billing plan card and a settings hint)
+     and `heart` (the `fan` category). Each rendered nothing. */
+
+  download: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <polyline points="7 10 12 15 17 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </>
+    ),
+  },
+
+  info: {
+    viewBox: '0 0 24 24',
+    content: (
+      <>
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
+        <line x1="12" y1="11" x2="12" y2="16.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="12" cy="7.8" r="1.15" fill="currentColor" />
+      </>
+    ),
+  },
+
+  heart: {
+    viewBox: '0 0 24 24',
+    content: (
+      <path d="M12 20.5 4.2 12.9a4.9 4.9 0 0 1 0-7 5 5 0 0 1 7.1 0l.7.7.7-.7a5 5 0 0 1 7.1 0 4.9 4.9 0 0 1 0 7Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    ),
+  },
+
   // A "more actions" affordance, distinct from `menu` (which opens the mobile
   // nav drawer). Reusing `menu` for both read as "open navigation".
   moreHorizontal: {

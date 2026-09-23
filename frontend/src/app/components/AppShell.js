@@ -28,6 +28,13 @@ export default function AppShell({ children, activeRoute }) {
     async function init() {
       try {
         const userData = await getMe();
+        // Setup is not optional. Master guarded only /dashboard, so typing any
+        // other internal URL skipped onboarding entirely and left the
+        // assistant answering customers out of an empty business profile.
+        if (!userData?.onboardingCompleted) {
+          router.replace('/onboarding');
+          return;
+        }
         setUser(userData);
         getNotifications()
           .then((d) => setNotifCount(d.unreadCount || 0))

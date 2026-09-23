@@ -305,6 +305,13 @@ function InboxPageContent() {
     async function init() {
       try {
         const userData = await getMe();
+        // Same guard the shared AppShell applies. The inbox uses ui/AppShell
+        // and passes `user` in, so it does its own check rather than being
+        // covered by that one.
+        if (!userData?.onboardingCompleted) {
+          router.replace('/onboarding');
+          return;
+        }
         setUser(userData);
         setAccounts(await getAccounts());
 

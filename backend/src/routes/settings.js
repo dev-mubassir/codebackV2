@@ -76,24 +76,33 @@ router.put('/onboarding', async (req, res) => {
   try {
     const { displayName, ...profileData } = req.body || {};
 
-    if (displayName && typeof displayName === 'string') {
-      await prisma.user.update({
-        where: { id: req.userId },
-        data: { name: displayName.trim(), onboardingCompleted: true },
-      }).catch(() => {});
-    } else {
-      await prisma.user.update({
-        where: { id: req.userId },
-        data: { onboardingCompleted: true },
-      }).catch(() => {});
-    }
-
+    // ORDER MATTERS, AND SO DOES THE ABSENCE OF .catch().
+    //
+    // This used to set onboardingCompleted = true FIRST, in both branches,
+    // with `.catch(() => {})` on each. If the profile write then failed, the
+    // account was flagged complete with nothing stored — and nothing ever sent
+    // it back, because every guard in the product checks only the flag. The
+    // user (or a Meta reviewer) landed on a dashboard driven by an empty
+    // business profile, with no route back to setup.
+    //
+    // So: profile first, flag second, and a failure anywhere is a 500 that
+    // leaves the flag false. The client keeps the user on the wizard with
+    // their input intact and lets them retry.
     await getOrCreateBusinessProfile(req.userId);
     const sanitized = sanitizeBusinessProfileUpdate(profileData);
 
     const updatedProfile = await prisma.businessProfile.update({
       where: { userId: req.userId },
       data: sanitized,
+    });
+
+    const userUpdate = { onboardingCompleted: true };
+    if (displayName && typeof displayName === 'string') {
+      userUpdate.name = displayName.trim();
+    }
+    await prisma.user.update({
+      where: { id: req.userId },
+      data: userUpdate,
     });
 
     res.json({
