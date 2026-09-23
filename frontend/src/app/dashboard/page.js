@@ -53,6 +53,7 @@ import {
 } from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import { rememberDestination } from '@/lib/pendingDestination';
 import styles from './dashboard.module.css';
 
 /**
@@ -118,6 +119,7 @@ export default function DashboardPage() {
         const userData = await getMe();
         if (cancelled) return;
         if (!userData?.onboardingCompleted) {
+          rememberDestination();
           router.replace('/onboarding');
           return;
         }

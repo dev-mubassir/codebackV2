@@ -342,6 +342,7 @@ export const settings = {
     savePrompt: 'Save and turn on',
     editPrompt: 'Edit instructions',
     openConversation: 'Open conversation',
+    onAccount: 'on',
     noMessagesYet: 'No messages yet',
   },
 };

@@ -48,6 +48,7 @@ import {
 } from '@/content/labels';
 import { formatTime, formatTimeAgo, formatCurrency } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import { rememberDestination } from '@/lib/pendingDestination';
 import styles from './inbox.module.css';
 
 const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined'];
@@ -309,6 +310,7 @@ function InboxPageContent() {
         // and passes `user` in, so it does its own check rather than being
         // covered by that one.
         if (!userData?.onboardingCompleted) {
+          rememberDestination();
           router.replace('/onboarding');
           return;
         }

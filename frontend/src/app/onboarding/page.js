@@ -24,6 +24,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getOnboarding, saveOnboarding, logout } from '@/lib/api';
 import { BUSINESS_CATEGORIES, combineKnowledgeTemplates, toggleBusinessType } from '@/lib/businessTemplates';
+import { takeDestination } from '@/lib/pendingDestination';
 import Icon from '@/app/components/Icon';
 import { Button, ErrorState, IconTile, Input, Skeleton } from '@/app/components/ui';
 import BusinessProfileFields from '@/app/components/ui/BusinessProfileFields';
@@ -175,7 +176,11 @@ export default function OnboardingPage() {
         ...profile,
       });
 
-      router.push('/dashboard');
+      // Back to wherever the guard interrupted them, query string and all.
+      // The one that matters is /dashboard?trial=<outcome>: connecting
+      // Instagram grants a trial, and that parameter is the only place the
+      // confirmation is ever shown. /dashboard when there is nothing stored.
+      router.push(takeDestination() || '/dashboard');
     } catch (err) {
       // The server now refuses to mark setup complete unless the profile
       // actually saved, so staying on this step with the answers intact is

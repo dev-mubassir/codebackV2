@@ -1,121 +1,155 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+/**
+ * Settings — what Siffty knows about the business, how it replies, and which
+ * individual conversations are answered automatically.
+ *
+ * The DATA LAYER is master's: the same four endpoints, the same legacy `?tab=`
+ * aliases, the same "save everything at once" button, the same per-conversation
+ * toggle and prompt editor, the same billing gate on the plan panel.
+ *
+ * WHAT CHANGED
+ *
+ *   1. The business-profile fields come from the shared BusinessProfileFields,
+ *      which onboarding also uses. Master had two copies of those fields and
+ *      they had already drifted: `locationDelivery` is filled by the starter
+ *      templates and POSTED by both screens, but NEITHER rendered a field for
+ *      it, so it was stored and round-tripped where nobody could read it. It is
+ *      now editable here.
+ *   2. `confirm()` and three `alert()`s are gone. Native dialogs cannot be
+ *      styled, behave inconsistently under the keyboard, and are blocked
+ *      outright in some embedded browsers — so a failed save could say nothing
+ *      at all. Errors now render in the page, next to the button that caused
+ *      them.
+ *   3. Every control carries the server's own maxLength. The sanitiser
+ *      silently truncates, so a long answer used to save "successfully" and
+ *      come back short.
+ */
+
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getMe,
-  getAISettings,
-  updateAISettings,
-  getBusinessProfile,
-  updateBusinessProfile,
-  getAutoReplyChats,
-  toggleAutoReply,
+  getMe, getAISettings, updateAISettings, getBusinessProfile,
+  updateBusinessProfile, getAutoReplyChats, toggleAutoReply,
 } from '@/lib/api';
 import {
-  BUSINESS_CATEGORIES,
-  DEFAULT_KNOWLEDGE_TEMPLATES,
-  getCategoryMetadata,
-  parseBusinessTypes,
-  combineKnowledgeTemplates,
-  DEFAULT_BUSINESS_TYPE,
-  toggleBusinessType,
+  BUSINESS_CATEGORIES, parseBusinessTypes, combineKnowledgeTemplates,
+  DEFAULT_BUSINESS_TYPE, toggleBusinessType,
 } from '@/lib/businessTemplates';
-import AppShell from '@/app/components/AppShell';
+import { rememberDestination } from '@/lib/pendingDestination';
+import AppShell from '@/app/components/ui/AppShell';
 import PlanSummaryPanel from '@/app/components/billing/PlanSummaryPanel';
 import Icon from '@/app/components/Icon';
+import {
+  Avatar, Badge, Button, Card, EmptyState, IconTile, Input, Modal, Select,
+  Skeleton, Tabs, Textarea, Toggle,
+} from '@/app/components/ui';
+import BusinessProfileFields, { SETTINGS_PROFILE_FIELDS } from '@/app/components/ui/BusinessProfileFields';
 import { settings as t, common, errors, empty, confirm as confirmCopy, toast } from '@/content/copy';
 import {
-  PRIORITY_WEIGHT_ORDER,
-  TONE_ORDER,
-  priorityWeightLabel,
-  toneLabel,
-  replyModeLabel,
-  replyModeSendsAutomatically,
-  DEFAULT_REPLY_MODE,
+  PRIORITY_WEIGHT_ORDER, TONE_ORDER, priorityWeightLabel, toneLabel,
+  replyModeLabel, replyModeSendsAutomatically, DEFAULT_REPLY_MODE,
 } from '@/content/labels';
 import { plural } from '@/content/format';
 import styles from './settings.module.css';
 
-// Stored values, unchanged — only their display wording lives in labels.js.
+/** Stored values, unchanged — only the wording lives in labels.js. */
 const REPLY_MODES = ['smart', 'suggest_only', 'human_only'];
 
 const PRIORITY_ROW_KEYS = [
-  'customersPriority',
-  'brandDealsPriority',
-  'collaborationsPriority',
-  'questionsPriority',
-  'fanPriority',
-  'spamPriority',
+  'customersPriority', 'brandDealsPriority', 'collaborationsPriority',
+  'questionsPriority', 'fanPriority', 'spamPriority',
 ];
+
+const TAB_IDS = ['profile', 'replies', 'conversations'];
+
+/** Old links used ?tab=ai and ?tab=chats. Kept so bookmarks still land right. */
+const LEGACY_TABS = { ai: 'replies', chats: 'conversations' };
 
 function SettingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Legacy links used ?tab=ai and ?tab=chats. Map them so old bookmarks and
-  // any link still in the wild land on the right tab.
-  const LEGACY_TABS = { ai: 'replies', chats: 'conversations' };
   const rawTab = searchParams.get('tab') || 'profile';
-  const initialTab = LEGACY_TABS[rawTab] || rawTab;
+  const mappedTab = LEGACY_TABS[rawTab] || rawTab;
 
-  const [activeTab, setActiveTab] = useState(initialTab); // 'profile' | 'replies' | 'conversations'
+  const [activeTab, setActiveTab] = useState(TAB_IDS.includes(mappedTab) ? mappedTab : 'profile');
+  const [user, setUser] = useState(null);
   const [prefs, setPrefs] = useState(null);
-  const [businessProfile, setBusinessProfile] = useState(null);
-  const [autoReplyChats, setAutoReplyChats] = useState([]);
+  const [profile, setProfile] = useState(null);
+  const [chats, setChats] = useState([]);
   const [chatSearch, setChatSearch] = useState('');
   const [expandedChatId, setExpandedChatId] = useState(null);
   const [customPrompts, setCustomPrompts] = useState({});
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  // From /auth/me. Gates the plan panel so that, pre-launch, settings makes no
-  // billing request at all rather than one that 404s.
+  const [saveError, setSaveError] = useState('');
+  const [chatError, setChatError] = useState('');
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+
+  // From /auth/me. Gates the plan panel so that pre-launch this page makes no
+  // billing request at all, rather than one that 404s.
   const [billingEnabled, setBillingEnabled] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     async function load() {
       try {
         const me = await getMe();
+        if (cancelled) return;
+        if (!me?.onboardingCompleted) {
+          rememberDestination();
+          router.replace('/onboarding');
+          return;
+        }
+        setUser(me);
         setBillingEnabled(Boolean(me?.features?.billing));
+
         const [settingsData, profileData, chatsData] = await Promise.all([
           getAISettings().catch(() => ({})),
           getBusinessProfile().catch(() => ({})),
           getAutoReplyChats().catch(() => []),
         ]);
-        setPrefs(settingsData);
-        setBusinessProfile(profileData);
-        setAutoReplyChats(chatsData || []);
+        if (cancelled) return;
 
-        const initialPrompts = {};
+        setPrefs(settingsData);
+        setProfile(profileData);
+        setChats(chatsData || []);
+
+        const initial = {};
         (chatsData || []).forEach((c) => {
-          if (c.autoReplyPrompt) initialPrompts[c.id] = c.autoReplyPrompt;
+          if (c.autoReplyPrompt) initial[c.id] = c.autoReplyPrompt;
         });
-        setCustomPrompts(initialPrompts);
-      } catch (err) {
-        router.push('/login');
+        setCustomPrompts(initial);
+      } catch {
+        if (!cancelled) router.push('/login');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
+    return () => { cancelled = true; };
   }, [router]);
 
-  function updatePrefField(key, value) {
+  const updatePref = useCallback((key, value) => {
     setPrefs((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
-  }
+  }, []);
 
-  function updateProfileField(key, value) {
-    setBusinessProfile((prev) => ({ ...prev, [key]: value }));
+  const updateProfile = useCallback((key, value) => {
+    setProfile((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
-  }
+  }, []);
 
   function handleToggleCategory(catId) {
-    const current = parseBusinessTypes(businessProfile?.businessTypes, businessProfile?.primaryCategory);
-    // Shared with onboarding: picking a type replaces the "Something else"
-    // placeholder, and turning off the last type falls back to it.
+    const current = parseBusinessTypes(profile?.businessTypes, profile?.primaryCategory);
+    // Shared with onboarding, but WITHOUT allowEmpty: a saved profile always
+    // holds at least the placeholder, so turning off the last type falls back
+    // to "Something else" rather than leaving the account with no type at all.
     const next = toggleBusinessType(current, catId);
-    setBusinessProfile((prev) => ({
+    setProfile((prev) => ({
       ...prev,
       businessTypes: JSON.stringify(next),
       primaryCategory: next[0] || DEFAULT_BUSINESS_TYPE,
@@ -123,55 +157,57 @@ function SettingsPageContent() {
     setSaved(false);
   }
 
-  function handleApplyCombinedTemplates() {
-    const current = parseBusinessTypes(businessProfile?.businessTypes, businessProfile?.primaryCategory);
+  function applyTemplates() {
+    const current = parseBusinessTypes(profile?.businessTypes, profile?.primaryCategory);
     const combined = combineKnowledgeTemplates(current);
+    setShowTemplateModal(false);
     if (!combined) return;
-    if (confirm(`${confirmCopy.loadTemplate.title}\n\n${confirmCopy.loadTemplate.body}`)) {
-      setBusinessProfile((prev) => ({
-        ...prev,
-        description: combined.description || '',
-        productsServices: combined.productsServices || '',
-        pricingInfo: combined.pricingInfo || '',
-        locationDelivery: combined.locationDelivery || '',
-        policies: combined.policies || '',
-        paymentMethods: combined.paymentMethods || '',
-        faqData: combined.faqData || '',
-        aiInstructions: combined.aiInstructions || '',
-        tone: combined.tone || 'friendly',
-      }));
-      setSaved(false);
-    }
+    setProfile((prev) => ({
+      ...prev,
+      description: combined.description || '',
+      productsServices: combined.productsServices || '',
+      pricingInfo: combined.pricingInfo || '',
+      locationDelivery: combined.locationDelivery || '',
+      policies: combined.policies || '',
+      paymentMethods: combined.paymentMethods || '',
+      faqData: combined.faqData || '',
+      aiInstructions: combined.aiInstructions || '',
+      tone: combined.tone || 'friendly',
+    }));
+    setSaved(false);
   }
 
-  async function handleToggleChatAutoReply(chatId, currentStatus) {
-    const newStatus = !currentStatus;
-    const prompt = customPrompts[chatId] || null;
+  async function handleToggleChat(chatId, currentStatus) {
+    const next = !currentStatus;
+    setChatError('');
     try {
-      await toggleAutoReply(chatId, newStatus, prompt);
-      setAutoReplyChats((prev) =>
-        prev.map((c) => (c.id === chatId ? { ...c, autoReplyEnabled: newStatus, autoReplyPrompt: prompt } : c))
-      );
-    } catch (err) {
-      alert(errors.toggleAutomation);
+      await toggleAutoReply(chatId, next, customPrompts[chatId] || null);
+      setChats((prev) => prev.map((c) => (c.id === chatId
+        ? { ...c, autoReplyEnabled: next, autoReplyPrompt: customPrompts[chatId] || null }
+        : c)));
+    } catch {
+      setChatError(errors.toggleAutomation);
     }
   }
 
   async function handleSaveChatPrompt(chatId) {
     const prompt = customPrompts[chatId] || null;
+    setChatError('');
     try {
       await toggleAutoReply(chatId, true, prompt);
-      setAutoReplyChats((prev) =>
-        prev.map((c) => (c.id === chatId ? { ...c, autoReplyEnabled: true, autoReplyPrompt: prompt } : c))
-      );
+      setChats((prev) => prev.map((c) => (c.id === chatId
+        ? { ...c, autoReplyEnabled: true, autoReplyPrompt: prompt }
+        : c)));
       setExpandedChatId(null);
-    } catch (err) {
-      alert(errors.saveSettings);
+    } catch {
+      setChatError(errors.saveSettings);
     }
   }
 
   async function handleSaveAll() {
+    if (saving) return;
     setSaving(true);
+    setSaveError('');
     try {
       if (prefs) {
         await updateAISettings({
@@ -186,525 +222,372 @@ function SettingsPageContent() {
           autoGenerateSummary: prefs.autoGenerateSummary,
         });
       }
-
-      if (businessProfile) {
-        const updatedProfile = await updateBusinessProfile(businessProfile);
-        setBusinessProfile(updatedProfile);
-      }
-
+      if (profile) setProfile(await updateBusinessProfile(profile));
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      alert(errors.saveSettings);
+    } catch {
+      setSaveError(errors.saveSettings);
     } finally {
       setSaving(false);
     }
   }
 
-  const filteredChats = autoReplyChats.filter((c) => {
-    if (!chatSearch.trim()) return true;
-    const query = chatSearch.toLowerCase();
-    const username = (c.contact?.username || '').toLowerCase();
-    const name = (c.contact?.name || '').toLowerCase();
-    const lastMsg = (c.lastMessage || '').toLowerCase();
-    return username.includes(query) || name.includes(query) || lastMsg.includes(query);
+  const activeCount = chats.filter((c) => c.autoReplyEnabled).length;
+
+  const filteredChats = chats.filter((c) => {
+    const q = chatSearch.trim().toLowerCase();
+    if (!q) return true;
+    return [c.contact?.username, c.contact?.name, c.lastMessage]
+      .some((v) => (v || '').toLowerCase().includes(q));
   });
 
-  const activeAutoReplyCount = autoReplyChats.filter((c) => c.autoReplyEnabled).length;
+  const selectedTypes = profile
+    ? parseBusinessTypes(profile.businessTypes, profile.primaryCategory)
+    : [];
+  const selectedTypeLabels = selectedTypes
+    .map((id) => BUSINESS_CATEGORIES.find((c) => c.id === id)?.label)
+    .filter(Boolean);
+
+  const sendsAutomatically = replyModeSendsAutomatically(profile?.autoReplyMode);
 
   return (
-    <AppShell activeRoute="/settings">
-      {/* Page Header */}
-      <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>{t.title}</h1>
-          <p className={styles.pageSubtitle}>{t.subtitle}</p>
-        </div>
+    <AppShell user={user} title={t.title} activeRoute="/settings">
+      <header className={styles.pageHead}>
+        <h1 className={styles.pageTitle}>{t.title}</h1>
+        <p className={styles.pageSub}>{t.subtitle}</p>
+      </header>
 
-        <div className={styles.tabNav}>
-          <button
-            className={`${styles.tabBtn} ${activeTab === 'profile' ? styles.tabBtnActive : ''}`}
-            onClick={() => setActiveTab('profile')}
-          >
-            <Icon name="briefcase" size={14} /> {t.tabs.profile}
-          </button>
-          <button
-            className={`${styles.tabBtn} ${activeTab === 'replies' ? styles.tabBtnActive : ''}`}
-            onClick={() => setActiveTab('replies')}
-          >
-            <Icon name="sparkle" size={14} /> {t.tabs.replies}
-          </button>
-          <button
-            className={`${styles.tabBtn} ${activeTab === 'conversations' ? styles.tabBtnActive : ''}`}
-            onClick={() => setActiveTab('conversations')}
-          >
-            <Icon name="zap" size={14} /> {t.tabs.conversations} ({activeAutoReplyCount})
-          </button>
-        </div>
-      </div>
+      <Tabs
+        ariaLabel={t.title}
+        value={activeTab}
+        onChange={setActiveTab}
+        items={[
+          { id: 'profile', label: t.tabs.profile },
+          { id: 'replies', label: t.tabs.replies },
+          { id: 'conversations', label: t.tabs.conversations, count: activeCount },
+        ]}
+      />
 
-      {loading || !businessProfile || !prefs ? (
-        <div className={styles.loadingContainer} aria-busy="true" aria-label={common.loading}>
-          <div className="spinner spinner-lg" />
-        </div>
+      {loading || !profile || !prefs ? (
+        <div className={styles.loading}><Skeleton lines={6} height={44} /></div>
       ) : (
-        <div className={styles.settingsGrid}>
-          {/* TAB 1: business profile */}
+        <div className={styles.tabBody}>
+          {/* ---------------- Business profile ---------------- */}
           {activeTab === 'profile' && (
             <>
               {billingEnabled && <PlanSummaryPanel />}
 
-              <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                  <h2 className={styles.cardTitle}>{t.businessProfile.title}</h2>
-                  <p className={styles.cardDesc}>{t.businessProfile.description}</p>
-                </div>
-
-                <div className={styles.prefList}>
-                  {/* Interactive Business Category Cards Grid (Multi-select) */}
-                  <div className={styles.prefRowVertical}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                      <label className={styles.prefLabel} style={{ margin: 0 }}>{t.businessProfile.typesLabel}</label>
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', background: 'rgba(124, 58, 237, 0.1)', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
-                        {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).length} {t.businessProfile.selectedCount}
+              <Card title={t.businessProfile.title} description={t.businessProfile.description}>
+                <div className={styles.fieldStack}>
+                  <div className={styles.typesBlock}>
+                    <div className={styles.typesHead}>
+                      <span className={styles.fieldLabel}>{t.businessProfile.typesLabel}</span>
+                      <span className={styles.count}>
+                        {selectedTypes.length} {t.businessProfile.selectedCount}
                       </span>
                     </div>
-                    <span className={styles.prefSublabel}>{t.businessProfile.typesHint}</span>
+                    <p className={styles.fieldHint}>{t.businessProfile.typesHint}</p>
+
                     <div className={styles.categoryGrid}>
                       {BUSINESS_CATEGORIES.map((cat) => {
-                        const currentSelected = parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory);
-                        const isSelected = currentSelected.includes(cat.id);
+                        const on = selectedTypes.includes(cat.id);
                         return (
                           <button
                             key={cat.id}
                             type="button"
-                            className={`${styles.categoryCard} ${isSelected ? styles.categoryCardActive : ''}`}
+                            className={`${styles.categoryCard} ${on ? styles.categoryCardOn : ''}`}
                             onClick={() => handleToggleCategory(cat.id)}
+                            aria-pressed={on}
                           >
-                            {isSelected && (
-                              <span className={styles.categorySelectedBadge}>
-                                <Icon name="check" size={10} /> On
+                            {/* Neutral on all twenty. A business type is not a
+                                status, and twenty colours would be decoration. */}
+                            <IconTile name={cat.icon} tone="neutral" />
+                            <span className={styles.categoryText}>
+                              <span className={styles.categoryLabel}>{cat.label}</span>
+                              <span className={styles.categorySummary}>{cat.summary}</span>
+                            </span>
+                            {on && (
+                              <span className={styles.categoryCheck} aria-hidden="true">
+                                <Icon name="check" size={13} />
                               </span>
                             )}
-                            <span className={styles.categoryIcon}><Icon name={cat.icon} size={18} /></span>
-                            <span className={styles.categoryTitle}>{cat.label}</span>
-                            <span className={styles.categoryDesc}>{cat.summary}</span>
                           </button>
                         );
                       })}
                     </div>
 
-                    {/* Quick Template Loader Banner */}
-                    <div className={styles.templateActionBanner}>
-                      <span className={styles.templateActionText}>
-                        {t.businessProfile.templateBannerPrefix}{' '}
-                        <strong>
-                          {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory)
-                            .map((id) => getCategoryMetadata(id).label)
-                            .join(', ')}
-                        </strong>
-                      </span>
-                      <button
-                        type="button"
-                        className={styles.templateActionBtn}
-                        onClick={handleApplyCombinedTemplates}
-                      >
-                        <Icon name="sparkle" size={13} /> {t.businessProfile.applyTemplate}
-                      </button>
-                    </div>
+                    {selectedTypeLabels.length > 0 && (
+                      <div className={styles.templateBanner}>
+                        <IconTile name="refresh" tone="accent" />
+                        <p className={styles.templateText}>
+                          {t.businessProfile.templateBannerPrefix}{' '}
+                          <strong>{selectedTypeLabels.join(', ')}</strong>
+                        </p>
+                        <Button size="sm" onClick={() => setShowTemplateModal(true)}>
+                          {t.businessProfile.applyTemplate}
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.nameLabel}</label>
-                    <input
-                      type="text"
-                      className="input"
-                      value={businessProfile.businessName || ''}
-                      onChange={(e) => updateProfileField('businessName', e.target.value)}
-                      placeholder={t.businessProfile.namePlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                  </div>
-
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.descriptionLabel}</label>
-                    <textarea
-                      className="textarea"
-                      rows={2}
-                      value={businessProfile.description || ''}
-                      onChange={(e) => updateProfileField('description', e.target.value)}
-                      placeholder={t.businessProfile.descriptionPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                  </div>
-
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.servicesLabel}</label>
-                    <textarea
-                      className="textarea"
-                      rows={3}
-                      value={businessProfile.productsServices || ''}
-                      onChange={(e) => updateProfileField('productsServices', e.target.value)}
-                      placeholder={t.businessProfile.servicesPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                  </div>
-
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.pricingLabel}</label>
-                    <textarea
-                      className="textarea"
-                      rows={3}
-                      value={businessProfile.pricingInfo || ''}
-                      onChange={(e) => updateProfileField('pricingInfo', e.target.value)}
-                      placeholder={t.businessProfile.pricingPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                    <span className={styles.prefSublabel}>{t.businessProfile.pricingHint}</span>
-                  </div>
-
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.policiesLabel}</label>
-                    <textarea
-                      className="textarea"
-                      rows={2}
-                      value={businessProfile.policies || ''}
-                      onChange={(e) => updateProfileField('policies', e.target.value)}
-                      placeholder={t.businessProfile.policiesPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                  </div>
-
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.paymentLabel}</label>
-                    <input
-                      type="text"
-                      className="input"
-                      value={businessProfile.paymentMethods || ''}
-                      onChange={(e) => updateProfileField('paymentMethods', e.target.value)}
-                      placeholder={t.businessProfile.paymentPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                  </div>
-
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.faqLabel}</label>
-                    <textarea
-                      className="textarea"
-                      rows={4}
-                      value={businessProfile.faqData || ''}
-                      onChange={(e) => updateProfileField('faqData', e.target.value)}
-                      placeholder={t.businessProfile.faqPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                  </div>
-
-                  <div className={styles.prefRowVertical}>
-                    <label className={styles.prefLabel}>{t.businessProfile.prohibitedLabel}</label>
-                    <textarea
-                      className="textarea"
-                      rows={2}
-                      value={businessProfile.prohibitedTopics || ''}
-                      onChange={(e) => updateProfileField('prohibitedTopics', e.target.value)}
-                      placeholder={t.businessProfile.prohibitedPlaceholder}
-                      style={{ marginTop: '6px' }}
-                    />
-                    <span className={styles.prefSublabel}>{t.businessProfile.prohibitedHint}</span>
-                  </div>
+                  {/* One definition of these fields, shared with onboarding. */}
+                  <BusinessProfileFields
+                    values={profile}
+                    onChange={updateProfile}
+                    disabled={saving}
+                    fields={SETTINGS_PROFILE_FIELDS}
+                  />
                 </div>
-              </div>
+              </Card>
             </>
           )}
 
-          {/* TAB 2: replies and tone */}
+          {/* ---------------- Replies and tone ---------------- */}
           {activeTab === 'replies' && (
             <>
-              <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                  <h2 className={styles.cardTitle}>{t.replies.title}</h2>
-                  <p className={styles.cardDesc}>{t.replies.description}</p>
-                </div>
-
-                <div className={styles.prefList}>
-                  {/* REMOVED-BY-COPY-AUDIT: duplicated control. A two-button
-                      "Master AI Auto-Reply ON/OFF" pair sat directly above a
-                      three-option select bound to the SAME field, so choosing
-                      "suggest_only" in the select left neither button
-                      highlighted and the user could not tell which control was
-                      in charge. The single three-option control below is the
-                      only one now, and it names each mode plainly. Restore by
-                      re-adding the button pair here — but reconcile it with the
-                      select first, because they cannot both own one field.
-                  */}
-                  <div className={styles.prefRowVertical} style={{ background: 'var(--bg-surface-secondary)', padding: '16px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)' }}>
-                    <span className={styles.prefLabel} style={{ fontSize: '15px', fontWeight: 700 }}>
-                      {t.replies.modeLabel}
-                    </span>
-                    <span className={styles.prefSublabel}>{t.replies.modeHint}</span>
-                    <div className={styles.modeOptions}>
+              <Card title={t.replies.title} description={t.replies.description}>
+                <div className={styles.fieldStack}>
+                  <div>
+                    <span className={styles.fieldLabel}>{t.replies.modeLabel}</span>
+                    <p className={styles.fieldHint}>{t.replies.modeHint}</p>
+                    <div className={styles.modeGrid}>
                       {REPLY_MODES.map((mode) => {
                         const meta = replyModeLabel(mode);
-                        const isActive = (businessProfile.autoReplyMode || DEFAULT_REPLY_MODE) === mode;
+                        const on = (profile.autoReplyMode || DEFAULT_REPLY_MODE) === mode;
                         return (
                           <button
                             key={mode}
                             type="button"
-                            className={`${styles.modeOption} ${isActive ? styles.modeOptionActive : ''}`}
-                            onClick={() => updateProfileField('autoReplyMode', mode)}
-                            aria-pressed={isActive}
+                            className={`${styles.modeCard} ${on ? styles.modeCardOn : ''}`}
+                            onClick={() => updateProfile('autoReplyMode', mode)}
+                            aria-pressed={on}
                           >
-                            <span className={styles.modeOptionTop}>
-                              <Icon name={replyModeSendsAutomatically(mode) ? 'zap' : 'user'} size={14} />
-                              <span className={styles.modeOptionLabel}>{meta.label}</span>
-                              {isActive && <Icon name="check" size={13} />}
+                            {/* Accent only when the mode SENDS on your behalf —
+                                that is the one with consequences. */}
+                            <IconTile
+                              name={replyModeSendsAutomatically(mode) ? 'zap' : 'user'}
+                              tone={replyModeSendsAutomatically(mode) ? 'accent' : 'neutral'}
+                            />
+                            <span className={styles.modeText}>
+                              <span className={styles.modeLabel}>{meta.label}</span>
+                              <span className={styles.modeDesc}>{meta.description}</span>
                             </span>
-                            <span className={styles.modeOptionDesc}>{meta.description}</span>
+                            {on && (
+                              <span className={styles.modeCheck} aria-hidden="true">
+                                <Icon name="check" size={13} />
+                              </span>
+                            )}
                           </button>
                         );
                       })}
                     </div>
                   </div>
 
-                  <div className={styles.prefRow}>
-                    <div className={styles.prefLabelGroup}>
-                      <span className={styles.prefLabel}>{t.replies.toneLabel}</span>
-                      <span className={styles.prefSublabel}>{t.replies.toneHint}</span>
-                    </div>
-                    <select
-                      className="select"
-                      value={businessProfile.tone || 'friendly'}
-                      onChange={(e) => {
-                        updateProfileField('tone', e.target.value);
-                        updatePrefField('tone', e.target.value);
-                      }}
-                      aria-label={t.replies.toneLabel}
-                      style={{ width: '220px' }}
-                    >
-                      {TONE_ORDER.map((value) => (
-                        <option key={value} value={value}>
-                          {toneLabel(value).label} — {toneLabel(value).description}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label={t.replies.toneLabel}
+                    hint={t.replies.toneHint}
+                    value={profile.tone || 'friendly'}
+                    disabled={saving}
+                    onChange={(e) => {
+                      updateProfile('tone', e.target.value);
+                      updatePref('tone', e.target.value);
+                    }}
+                  >
+                    {TONE_ORDER.map((value) => (
+                      <option key={value} value={value}>
+                        {toneLabel(value).label} — {toneLabel(value).description}
+                      </option>
+                    ))}
+                  </Select>
 
-                  <div className={styles.prefRowVertical}>
-                    <span className={styles.prefLabel}>{t.replies.instructionsLabel}</span>
-                    <span className={styles.prefSublabel}>{t.replies.instructionsHint}</span>
-                    <textarea
-                      className="textarea"
-                      rows={3}
-                      value={businessProfile.aiInstructions || ''}
-                      onChange={(e) => updateProfileField('aiInstructions', e.target.value)}
-                      placeholder={t.replies.instructionsPlaceholder}
-                      style={{ marginTop: '8px' }}
+                  <Textarea
+                    label={t.replies.instructionsLabel}
+                    hint={t.replies.instructionsHint}
+                    placeholder={t.replies.instructionsPlaceholder}
+                    rows={3}
+                    maxLength={2500}
+                    value={profile.aiInstructions || ''}
+                    disabled={saving}
+                    onChange={(e) => updateProfile('aiInstructions', e.target.value)}
+                  />
+
+                  <div className={styles.toggleRow}>
+                    <div>
+                      <span className={styles.fieldLabel}>{t.replies.summariesLabel}</span>
+                      <p className={styles.fieldHint}>{t.replies.summariesHint}</p>
+                    </div>
+                    <Toggle
+                      checked={Boolean(prefs.autoGenerateSummary)}
+                      disabled={saving}
+                      onChange={(v) => updatePref('autoGenerateSummary', v)}
+                      label={prefs.autoGenerateSummary ? t.replies.summariesOn : t.replies.summariesOff}
                     />
                   </div>
-
-                  <div className={styles.prefRow}>
-                    <div className={styles.prefLabelGroup}>
-                      <span className={styles.prefLabel}>{t.replies.summariesLabel}</span>
-                      <span className={styles.prefSublabel}>{t.replies.summariesHint}</span>
-                    </div>
-                    <select
-                      className="select"
-                      value={prefs.autoGenerateSummary ? 'on' : 'off'}
-                      onChange={(e) => updatePrefField('autoGenerateSummary', e.target.value === 'on')}
-                      aria-label={t.replies.summariesLabel}
-                      style={{ width: '120px' }}
-                    >
-                      <option value="on">{t.replies.summariesOn}</option>
-                      <option value="off">{t.replies.summariesOff}</option>
-                    </select>
-                  </div>
                 </div>
-              </div>
+              </Card>
 
-              <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                  <h2 className={styles.cardTitle}>{t.priorities.title}</h2>
-                  <p className={styles.cardDesc}>{t.priorities.description}</p>
-                </div>
-                <div className={styles.prefList}>
+              <Card title={t.priorities.title} description={t.priorities.description}>
+                <div className={styles.priorityList}>
                   {PRIORITY_ROW_KEYS.map((key) => (
-                    <div className={styles.prefRow} key={key}>
-                      <span className={styles.prefLabel}>{t.priorities.rows[key]}</span>
-                      <select
-                        className="select btn-sm"
+                    <div className={styles.priorityRow} key={key}>
+                      <span className={styles.priorityLabel}>{t.priorities.rows[key]}</span>
+                      <Select
                         value={prefs[key] || 'normal'}
-                        onChange={(e) => updatePrefField(key, e.target.value)}
+                        disabled={saving}
                         aria-label={t.priorities.rows[key]}
-                        style={{ width: '150px' }}
+                        onChange={(e) => updatePref(key, e.target.value)}
+                        className={styles.prioritySelect}
                       >
                         {PRIORITY_WEIGHT_ORDER.map((level) => (
-                          <option key={level} value={level}>
-                            {priorityWeightLabel(level).label}
-                          </option>
+                          <option key={level} value={level}>{priorityWeightLabel(level).label}</option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
                   ))}
                 </div>
-              </div>
+              </Card>
             </>
           )}
 
-          {/* TAB 3: per-conversation automation */}
+          {/* ---------------- Per-conversation automation ---------------- */}
           {activeTab === 'conversations' && (
-            <div className={styles.card}>
-              <div className={styles.cardHeader}>
-                <div className={styles.chatHeaderRow}>
-                  <div>
-                    <h2 className={styles.cardTitle}>{t.perConversation.title}</h2>
-                    <p className={styles.cardDesc}>{t.perConversation.description}</p>
-                  </div>
-                  <span className={styles.chatCountBadge}>
-                    {plural(activeAutoReplyCount, 'conversation')} {t.perConversation.activeCount}
-                  </span>
-                </div>
-              </div>
-
-              {!replyModeSendsAutomatically(businessProfile.autoReplyMode) && (
-                <div className={styles.inlineNotice} role="note">
-                  <Icon name="info" size={14} />
-                  <span>{t.perConversation.requiresAutomaticMode}</span>
+            <Card
+              title={t.perConversation.title}
+              description={t.perConversation.description}
+              actions={<Badge tone="neutral">{plural(activeCount, 'conversation')} {t.perConversation.activeCount}</Badge>}
+            >
+              {/* These switches do nothing while the account is set to manual.
+                  Saying so is the difference between a control that looks
+                  broken and one that explains itself. */}
+              {!sendsAutomatically && (
+                <div className={styles.notice} role="note">
+                  <IconTile name="info" tone="warning" />
+                  <p className={styles.noticeText}>{t.perConversation.requiresAutomaticMode}</p>
                 </div>
               )}
 
-              {autoReplyChats.length > 0 && (
-                <input
-                  type="text"
-                  className={styles.chatSearchInput}
-                  placeholder={t.perConversation.searchPlaceholder}
-                  aria-label={t.perConversation.searchPlaceholder}
-                  value={chatSearch}
-                  onChange={(e) => setChatSearch(e.target.value)}
-                />
+              {chatError && <p className={styles.inlineError} role="alert">{chatError}</p>}
+
+              {chats.length > 0 && (
+                <div className={styles.searchRow}>
+                  <Input
+                    type="search"
+                    placeholder={t.perConversation.searchPlaceholder}
+                    aria-label={t.perConversation.searchPlaceholder}
+                    value={chatSearch}
+                    onChange={(e) => setChatSearch(e.target.value)}
+                  />
+                </div>
               )}
 
-              <div className={styles.chatList}>
-                {autoReplyChats.length === 0 ? (
-                  <div className={styles.emptyChats}>{empty.perConversation.body}</div>
-                ) : filteredChats.length === 0 ? (
-                  <div className={styles.emptyChats}>{empty.search.body}</div>
-                ) : (
-                  filteredChats.map((chat) => {
-                    const isExpanded = expandedChatId === chat.id;
-                    const promptVal = customPrompts[chat.id] ?? (chat.autoReplyPrompt || '');
-
+              {chats.length === 0 ? (
+                <EmptyState icon="messageSquare" title={empty.perConversation.title} body={empty.perConversation.body} />
+              ) : filteredChats.length === 0 ? (
+                <EmptyState icon="search" title={empty.search.title} body={empty.search.body} />
+              ) : (
+                <div className={styles.chatList}>
+                  {filteredChats.map((chat) => {
+                    const expanded = expandedChatId === chat.id;
+                    const prompt = customPrompts[chat.id] ?? (chat.autoReplyPrompt || '');
                     return (
-                      <div
-                        key={chat.id}
-                        className={`${styles.chatItem} ${chat.autoReplyEnabled ? styles.chatItemActive : ''}`}
-                      >
-                        <div className={styles.chatItemMain}>
-                          <div className={styles.chatItemLeft}>
-                            {chat.contact?.profilePicUrl ? (
-                              <img
-                                src={chat.contact.profilePicUrl}
-                                alt=""
-                                className={styles.chatAvatar}
-                              />
-                            ) : (
-                              <div className={styles.chatAvatarFallback}>
-                                {(chat.contact?.username || '?')[0].toUpperCase()}
-                              </div>
-                            )}
-                            <div className={styles.chatMeta}>
-                              <div className={styles.chatNameRow}>
-                                <span className={styles.chatUsername}>
-                                  @{chat.contact?.username || chat.contact?.name || 'Unknown'}
+                      <div key={chat.id} className={styles.chatItem}>
+                        <div className={styles.chatRow}>
+                          <Avatar
+                            src={chat.contact?.profilePicUrl}
+                            name={chat.contact?.username || chat.contact?.name}
+                            contactId={chat.contact?.id}
+                            size={32}
+                            decorative
+                          />
+                          <div className={styles.chatMeta}>
+                            <span className={styles.chatName}>
+                              @{chat.contact?.username || chat.contact?.name || common.unknown}
+                              {chat.instagramAccount?.igUsername && (
+                                <span className={styles.chatOn}>
+                                  {' '}{t.perConversation.onAccount} @{chat.instagramAccount.igUsername}
                                 </span>
-                                {chat.instagramAccount?.igUsername && (
-                                  <span style={{ fontSize: '10px', color: 'var(--text-tertiary)' }}>
-                                    on @{chat.instagramAccount.igUsername}
-                                  </span>
-                                )}
-                              </div>
-                              <span className={styles.chatPreview}>{chat.lastMessage || t.perConversation.noMessagesYet}</span>
-                            </div>
+                              )}
+                            </span>
+                            <span className={styles.chatPreview}>
+                              {chat.lastMessage || t.perConversation.noMessagesYet}
+                            </span>
                           </div>
 
                           <div className={styles.chatActions}>
-                            <button
-                              className={`${styles.autoReplyToggleBtn} ${chat.autoReplyEnabled ? styles.autoReplyToggleBtnActive : ''}`}
-                              onClick={() => handleToggleChatAutoReply(chat.id, chat.autoReplyEnabled)}
-                              aria-pressed={Boolean(chat.autoReplyEnabled)}
-                            >
-                              <Icon name={chat.autoReplyEnabled ? 'zap' : 'user'} size={12} />{' '}
-                              {chat.autoReplyEnabled ? t.perConversation.toggleOn : t.perConversation.toggleOff}
-                            </button>
-
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: '11px', padding: '4px 8px' }}
-                              onClick={() => setExpandedChatId(isExpanded ? null : chat.id)}
-                            >
-                              {isExpanded ? common.close : t.perConversation.editPrompt}
-                            </button>
-
-                            <Link
-                              href={`/inbox?conversationId=${chat.id}`}
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: '11px', padding: '4px 8px' }}
-                            >
-                              <Icon name="externalLink" size={12} /> {t.perConversation.openConversation}
+                            <Toggle
+                              checked={Boolean(chat.autoReplyEnabled)}
+                              onChange={() => handleToggleChat(chat.id, chat.autoReplyEnabled)}
+                              label={chat.autoReplyEnabled ? t.perConversation.toggleOn : t.perConversation.toggleOff}
+                            />
+                            <Button size="sm" onClick={() => setExpandedChatId(expanded ? null : chat.id)}>
+                              {expanded ? common.close : t.perConversation.editPrompt}
+                            </Button>
+                            <Link href={`/inbox?conversationId=${chat.id}`} className={styles.chatLink}>
+                              <Icon name="externalLink" size={13} />
+                              {t.perConversation.openConversation}
                             </Link>
                           </div>
                         </div>
 
-                        {/* Custom Prompt Accordion */}
-                        {isExpanded && (
-                          <div className={styles.chatPromptEditor}>
-                            <label className={styles.chatPromptLabel}>
-                              {t.perConversation.promptLabel} — @{chat.contact?.username || 'this contact'}
-                            </label>
-                            <textarea
-                              className="textarea"
+                        {expanded && (
+                          <div className={styles.promptEditor}>
+                            <Textarea
+                              label={`${t.perConversation.promptLabel} — @${chat.contact?.username || common.unknown}`}
                               placeholder={t.perConversation.promptPlaceholder}
-                              value={promptVal}
-                              onChange={(e) => setCustomPrompts((prev) => ({ ...prev, [chat.id]: e.target.value }))}
                               rows={2}
-                              style={{ fontSize: '12px' }}
+                              maxLength={500}
+                              value={prompt}
+                              onChange={(e) => setCustomPrompts((prev) => ({ ...prev, [chat.id]: e.target.value }))}
                             />
-                            <div className={styles.chatPromptActions}>
-                              <button
-                                className="btn btn-primary btn-sm"
-                                style={{ fontSize: '11px' }}
-                                onClick={() => handleSaveChatPrompt(chat.id)}
-                              >
+                            <div className={styles.promptActions}>
+                              <Button variant="primary" size="sm" onClick={() => handleSaveChatPrompt(chat.id)}>
                                 {t.perConversation.savePrompt}
-                              </button>
-                              <button
-                                className="btn btn-secondary btn-sm"
-                                style={{ fontSize: '11px' }}
-                                onClick={() => setExpandedChatId(null)}
-                              >
+                              </Button>
+                              <Button size="sm" onClick={() => setExpandedChatId(null)}>
                                 {common.cancel}
-                              </button>
+                              </Button>
                             </div>
                           </div>
                         )}
                       </div>
                     );
-                  })
-                )}
-              </div>
-            </div>
+                  })}
+                </div>
+              )}
+            </Card>
           )}
 
-          {/* Save Bar */}
-          <div className={styles.saveBar}>
-            {saved && (
-              <span className={styles.savedMessage} role="status">
-                <Icon name="check" size={14} /> {toast.settingsSaved}
-              </span>
-            )}
-            <button className="btn btn-primary btn-lg" onClick={handleSaveAll} disabled={saving}>
-              {saving ? common.saving : common.save}
-            </button>
-          </div>
+          {/* The conversations tab saves on its own, per switch. */}
+          {activeTab !== 'conversations' && (
+            <div className={styles.saveBar}>
+              {saveError && <p className={styles.inlineError} role="alert">{saveError}</p>}
+              {saved && !saveError && (
+                <p className={styles.savedNote} role="status">
+                  <Icon name="check" size={14} /> {toast.settingsSaved}
+                </p>
+              )}
+              <Button variant="primary" onClick={handleSaveAll} loading={saving}>
+                {saving ? common.saving : common.save}
+              </Button>
+            </div>
+          )}
         </div>
+      )}
+
+      {showTemplateModal && (
+        <Modal
+          title={confirmCopy.loadTemplate.title}
+          onClose={() => setShowTemplateModal(false)}
+          actions={(
+            <>
+              <Button onClick={() => setShowTemplateModal(false)}>{common.cancel}</Button>
+              <Button variant="primary" onClick={applyTemplates}>
+                {t.businessProfile.applyTemplate}
+              </Button>
+            </>
+          )}
+        >
+          {confirmCopy.loadTemplate.body}
+        </Modal>
       )}
     </AppShell>
   );
@@ -712,7 +595,7 @@ function SettingsPageContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className={styles.loadingContainer} aria-busy="true"><div className="spinner spinner-lg" /></div>}>
+    <Suspense fallback={null}>
       <SettingsPageContent />
     </Suspense>
   );

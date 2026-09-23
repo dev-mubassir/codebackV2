@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { getMe, logout, getNotifications } from '@/lib/api';
+import { rememberDestination } from '@/lib/pendingDestination';
 import Icon from './Icon';
 import { nav, common } from '@/content/copy';
 import styles from './AppShell.module.css';
@@ -32,6 +33,7 @@ export default function AppShell({ children, activeRoute }) {
         // other internal URL skipped onboarding entirely and left the
         // assistant answering customers out of an empty business profile.
         if (!userData?.onboardingCompleted) {
+          rememberDestination();
           router.replace('/onboarding');
           return;
         }
