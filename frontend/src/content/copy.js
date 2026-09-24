@@ -165,6 +165,31 @@ export const dashboard = {
   },
 };
 
+/**
+ * The notifications page. Its own block rather than borrowing
+ * `empty.notifications.body` as a subtitle, which master did — so on an empty
+ * list the same sentence appeared twice, once as the subtitle and once as the
+ * empty-state body directly beneath it.
+ */
+export const notificationsPage = {
+  subtitle: 'Brand deals, priority conversations and account problems.',
+  markAllRead: 'Mark all read',
+  markAllError: "Couldn't mark them read. Try again.",
+  // The API returns at most 30 and never says so, while the unread count
+  // covers everything. Without this line the badge can say 45 above a list of 30.
+  truncated: (shown) => `Showing your ${shown} most recent.`,
+  openConversation: 'Open conversation',
+  unread: 'Unread',
+  // Keyed by Notification.type. `ai_analysis_completed` is listed in the schema
+  // comment but no code path ever creates one, so it has no entry here.
+  types: {
+    instagram_connection_problem: 'Account problem',
+    high_priority_conversation: 'Needs your reply',
+    new_brand_deal: 'Brand deal',
+    important_customer: 'Customer',
+  },
+};
+
 export const inbox = {
   title: 'Inbox',
   conversations: 'Conversations',
