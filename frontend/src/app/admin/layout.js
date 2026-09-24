@@ -1,12 +1,44 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+/**
+ * Admin frame — auth check, staff navigation, and the page shell.
+ *
+ * The SHELL is the customer app's: this renders the classes from
+ * components/ui/AppShell.module.css directly — same light sidebar, same active
+ * row, same topbar, same mobile drawer — so staff pages and customer pages
+ * read as one product. What differs is only what should: the nav items, the
+ * admin session check, and the admin logout. It does not use the AppShell
+ * COMPONENT because that one is wired to the customer session, customer nav
+ * and customer logout.
+ *
+ * The auth logic is master's, including the fix carried from Gate 1 that
+ * starts the login page unlocked rather than setting state synchronously in
+ * the effect.
+ *
+ * Changed: `alert()` on a failed "stop viewing as customer" is now an inline
+ * message; master's dark #1a1a2e sidebar and its horizontal-bar mobile layout
+ * are replaced by the shared shell and its drawer.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getAdminMe, adminLogout, exitImpersonation } from '@/lib/api';
 import Icon from '@/app/components/Icon';
-import { admin as t, common, errors } from '@/content/copy';
+import { Avatar, Button, Skeleton } from '@/app/components/ui';
+import { admin as t, errors, nav as navCopy } from '@/content/copy';
+import shell from '@/app/components/ui/AppShell.module.css';
 import styles from './admin.module.css';
+
+const cx = (...p) => p.filter(Boolean).join(' ');
+
+const NAV_ITEMS = [
+  { label: t.nav.dashboard, path: '/admin', icon: 'dashboard' },
+  { label: t.nav.users, path: '/admin/users', icon: 'users' },
+  { label: t.nav.accounts, path: '/admin/accounts', icon: 'instagram' },
+  { label: t.nav.support, path: '/admin/support', icon: 'lifeBuoy' },
+  { label: t.nav.settings, path: '/admin/settings', icon: 'settings' },
+];
 
 export default function AdminLayout({ children }) {
   const pathname = usePathname();
@@ -14,7 +46,14 @@ export default function AdminLayout({ children }) {
   const [adminUsername, setAdminUsername] = useState('');
   const [loading, setLoading] = useState(() => pathname !== '/admin/login');
   const [authenticated, setAuthenticated] = useState(false);
-  const [impersonating, setImpersonating] = useState(false);
+  // Never true today: GET /api/admin/me returns no impersonation flag, so the
+  // banner below has never rendered. Wiring it is impersonation behaviour,
+  // owned elsewhere — kept, restyled, reported.
+  const [impersonating] = useState(false);
+  const [exitError, setExitError] = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef(null);
+  const menuBtnRef = useRef(null);
 
   const isLoginPage = pathname === '/admin/login';
 
@@ -32,12 +71,8 @@ export default function AdminLayout({ children }) {
         } else {
           setAuthenticated(true);
           setAdminUsername(adminData.username || t.panelTitle);
-          // NOTE: `impersonating` is never set to true anywhere — GET
-          // /api/admin/me does not return an impersonation flag, so this
-          // banner has never rendered. Wiring it up is impersonation
-          // behaviour, which is owned elsewhere; reported, not changed here.
         }
-      } catch (err) {
+      } catch {
         setAuthenticated(false);
         router.push('/admin/login');
       } finally {
@@ -47,112 +82,143 @@ export default function AdminLayout({ children }) {
     checkAdmin();
   }, [router, isLoginPage]);
 
+  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    function onKey(e) {
+      if (e.key === 'Escape') {
+        closeDrawer();
+        menuBtnRef.current?.focus();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    drawerRef.current?.querySelector('a, button')?.focus();
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drawerOpen, closeDrawer]);
+
   async function handleAdminLogout() {
     try {
       await adminLogout();
-      window.location.href = '/admin/login';
-    } catch (err) {
+    } finally {
       window.location.href = '/admin/login';
     }
   }
 
   async function handleExitImpersonation() {
+    setExitError('');
     try {
       await exitImpersonation();
       window.location.href = '/admin';
-    } catch (err) {
-      alert(errors.admin.exitImpersonate);
+    } catch {
+      setExitError(errors.admin.exitImpersonate);
     }
   }
 
-  if (isLoginPage) {
-    return <>{children}</>;
-  }
+  if (isLoginPage) return <>{children}</>;
+
+  const current = NAV_ITEMS.find((n) => n.path === pathname);
 
   if (loading || !authenticated) {
     return (
-      <div className={styles.adminLayout} style={{ alignItems: 'center', justifyContent: 'center' }} aria-busy="true" aria-label={common.loading}>
-        <div className="spinner spinner-lg" />
+      <div className={shell.shell}>
+        <div className={shell.main}>
+          <div className={shell.content}>
+            <div className={shell.contentInner}><Skeleton lines={5} height={48} /></div>
+          </div>
+        </div>
       </div>
     );
   }
 
-  const navItems = [
-    { label: t.nav.dashboard, path: '/admin', icon: 'dashboard' },
-    { label: t.nav.users, path: '/admin/users', icon: 'users' },
-    { label: t.nav.accounts, path: '/admin/accounts', icon: 'instagram' },
-    { label: t.nav.support, path: '/admin/support', icon: 'lifeBuoy' },
-    { label: t.nav.settings, path: '/admin/settings', icon: 'settings' },
-  ];
-
   return (
-    <div className={styles.adminLayout}>
-      {/* Impersonation Warning Banner */}
-      {impersonating && (
-        <div className={styles.impersonationBanner}>
-          <span>
-            <Icon name="alertTriangle" size={14} /> {t.impersonation.banner}
-          </span>
-          <button onClick={handleExitImpersonation}>{t.impersonation.exit}</button>
-        </div>
-      )}
+    <div className={shell.shell}>
+      <div className={cx(shell.scrim, drawerOpen && shell.scrimOpen)} onClick={closeDrawer} aria-hidden="true" />
 
-      {/* Sidebar Navigation */}
-      <aside className={styles.sidebar} style={{ marginTop: impersonating ? '38px' : '0' }}>
-        <div className={styles.sidebarHeader}>
-          <Link href="/admin" className={styles.brand}>
-            <span className={styles.brandBadge}>{t.login.eyebrow}</span>
-            <span className={styles.brandTitle}>{common.productName}</span>
-          </Link>
-        </div>
+      <aside ref={drawerRef} className={cx(shell.sidebar, drawerOpen && shell.sidebarOpen)} aria-label={t.panelTitle}>
+        <Link href="/admin" className={shell.brand} onClick={closeDrawer}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/assets/siffty-logo-sm.webp" alt="" className={shell.brandMark} width={22} height={22} />
+          <span className={shell.brandName}>{t.brand}</span>
+        </Link>
 
-        <nav className={styles.nav}>
-          {navItems.map(item => {
-            const isActive = pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                href={item.path}
-                className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
-              >
-                <Icon name={item.icon} size={15} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+        <nav className={shell.nav}>
+          <div className={shell.navSection}>
+            <span className={shell.navSectionLabel}>{t.panelTitle}</span>
+            {NAV_ITEMS.map((item) => {
+              const active = pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={cx(shell.navItem, active && shell.navItemActive)}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={closeDrawer}
+                >
+                  <Icon name={item.icon} size={16} />
+                  <span className={shell.navItemLabel}>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
         </nav>
 
-        <div className={styles.sidebarFooter}>
-          <div style={{ fontWeight: '600', color: 'white', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Icon name="user" size={14} /> {adminUsername || t.panelTitle}
+        <div className={shell.sidebarFooter}>
+          <div className={shell.userBtn}>
+            <Avatar name={adminUsername || t.panelTitle} size={28} decorative />
+            <span className={shell.userMeta}>
+              <span className={shell.userName}>{adminUsername || t.panelTitle}</span>
+              <span className={shell.userSub}>{t.panelTitle}</span>
+            </span>
           </div>
           <button
+            type="button"
+            className={cx(shell.navItem, shell.iconBtn)}
             onClick={handleAdminLogout}
-            className="btn btn-secondary btn-sm"
-            style={{ width: '100%' }}
+            aria-label={t.logOut}
+            title={t.logOut}
           >
-            <Icon name="logOut" size={13} /> {t.logOut}
+            <Icon name="logOut" size={16} />
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className={styles.main} style={{ marginTop: impersonating ? '38px' : '0' }}>
-        <header className={styles.header}>
-          <h1 className={styles.headerTitle}>
-            {navItems.find(n => n.path === pathname)?.label || t.panelTitle}
-          </h1>
-          <div>
-            <Link href="/dashboard" className="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
-              <Icon name="externalLink" size={13} /> {t.openApp}
+      <div className={shell.main}>
+        <header className={shell.topbar}>
+          <button
+            ref={menuBtnRef}
+            type="button"
+            className={cx(shell.navItem, shell.iconBtn, shell.menuBtn)}
+            onClick={() => setDrawerOpen((v) => !v)}
+            aria-label={navCopy.openMenu}
+            aria-expanded={drawerOpen}
+          >
+            <Icon name="menu" size={18} />
+          </button>
+
+          <h1 className={shell.topbarTitle}>{current?.label || t.panelTitle}</h1>
+
+          <div className={shell.topbarActions}>
+            <Link href="/dashboard" target="_blank" rel="noopener noreferrer" className={styles.openApp}>
+              <Icon name="externalLink" size={13} />
+              {t.openApp}
             </Link>
           </div>
         </header>
 
-        <div className={styles.content}>
-          {children}
+        <div className={shell.content}>
+          <div className={shell.contentInner}>
+            {impersonating && (
+              <div className={styles.impersonation} role="status">
+                <span>{t.impersonation.banner}</span>
+                <Button size="sm" onClick={handleExitImpersonation}>{t.impersonation.exit}</Button>
+              </div>
+            )}
+            {exitError && <p className={cx(styles.notice, styles.noticeError)} role="alert">{exitError}</p>}
+            {children}
+          </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

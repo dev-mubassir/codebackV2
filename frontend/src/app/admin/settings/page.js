@@ -1,8 +1,20 @@
 'use client';
 
+/**
+ * Admin — administrators and the server configuration, read-only.
+ *
+ * Data layer is master's: one GET /api/admin/settings.
+ *
+ * Changed: the section headers were inline-styled divs; they are panel
+ * headings now. "Signature checks skipped" was in the same badge as an
+ * expired token — it is a warning (something to act on), and "enforced" is
+ * neutral rather than green, because it is a setting, not money earned.
+ */
+
 import { useEffect, useState } from 'react';
 import { getAdminSettings } from '@/lib/api';
-import { admin as t, common, errors } from '@/content/copy';
+import { Badge, Skeleton } from '@/app/components/ui';
+import { admin as t, errors } from '@/content/copy';
 import { roleLabel } from '@/content/labels';
 import { formatDate } from '@/content/format';
 import styles from '../admin.module.css';
@@ -15,9 +27,8 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        const data = await getAdminSettings();
-        setSettings(data);
-      } catch (err) {
+        setSettings(await getAdminSettings());
+      } catch {
         setError(errors.admin.settings);
       } finally {
         setLoading(false);
@@ -26,90 +37,83 @@ export default function AdminSettingsPage() {
     loadSettings();
   }, []);
 
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px' }} aria-busy="true" aria-label={common.loading}>
-        <div className="spinner spinner-lg" style={{ margin: '0 auto' }} />
-      </div>
-    );
-  }
+  if (loading) return <div className={styles.loading}><Skeleton lines={5} height={40} /></div>;
 
   if (error) {
     return (
-      <div className={`${styles.alertBox} ${styles.alertBoxWarning}`} role="alert">
-        <span className={styles.alertText}>{error}</span>
+      <div className={`${styles.notice} ${styles.noticeError}`} role="alert">
+        <span className={styles.noticeText}>{error}</span>
       </div>
     );
   }
 
-  return (
-    <div>
-      <div className={styles.tableContainer} style={{ marginBottom: '24px' }}>
-        <div style={{ padding: '14px 20px', background: 'var(--bg-surface-secondary)', borderBottom: '1px solid var(--border-default)', fontWeight: 600, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          {t.settings.adminsTitle}
-        </div>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>{t.settings.adminsColumns.name}</th>
-              <th>{t.settings.adminsColumns.email}</th>
-              <th>{t.settings.adminsColumns.role}</th>
-              <th>{t.settings.adminsColumns.granted}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {settings?.adminUsers?.map(admin => (
-              <tr key={admin.id}>
-                <td>
-                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{admin.name || t.users.unnamed}</div>
-                </td>
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{admin.email || admin.id}</td>
-                <td>
-                  <span className={styles.badgeValid}>{roleLabel(admin.role || 'ADMIN').label}</span>
-                </td>
-                <td>{formatDate(admin.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+  const env = settings?.environment || {};
 
-      {/* System Environment Config */}
-      <div className={styles.tableContainer}>
-        <div style={{ padding: '14px 20px', background: 'var(--bg-surface-secondary)', borderBottom: '1px solid var(--border-default)', fontWeight: 600, fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-          {t.settings.environmentTitle}
+  return (
+    <div className={styles.stack}>
+      <section className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <h2 className={styles.panelTitle}>{t.settings.adminsTitle}</h2>
         </div>
-        <table className={styles.table}>
-          <tbody>
-            <tr>
-              <td style={{ fontWeight: 600, width: '220px', color: 'var(--text-primary)' }}>{t.settings.rows.port}</td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.port}</td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.settings.rows.frontendUrl}</td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.frontendUrl}</td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.settings.rows.redirectUri}</td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.redirectUri}</td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.settings.rows.signatureVerification}</td>
-              <td>
-                <span className={settings?.environment?.skipSignatureVerification ? styles.badgeExpired : styles.badgeValid}>
-                  {settings?.environment?.skipSignatureVerification
-                    ? t.settings.signatureSkipped
-                    : t.settings.signatureEnforced}
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{t.settings.rows.nodeEnv}</td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>{settings?.environment?.nodeEnv}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <div className={styles.tableScroll}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>{t.settings.adminsColumns.name}</th>
+                <th>{t.settings.adminsColumns.email}</th>
+                <th>{t.settings.adminsColumns.role}</th>
+                <th>{t.settings.adminsColumns.granted}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {settings?.adminUsers?.map((admin) => (
+                <tr key={admin.id}>
+                  <td className={styles.cellPrimary}>{admin.name || t.users.unnamed}</td>
+                  <td className={styles.cellMono}>{admin.email || admin.id}</td>
+                  <td><Badge tone="neutral">{roleLabel(admin.role || 'ADMIN').label}</Badge></td>
+                  <td>{formatDate(admin.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <h2 className={styles.panelTitle}>{t.settings.environmentTitle}</h2>
+        </div>
+        <div className={styles.tableScroll}>
+          <table className={`${styles.table} ${styles.tableCompact}`}>
+            <tbody>
+              <tr>
+                <td className={styles.cellKey}>{t.settings.rows.port}</td>
+                <td className={styles.cellMono}>{env.port}</td>
+              </tr>
+              <tr>
+                <td className={styles.cellKey}>{t.settings.rows.frontendUrl}</td>
+                <td className={styles.cellMono}>{env.frontendUrl}</td>
+              </tr>
+              <tr>
+                <td className={styles.cellKey}>{t.settings.rows.redirectUri}</td>
+                <td className={styles.cellMono}>{env.redirectUri}</td>
+              </tr>
+              <tr>
+                <td className={styles.cellKey}>{t.settings.rows.signatureVerification}</td>
+                <td>
+                  {env.skipSignatureVerification
+                    ? <Badge tone="warning">{t.settings.signatureSkipped}</Badge>
+                    : <Badge tone="neutral">{t.settings.signatureEnforced}</Badge>}
+                </td>
+              </tr>
+              <tr>
+                <td className={styles.cellKey}>{t.settings.rows.nodeEnv}</td>
+                <td className={styles.cellMono}>{env.nodeEnv}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

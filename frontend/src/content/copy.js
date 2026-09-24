@@ -614,7 +614,7 @@ export const admin = {
   logOut: 'Log out',
 
   login: {
-    eyebrow: 'ADMIN',
+    eyebrow: 'Admin',
     title: 'Siffty admin',
     subtitle: 'Staff sign-in.',
     usernameLabel: 'Username',
@@ -651,16 +651,16 @@ export const admin = {
       subtitle: 'Since the server last restarted. These counters reset on deploy.',
       provider: 'Active provider',
       providerNone: 'None used yet',
-      keywordMatches: { label: 'FILTERED WITHOUT A CALL', hint: 'Spam and greetings caught by the keyword filter' },
-      totalCalls: { label: 'CALLS MADE', hint: 'successful' },
-      failures: { label: 'CALLS FAILED', hint: 'Fell back to an unclassified conversation' },
+      keywordMatches: { label: 'Filtered without a call', hint: 'Spam and greetings caught by the keyword filter' },
+      totalCalls: { label: 'Calls made', hint: 'successful' },
+      failures: { label: 'Calls failed', hint: 'Fell back to an unclassified conversation' },
     },
     backlog: {
       title: 'Processing backlog',
       subtitle: 'All time, across every customer.',
-      pending: { label: 'WAITING', hint: 'Messages queued or being read' },
-      failed: { label: 'FAILED', hint: 'Messages that could not be read' },
-      queueMode: { label: 'QUEUE', hint: 'How background work is being run' },
+      pending: { label: 'Waiting', hint: 'Messages queued or being read' },
+      failed: { label: 'Failed', hint: 'Messages that could not be read' },
+      queueMode: { label: 'Queue', hint: 'How background work is being run' },
     },
     recentSignups: {
       title: 'Recent signups',
@@ -720,8 +720,8 @@ export const admin = {
     subtitle: 'Find a customer or connected account. Read-only.',
     searchPlaceholder: 'Email address or @username',
     submit: 'Search',
-    matchedUsers: 'MATCHED CUSTOMERS',
-    matchedAccounts: 'MATCHED ACCOUNTS',
+    matchedUsers: 'Matched customers',
+    matchedAccounts: 'Matched accounts',
     owner: 'Owner',
     empty: 'Nothing matched that search.',
     inspectorTitle: 'Conversation',
@@ -731,9 +731,9 @@ export const admin = {
   },
 
   settings: {
-    adminsTitle: 'ADMINISTRATORS',
+    adminsTitle: 'Administrators',
     adminsColumns: { name: 'Name', email: 'Email', role: 'Role', granted: 'Granted' },
-    environmentTitle: 'SERVER CONFIGURATION',
+    environmentTitle: 'Server configuration',
     rows: {
       port: 'Backend port',
       frontendUrl: 'App address',
