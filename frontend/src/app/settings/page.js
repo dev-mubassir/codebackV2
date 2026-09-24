@@ -251,8 +251,10 @@ function SettingsPageContent() {
 
   return (
     <AppShell user={user} title={t.title} activeRoute="/settings">
+      {/* No <h1> here: the AppShell topbar already renders one carrying the
+          page name, and two headings saying "Account" is a duplicate for a
+          reader and a second top-level heading for a screen reader. */}
       <header className={styles.pageHead}>
-        <h1 className={styles.pageTitle}>{t.title}</h1>
         <p className={styles.pageSub}>{t.subtitle}</p>
       </header>
 

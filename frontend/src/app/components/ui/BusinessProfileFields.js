@@ -24,8 +24,9 @@
  */
 
 import { Input, Textarea, Select } from './index';
-import { settings as settingsCopy } from '@/content/copy';
+import { settings as settingsCopy, common } from '@/content/copy';
 import { TONE_ORDER, toneLabel } from '@/content/labels';
+import s from './ui.module.css';
 
 const bp = settingsCopy.businessProfile;
 const replies = settingsCopy.replies;
@@ -57,6 +58,13 @@ export const ONBOARDING_FIELDS = [
   'policies', 'paymentMethods', 'faqData', 'aiInstructions', 'tone',
 ];
 
+/** What Account shows, read-only. Enough to recognise the profile without
+ *  restating all nine fields on a page whose job is the login, not the
+ *  business. Editing happens in Settings, which the card links to. */
+export const ACCOUNT_SUMMARY_FIELDS = [
+  'businessName', 'description', 'productsServices', 'pricingInfo', 'locationDelivery',
+];
+
 /** What the Settings business-profile tab asks for. Tone and instructions live
  *  with the reply settings there, and `locationDelivery` is new — master saved
  *  it without ever showing it. */
@@ -70,17 +78,37 @@ export const BUSINESS_PROFILE_LIMITS = Object.fromEntries(
   Object.entries(FIELD_DEFS).filter(([, d]) => d.max).map(([k, d]) => [k, d.max]),
 );
 
+/**
+ * @param {boolean} [readOnly]  Render each field as a label and its stored
+ *   value instead of a control. Account needs to SHOW this profile, and a
+ *   fourth hand-written rendering of the same nine labels is how the first
+ *   three drifted apart.
+ */
 export default function BusinessProfileFields({
   values,
   onChange,
   disabled = false,
   fields = ONBOARDING_FIELDS,
+  readOnly = false,
 }) {
   return (
     <>
       {fields.map((name) => {
         const def = FIELD_DEFS[name];
         if (!def) return null;
+
+        if (readOnly) {
+          const raw = name === 'tone'
+            ? toneLabel(values.tone || 'friendly').label
+            : values[name];
+          const text = typeof raw === 'string' ? raw.trim() : '';
+          return (
+            <div key={name} className={s.readField}>
+              <span className={s.readLabel}>{def.label}</span>
+              <p className={s.readValue}>{text || common.notConfigured}</p>
+            </div>
+          );
+        }
 
         // `key` stays an explicit prop on each element rather than riding in
         // this object: React reads it fine either way, but the lint rule is

@@ -205,6 +205,16 @@ export default function OnboardingPage() {
             {navCopy.logOut}
           </button>
 
+          {/* The first screen a new account ever sees. Without a mark it
+              reads as a detached form rather than part of the product. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/assets/siffty-logo-sm.webp"
+            alt=""
+            className={styles.mark}
+            width={36}
+            height={36}
+          />
           <h1 className={styles.title}>{t.title}</h1>
           <p className={styles.subtitle}>{t.subtitle}</p>
 

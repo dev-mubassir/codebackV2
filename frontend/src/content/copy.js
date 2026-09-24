@@ -371,10 +371,10 @@ export const account = {
     description: 'What Siffty knows about your business.',
     editAction: 'Edit business profile',
     empty: 'No business profile yet. Add one so Siffty can answer questions about your business.',
-    servicesLabel: 'PRODUCTS AND SERVICES',
-    pricingLabel: 'PRICING',
-    replyModeLabel: 'REPLY MODE',
-    toneLabel: 'REPLY TONE',
+    servicesLabel: 'Products and services',
+    pricingLabel: 'Pricing',
+    replyModeLabel: 'Reply mode',
+    toneLabel: 'Reply tone',
   },
 
   connectedAccounts: {
@@ -1001,6 +1001,9 @@ export const meta = {
 
 export const legal = {
   backToHome: 'Back to Siffty',
+  // Names the legal link group for a screen reader, which otherwise announces
+  // an unlabelled <nav> with three links and no idea what they are.
+  footerLabel: 'Legal',
   lastUpdated: 'Last updated',
   privacyTitle: 'Privacy policy',
   termsTitle: 'Terms of service',

@@ -49,6 +49,13 @@
   .signOut { position: static; display: block; margin: 0 0 var(--ui-space-3) auto; }
 }
 
+.mark {
+  display: block;
+  width: 36px;
+  height: 36px;
+  margin: 0 auto var(--ui-space-3);
+}
+
 .title {
   margin: 0 0 var(--ui-space-1);
   font-size: var(--ui-text-xl);
