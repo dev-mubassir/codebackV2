@@ -1,128 +1,144 @@
-/* Shared plan card. See PlanCard.js — neither Wave 1 gate edits this. */
+/*
+ * PlanCard visuals.
+ *
+ * STYLING ONLY is open on this file (lifted 2026-09-24). PlanCard.js remains a
+ * shared contract: its props, what it computes, and every number it prints are
+ * unchanged, and this restyle made no edit to that file at all. It is imported
+ * by the billing page and by PricingSection, which nothing currently renders.
+ *
+ * What changed, all through --ui-* tokens:
+ *   - The recommended card was a 1px border PLUS a 1px box-shadow ring,
+ *     i.e. a shadow used as a thicker border. It is an accent border now;
+ *     the badge already says "recommended" in words.
+ *   - Two sizes were off the type scale (a 32px price, an 18px name).
+ *   - Every feature bullet was a green dot. Green is the colour for money
+ *     already earned, and "unused replies roll over" is not that — the
+ *     bullets are neutral.
+ */
 
 .card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  position: relative;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  padding: 28px 24px;
   min-width: 0;
+  padding: var(--ui-space-6) var(--ui-space-5);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
 }
 
-.recommended {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary);
-}
+.recommended { border-color: var(--ui-accent); }
 
 .badge {
   position: absolute;
-  top: -11px;
-  left: 24px;
-  background: var(--color-primary);
-  color: var(--color-primary-text);
-  font-size: 12px;
+  top: -10px;
+  left: var(--ui-space-5);
+  padding: 4px var(--ui-space-2);
+  background: var(--ui-accent);
+  color: var(--ui-text-inverse);
+  border-radius: var(--ui-radius-sm);
+  font-size: var(--ui-text-xs);
   font-weight: 600;
   line-height: 1;
-  padding: 6px 10px;
-  border-radius: 999px;
 }
 
 .name {
-  margin: 0 0 12px;
-  font-size: 18px;
+  margin: 0 0 var(--ui-space-3);
+  font-size: var(--ui-text-lg);
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
 }
 
 .priceRow {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  margin-bottom: 20px;
   flex-wrap: wrap;
+  gap: var(--ui-space-1);
+  margin-bottom: var(--ui-space-5);
 }
 
 .price {
-  font-size: 32px;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.1;
+  font-size: var(--ui-text-2xl);
+  font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  line-height: var(--ui-leading-tight);
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .period {
-  font-size: 14px;
-  color: var(--text-secondary);
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
 }
 
 .features {
-  list-style: none;
-  margin: 0 0 20px;
-  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ui-space-2);
+  margin: 0 0 var(--ui-space-5);
+  padding: 0;
+  list-style: none;
 }
 
 .features li {
-  font-size: 14px;
-  color: var(--text-secondary);
-  padding-left: 20px;
   position: relative;
+  padding-left: var(--ui-space-5);
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
 }
 
 .features li::before {
   content: '';
   position: absolute;
-  left: 4px;
-  top: 7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-success);
+  left: var(--ui-space-1);
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--ui-radius-full);
+  background: var(--ui-text-faint);
 }
 
+/* NOT currently rendered — and that is a regression, not a design choice.
+   Master renders these add-on prices on every card ("the Starter-vs-Pro gap is
+   the whole upgrade argument"); the rejected redesign snapshot 7049ddc deleted
+   the JSX but left these classes, and left `pack`, `packPrice` and `igPrice`
+   computed-but-unused in PlanCard.js. Tokenised here so that restoring master's
+   21 lines needs no stylesheet change. Restoration is pending approval. */
 .addons {
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 14px;
-  margin-bottom: 20px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ui-space-2);
+  margin-bottom: var(--ui-space-5);
+  padding-top: var(--ui-space-3);
+  border-top: 1px solid var(--ui-border);
 }
 
 .addonsLabel {
-  font-size: 11px;
+  font-size: var(--ui-text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-tertiary);
+  color: var(--ui-text-faint);
 }
 
 .addonRow {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  color: var(--text-secondary);
+  gap: var(--ui-space-3);
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
 }
 
 .addonPrice {
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ui-ink);
   white-space: nowrap;
 }
 
-.action {
-  margin-top: auto;
-}
+.action { margin-top: auto; }
 
 @media (max-width: 640px) {
-  .card {
-    padding: 24px 20px;
-  }
-  .price {
-    font-size: 28px;
-  }
+  .card { padding: var(--ui-space-5) var(--ui-space-4); }
 }

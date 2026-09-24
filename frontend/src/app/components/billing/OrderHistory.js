@@ -72,7 +72,7 @@ export default function OrderHistory({ orders, plans }) {
         <p className={styles.help}>{billing.orders.empty}</p>
       ) : (
         <div className={styles.tableWrap}>
-          <table className="data-table">
+          <table className={styles.table}>
             <thead>
               <tr>
                 <th>{billing.orders.columnDate}</th>

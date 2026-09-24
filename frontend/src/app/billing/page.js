@@ -25,15 +25,17 @@
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-import AppShell from '@/app/components/AppShell';
+import AppShell from '@/app/components/ui/AppShell';
 import Icon from '@/app/components/Icon';
+import { Skeleton } from '@/app/components/ui';
 import PlanCard from '@/app/components/pricing/PlanCard';
 import { usePricing, formatPrice, priceFor, REGION_IN, REGION_INTL } from '@/lib/pricing';
 import { common } from '@/content/copy';
 import { billing } from '@/content/billingCopy';
-import { getInstagramAuthUrl } from '@/lib/api';
+import { getInstagramAuthUrl, getMe } from '@/lib/api';
+import { rememberDestination } from '@/lib/pendingDestination';
 import { formatDate } from '@/content/format';
 import { planBlock } from '@/lib/planChange';
 
@@ -65,7 +67,7 @@ const REPLY_PACK_FALLBACK_CODE = 'reply_credits_500';
 const ORDER_POLL_INTERVAL_MS = 3000;
 const ORDER_POLL_ATTEMPTS = 10;
 
-function BillingPageContent() {
+function BillingPageContent({ user }) {
   const searchParams = useSearchParams();
 
   const { summary, loading: summaryLoading, error: summaryError, reload } = useBillingSummary();
@@ -254,9 +256,9 @@ function BillingPageContent() {
 
   if (summaryLoading || pricing.loading) {
     return (
-      <AppShell activeRoute="/billing">
+      <AppShell user={user} title={billing.page.title} activeRoute="/billing">
         <div className={styles.loadingContainer} aria-busy="true" aria-label={common.loading}>
-          <div className="spinner spinner-lg" />
+          <Skeleton lines={4} height={56} />
         </div>
       </AppShell>
     );
@@ -264,10 +266,10 @@ function BillingPageContent() {
 
   if (summaryError || !summary) {
     return (
-      <AppShell activeRoute="/billing">
+      <AppShell user={user} title={billing.page.title} activeRoute="/billing">
         <div className={styles.errorState}>
           <p className={styles.errorText}>{billing.errors.loadSummary}</p>
-          <button type="button" className="btn btn-secondary" onClick={() => reload()}>
+          <button type="button" className={styles.btnSecondary} onClick={() => reload()}>
             {billing.common.retry}
           </button>
         </div>
@@ -281,10 +283,9 @@ function BillingPageContent() {
   });
 
   return (
-    <AppShell activeRoute="/billing">
+    <AppShell user={user} title={billing.page.title} activeRoute="/billing">
       <div className={styles.pageHeader}>
         <div>
-          <h1 className={styles.pageTitle}>{billing.page.title}</h1>
           <p className={styles.pageSubtitle}>{billing.page.subtitle}</p>
         </div>
 
@@ -387,8 +388,7 @@ function BillingPageContent() {
                   action={
                     <button
                       type="button"
-                      className={`btn ${isCurrent || block ? 'btn-secondary' : 'btn-primary'}`}
-                      style={{ width: '100%' }}
+                      className={`${isCurrent || block ? styles.btnSecondary : styles.btnPrimary} ${styles.btnBlock}`}
                       onClick={() => openPlanCheckout(plan.code)}
                     >
                       {block
@@ -435,17 +435,79 @@ function BillingPageContent() {
   );
 }
 
-export default function BillingPage() {
-  // useSearchParams needs a Suspense boundary in the app router.
-  return (
-    <Suspense
-      fallback={
-        <div className={styles.loadingContainer} aria-busy="true" aria-label={common.loading}>
-          <div className="spinner spinner-lg" />
-        </div>
+/**
+ * The flag gate, and the session.
+ *
+ * It sits OUTSIDE BillingPageContent on purpose. Hooks cannot be called
+ * conditionally, and the content component's first hooks — the billing summary,
+ * the catalogue, checkout — each start a request the moment they mount. With
+ * billing switched off those requests 404, and master rendered the result as
+ * "Couldn't load your billing details. Refresh the page to try again": an
+ * instruction to retry something that can never work. Deciding here, before
+ * the content mounts, means that with the flag off not one billing request is
+ * made and not one billing word is drawn.
+ *
+ * Until the decision is made the page shows the shell and a skeleton, with no
+ * title — the title "Billing" is itself billing content, and must not flash
+ * for someone about to be sent away.
+ */
+function BillingGate() {
+  const router = useRouter();
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      let me;
+      try {
+        me = await getMe();
+      } catch {
+        if (!cancelled) router.push('/login');
+        return;
       }
-    >
-      <BillingPageContent />
+      if (cancelled) return;
+      if (!me?.onboardingCompleted) {
+        rememberDestination();
+        router.replace('/onboarding');
+        return;
+      }
+      // replace, not push: /billing must not stay in history as a page that
+      // bounces, or Back returns the user to it and it bounces again.
+      if (!me?.features?.billing) {
+        router.replace('/dashboard');
+        return;
+      }
+      setUser(me);
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  if (!user) return <GateShell />;
+
+  // The Suspense boundary sits DIRECTLY around the component that calls
+  // useSearchParams — the pattern the Next docs show, and the one master used.
+  // The first version of this change put the boundary around BillingGate
+  // instead, and /billing then hung on its loading state: two shells in the
+  // DOM, the boundary's fallback visible and the gate's own shell hidden
+  // inside the wrapper React uses for suspended content, with no error logged.
+  // Keep the boundary here.
+  return (
+    <Suspense fallback={<GateShell />}>
+      <BillingPageContent user={user} />
     </Suspense>
   );
+}
+
+/** Frame and skeleton, with no title: "Billing" is itself billing content. */
+function GateShell() {
+  return (
+    <AppShell user={null} title="">
+      <Skeleton lines={4} height={56} />
+    </AppShell>
+  );
+}
+
+export default function BillingPage() {
+  return <BillingGate />;
 }

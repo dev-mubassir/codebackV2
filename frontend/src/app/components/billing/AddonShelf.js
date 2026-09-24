@@ -41,7 +41,7 @@ export default function AddonShelf({ summary, catalogPlan, region, onBuyAddon })
       <div className={styles.panelHeader}>
         <h2 className={styles.panelTitle}>{billing.addons.heading}</h2>
       </div>
-      <p className={styles.help} style={{ marginBottom: 8 }}>
+      <p className={`${styles.help} ${styles.helpBefore}`}>
         {billing.addons.subheading}
       </p>
 
@@ -55,7 +55,7 @@ export default function AddonShelf({ summary, catalogPlan, region, onBuyAddon })
             <span className={styles.addonPrice}>{formatPrice(packPrice.amount, packPrice.currency)}</span>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={styles.btnSecondarySm}
               onClick={() => onBuyAddon(pack.code)}
               disabled={!canBuy}
             >
@@ -75,7 +75,7 @@ export default function AddonShelf({ summary, catalogPlan, region, onBuyAddon })
             <span className={styles.addonPrice}>{formatPrice(igPrice.amount, igPrice.currency)}</span>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
+              className={styles.btnSecondarySm}
               onClick={() => onBuyAddon(EXTRA_IG_ACCOUNT)}
               disabled={!canBuy}
             >
@@ -86,7 +86,7 @@ export default function AddonShelf({ summary, catalogPlan, region, onBuyAddon })
       )}
 
       {!canBuy && (
-        <p className={styles.help} style={{ marginTop: 12 }}>
+        <p className={`${styles.help} ${styles.helpAfter}`}>
           {billing.addons.needsPlan}
         </p>
       )}

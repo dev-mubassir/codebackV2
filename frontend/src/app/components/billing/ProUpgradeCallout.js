@@ -75,11 +75,11 @@ export default function ProUpgradeCallout({ summary, plans, region, onUpgrade, o
           {isSaving ? billing.upsell.body : billing.upsell.comparisonBody}
         </p>
         <div className={styles.upsellActions}>
-          <button type="button" className="btn btn-primary" onClick={() => onUpgrade('PRO')}>
+          <button type="button" className={styles.btnPrimary} onClick={() => onUpgrade('PRO')}>
             {billing.upsell.button}
           </button>
           {onDismiss && (
-            <button type="button" className="btn btn-ghost" onClick={onDismiss}>
+            <button type="button" className={styles.btnGhost} onClick={onDismiss}>
               {billing.upsell.dismiss}
             </button>
           )}
