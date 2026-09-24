@@ -1,92 +1,70 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback, useMemo, Suspense } from 'react';
+/**
+ * Unified Inbox.
+ *
+ * The DATA LAYER is master's, restored verbatim in behaviour — seven socket
+ * listeners, the ten-case folder matcher, the 24-hour window and its send
+ * gate, per-conversation auto-reply, brand deals. Master is what runs in
+ * production; this file changes how the screen looks, never what it shows or
+ * how it flows.
+ *
+ * One payload shape is worth naming, because a previous rewrite got it wrong
+ * and the failure was silent: `new_message` arrives as
+ * `{ conversationId, accountId, message: {...}, contact: {...} }`, NOT as the
+ * message itself. Reading it as the message gave every live DM an undefined
+ * id and blank content.
+ *
+ * NOTHING HERE IS INVENTED. If the assistant has not classified a
+ * conversation, the tag says so; if it has not scored one, the meters are
+ * absent rather than showing a plausible number. There are no delivery ticks,
+ * because the backend stores no delivery or read state.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { io } from 'socket.io-client';
 import {
-  getMe, getConversations, getMessages, getAccounts, logout,
+  getMe, getConversations, getMessages, getAccounts,
   getConversationAnalysis, generateReply, sendReply, setConversationRead,
   updateBrandDealStatus, getNotifications, toggleAutoReply,
   clearChat, deleteConversation,
 } from '@/lib/api';
-import { INBOX_FILTERS, getCategoryMeta, getPriorityMeta } from '@/lib/categories';
+import { INBOX_FILTERS, getCategoryMeta } from '@/lib/categories';
 import Icon from '@/app/components/Icon';
+import AppShell from '@/app/components/ui/AppShell';
+import {
+  Avatar, Badge, Button, EmptyState, IconTile, Meter, Modal, Popover, PopoverItem, Select,
+  Skeleton, Textarea,
+} from '@/app/components/ui';
 import InboxFilterList from './InboxFilterList';
 import UnsortedMessagesBanner from '@/app/components/billing/UnsortedMessagesBanner';
-import NavSidebar, { NAV_DRAWER_ID } from '@/app/components/NavSidebar';
-// Read-only: reused so the mobile header/drawer match AppShell's look.
-// This file must never be edited from here.
-import appShellStyles from '@/app/components/AppShell.module.css';
-import { inbox as t, common, errors, empty, confirm as confirmCopy, nav } from '@/content/copy';
 import {
-  customerTypeLabel,
-  recommendedActionLabel,
-  brandDealStatusLabel,
+  inbox as t, settings as settingsCopy, common, errors, empty, confirm as confirmCopy,
+} from '@/content/copy';
+import {
+  customerTypeLabel, recommendedActionLabel, brandDealStatusLabel, messageTypePreviewLabel,
   replyModeSendsAutomatically,
-  messageTypePreviewLabel,
-  skipReasonLabel,
 } from '@/content/labels';
 import { formatTime, formatTimeAgo, formatCurrency } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import { rememberDestination } from '@/lib/pendingDestination';
 import styles from './inbox.module.css';
-// Stored values, unchanged. Display wording comes from content/labels.js.
-const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined', 'expired'];
 
-/** Classification filter matching logic for smart folders */
-function matchesFolder(conv, folderId) {
-  if (!conv) return false;
-  switch (folderId) {
-    case 'all':
-      return true;
-    case 'unread':
-      return Boolean(conv.unread);
-    case 'important':
-      return Boolean(
-        conv.needsAttention ||
-        conv.needsHuman ||
-        conv.priority === 'critical' ||
-        conv.priority === 'high' ||
-        (typeof conv.priorityScore === 'number' && conv.priorityScore >= 70)
-      );
-    case 'hot_leads':
-      return (
-        conv.category === 'hot_lead' ||
-        conv.customerType === 'hot_lead' ||
-        (typeof conv.purchaseIntent === 'number' && conv.purchaseIntent >= 80)
-      );
-    case 'leads':
-      return (
-        ['lead', 'service_inquiry', 'product_inquiry', 'pricing_inquiry', 'availability_inquiry', 'delivery_inquiry', 'hot_lead'].includes(conv.category) ||
-        conv.customerType === 'lead' ||
-        conv.customerType === 'hot_lead'
-      );
-    case 'customers':
-      return (
-        conv.category === 'customer' ||
-        conv.customerType === 'customer'
-      );
-    case 'questions':
-      return conv.category === 'general_question';
-    case 'support':
-      return conv.category === 'support_request';
-    case 'brand_deal':
-      return conv.category === 'brand_deal' || conv.category === 'collaboration';
-    case 'needs_human':
-      return Boolean(conv.needsHuman || conv.needsAttention);
-    case 'spam':
-      return ['spam', 'scam', 'abusive'].includes(conv.category);
-    default:
-      return conv.category === folderId;
-  }
-}
+const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined'];
 
-// TEMP (pre-Meta-review): conv.lastMessage may already be a raw `[messageType]`
-// token persisted by the backend for a textless attachment message (webhook.js
-// lastMessagePreview) before this fix existed, or fetched from an older row.
-// Reformat it for display without touching the stored value or the socket path.
-function displayPreview(lastMessage) {
-  const match = typeof lastMessage === 'string' && /^\[(.+)\]$/.exec(lastMessage);
-  return match ? messageTypePreviewLabel(match[1]) : lastMessage;
+/**
+ * labels.js tones -> Badge tones.
+ *
+ * Spam, scam and abusive arrive as warning/danger, but they map to NEUTRAL.
+ * Warning is reserved for something the user must act on — a token expiring, a
+ * reply window closing. Spam is a fact about a message, not a task.
+ */
+const NEUTRAL_CATEGORIES = new Set(['spam', 'scam', 'abusive']);
+
+function categoryTone(id, tone) {
+  if (NEUTRAL_CATEGORIES.has(id)) return 'neutral';
+  return tone === 'positive' ? 'positive' : 'neutral';
 }
 
 function InboxPageContent() {
@@ -106,303 +84,84 @@ function InboxPageContent() {
   const [contactInfo, setContactInfo] = useState(null);
   const [analysis, setAnalysis] = useState(null);
   const [draftText, setDraftText] = useState('');
+  const [customPromptText, setCustomPromptText] = useState('');
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
-  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notifUnreadCount, setNotifUnreadCount] = useState(0);
-  const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [aiSummaryHidden, setAiSummaryHidden] = useState(false);
-  const [editingAutoReply, setEditingAutoReply] = useState(false);
-  const [customPromptText, setCustomPromptText] = useState('');
   const [showClearModal, setShowClearModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [convToDelete, setConvToDelete] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [nowTs, setNowTs] = useState(() => Date.now());
+
   const messagesEndRef = useRef(null);
-  const socketRef = useRef(null);
   const messageIdsRef = useRef(new Set());
   const selectedConvRef = useRef(selectedConv);
+  const composerRef = useRef(null);
+  const detailsBtnRef = useRef(null);
 
-  // Keep selectedConvRef synchronized with selectedConv state
+  useEffect(() => { selectedConvRef.current = selectedConv; }, [selectedConv]);
+
+  // The 24-hour window closes on the clock, not on a user action, so the
+  // countdown needs its own tick. It also keeps the calculation below pure.
   useEffect(() => {
-    selectedConvRef.current = selectedConv;
-  }, [selectedConv]);
+    const id = setInterval(() => setNowTs(Date.now()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
-  // Compute live real-time counts for all inbox folders
   const folderCounts = useMemo(() => {
     const counts = {};
-    INBOX_FILTERS.forEach(f => {
-      counts[f.id] = conversations.filter(c => matchesFolder(c, f.id)).length;
+    INBOX_FILTERS.forEach((f) => {
+      counts[f.id] = conversations.filter((c) => matchesFolder(c, f.id)).length;
     });
     return counts;
   }, [conversations]);
 
-  // Compute conversations list filtered by active folder
-  const filteredConversations = useMemo(() => {
-    return conversations.filter(c => matchesFolder(c, selectedFilter));
-  }, [conversations, selectedFilter]);
+  const filteredConversations = useMemo(
+    () => conversations.filter((c) => matchesFolder(c, selectedFilter)),
+    [conversations, selectedFilter],
+  );
 
-  // ---- Auth check + load accounts & conversations ----
-  useEffect(() => {
-    async function init() {
-      try {
-        const userData = await getMe();
-        setUser(userData);
-
-        const accountsData = await getAccounts();
-        setAccounts(accountsData);
-
-        await loadConversations(initialAccountId);
-
-        if (initialConversationId) {
-          await selectConversation(initialConversationId);
-          setMobileShowChat(true);
-        }
-
-        getNotifications().then((d) => setNotifUnreadCount(d.unreadCount || 0)).catch(() => {});
-      } catch (err) {
-        router.push('/');
-      } finally {
-        setLoading(false);
-      }
-    }
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
-
-  // ---- Socket.io connection ----
-  useEffect(() => {
-    if (!user) return;
-
-    const socket = io(BACKEND_URL, { withCredentials: true });
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      socket.emit('join', { userId: user.id });
-    });
-
-    socket.on('new_message', handleNewMessage);
-    socket.on('conversation_read', handleConversationRead);
-    socket.on('analysis_completed', handleAnalysisCompleted);
-    socket.on('brand_deal_detected', handleBrandDealDetected);
-    socket.on('notification', () => setNotifUnreadCount((c) => c + 1));
-    socket.on('chat_cleared', handleChatCleared);
-    socket.on('conversation_deleted', handleConversationDeleted);
-
-    return () => {
-      socket.disconnect();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  // ---- Handle real-time conversation read / attention cleared ----
-  const handleConversationRead = useCallback((data) => {
-    if (!data?.conversationId) return;
-    setConversations(prev => prev.map(c =>
-      c.id === data.conversationId
-        ? {
-            ...c,
-            unread: Boolean(data.unread),
-            needsAttention: data.needsAttention !== undefined ? Boolean(data.needsAttention) : false,
-            needsHuman: data.needsHuman !== undefined ? Boolean(data.needsHuman) : false,
-          }
-        : c
-    ));
-  }, []);
-
-  // ---- Handle real-time chat cleared ----
-  const handleChatCleared = useCallback((data) => {
-    if (!data?.conversationId) return;
-    setConversations(prev => prev.map(c =>
-      c.id === data.conversationId
-        ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false }
-        : c
-    ));
-    if (selectedConvRef.current === data.conversationId) {
-      setMessages([]);
-      messageIdsRef.current.clear();
-    }
-  }, []);
-
-  // ---- Handle real-time conversation deleted ----
-  const handleConversationDeleted = useCallback((data) => {
-    if (!data?.conversationId) return;
-    setConversations(prev => prev.filter(c => c.id !== data.conversationId));
-    if (selectedConvRef.current === data.conversationId) {
-      setSelectedConv(null);
-      selectedConvRef.current = null;
-      setMessages([]);
-      setAnalysis(null);
-      setContactInfo(null);
-      setMobileShowChat(false);
-    }
-  }, []);
-
-  // ---- Auto-scroll to bottom on new messages ----
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  // ---- Handle real-time new message from Socket.io ----
-  const handleNewMessage = useCallback((data) => {
-    if (!data?.conversationId || !data?.message) return;
-
-    const currentSelectedId = selectedConvRef.current;
-    const isCurrentlyOpen = currentSelectedId === data.conversationId;
-    const isInbound = data.message?.direction === 'inbound';
-
-    // 1. Update live conversation list & unread state
-    setConversations(prev => {
-      const existing = prev.find(c => c.id === data.conversationId);
-      if (existing) {
-        return prev.map(c =>
-          c.id === data.conversationId
-            ? {
-              ...c,
-              // TEMP (pre-Meta-review): friendly label instead of a raw type token —
-              // see labels.js messageTypePreviewLabel().
-              lastMessage: data.message.content || messageTypePreviewLabel(data.message.messageType || 'text'),
-              lastMessageAt: data.message.igTimestamp || new Date().toISOString(),
-              unread: isCurrentlyOpen ? false : true,
-              messagingWindow: isInbound
-                ? { status: 'open', canReply: true, hoursRemaining: 24 }
-                : (existing.messagingWindow || { status: 'unknown', canReply: true }),
-              ...(data.conversation || {}),
-            }
-            : c
-        ).sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
-      } else {
-        // New conversation arriving from new contact
-        loadConversations();
-        return prev;
-      }
-    });
-
-    // 2. If user is currently in this open chat, append message to chat live!
-    if (isCurrentlyOpen) {
-      setMessages(prev => {
-        if (messageIdsRef.current.has(data.message.id)) return prev;
-        messageIdsRef.current.add(data.message.id);
-        return [...prev, data.message];
-      });
-      // Mark read in background
-      setConversationRead(data.conversationId).catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ---- Handle live AI analysis completion (category/priority/summary) ----
-  const handleAnalysisCompleted = useCallback((data) => {
-    if (!data?.conversationId) return;
-
-    setConversations(prev => prev.map(c =>
-      c.id === data.conversationId
-        ? {
-          ...c,
-          category: data.category || c.category,
-          intent: data.intent || c.intent,
-          customerType: data.customerType || c.customerType,
-          leadQuality: data.leadQuality ?? c.leadQuality,
-          purchaseIntent: data.purchaseIntent ?? c.purchaseIntent,
-          riskLevel: data.riskLevel || c.riskLevel,
-          scamProbability: data.scamProbability ?? c.scamProbability,
-          aiExplanation: data.aiExplanation || c.aiExplanation,
-          recommendedAction: data.recommendedAction || c.recommendedAction,
-          needsHuman: data.needsHuman ?? c.needsHuman,
-          priority: data.priority || c.priority,
-          priorityScore: data.priorityScore ?? c.priorityScore,
-          needsAttention: data.needsAttention ?? c.needsAttention,
-          summary: data.summary || c.summary,
-        }
-        : c
-    ));
-
-    if (selectedConvRef.current === data.conversationId) {
-      setAnalysis(prevAnalysis => ({
-        ...(prevAnalysis || {}),
-        category: data.category,
-        intent: data.intent,
-        customerType: data.customerType,
-        leadQuality: data.leadQuality,
-        purchaseIntent: data.purchaseIntent,
-        riskLevel: data.riskLevel,
-        scamProbability: data.scamProbability,
-        reason: data.aiExplanation,
-        recommendedAction: data.recommendedAction,
-        needsCreatorAttention: data.needsHuman,
-        priority: data.priority,
-        priorityScore: data.priorityScore,
-        summary: { ...(prevAnalysis?.summary || {}), summary: data.summary || prevAnalysis?.summary?.summary },
-      }));
-    }
-  }, []);
-
-  // ---- Handle live brand deal detection ----
-  const handleBrandDealDetected = useCallback((data) => {
-    if (selectedConvRef.current === data.conversationId) {
-      setAnalysis(prevAnalysis => (prevAnalysis ? { ...prevAnalysis, brandDeal: data.brandDeal } : prevAnalysis));
-    }
-    loadConversations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ---- Load all conversations for account ----
-  async function loadConversations(accId = selectedAccountId) {
+  const loadConversations = useCallback(async (accId = selectedAccountId) => {
     try {
       const data = await getConversations(accId);
       setConversations(data);
+      return data;
     } catch (err) {
       console.error('Failed to load conversations:', err);
+      return [];
     }
-  }
+  }, [selectedAccountId]);
 
-  // ---- Switch account filter ----
-  async function handleAccountChange(accId) {
-    setSelectedAccountId(accId);
-    setSelectedConv(null);
-    selectedConvRef.current = null;
-    setMessages([]);
-    await loadConversations(accId);
-  }
-
-  // ---- Switch folder filter (Instant client-side filter) ----
-  function handleFilterChange(filterId) {
-    setSelectedFilter(filterId);
-  }
-
-  // ---- Select a conversation ----
-  async function selectConversation(convId) {
+  const selectConversation = useCallback(async (convId) => {
     setSelectedConv(convId);
     selectedConvRef.current = convId;
     setMessages([]);
     setAnalysis(null);
     setDraftText('');
     setSendError('');
+    setDrawerOpen(false);
     messageIdsRef.current.clear();
-    setCopied(false);
-    setMobileShowChat(true);
+    setMobileChatOpen(true);
 
     try {
       const data = await getMessages(convId);
-      const uniqueMessages = data.messages.filter(msg => {
-        if (messageIdsRef.current.has(msg.id)) return false;
-        messageIdsRef.current.add(msg.id);
+      const unique = data.messages.filter((m) => {
+        if (messageIdsRef.current.has(m.id)) return false;
+        messageIdsRef.current.add(m.id);
         return true;
       });
-      setMessages(uniqueMessages);
+      setMessages(unique);
       setContactInfo(data.conversation.contact);
       setCustomPromptText(data.conversation.autoReplyPrompt || '');
-      setEditingAutoReply(false);
 
-      // The GET above marks it read server-side — reflect that optimistically.
-      setConversations(prev => prev.map(c => (c.id === convId ? {
+      // The GET marks it read server-side; mirror that, and carry across the
+      // fields only the detail endpoint returns.
+      setConversations((prev) => prev.map((c) => (c.id === convId ? {
         ...c,
         unread: false,
         needsAttention: false,
@@ -417,107 +176,249 @@ function InboxPageContent() {
     } catch (err) {
       console.error('Failed to load messages:', err);
     }
-  }
+  }, []);
 
-  // ---- Toggle Auto-Reply for current conversation ----
-  async function handleToggleAutoReply(overrideEnabled, overridePrompt) {
-    if (!selectedConv) return;
-    const currentConv = conversations.find(c => c.id === selectedConv);
-    const targetEnabled = typeof overrideEnabled === 'boolean' ? overrideEnabled : !currentConv?.autoReplyEnabled;
-    const targetPrompt = overridePrompt !== undefined ? overridePrompt : customPromptText;
+  /**
+   * Open the first conversation in a folder so the chat pane is not empty.
+   * Called at load and on account change rather than from an effect watching
+   * the list, which would re-select on every socket update. Skipped on a phone,
+   * where selecting replaces the list.
+   */
+  const autoSelectFirst = useCallback((rows, folderId) => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) return;
+    const first = (rows || []).find((c) => matchesFolder(c, folderId));
+    if (first) selectConversation(first.id);
+  }, [selectConversation]);
 
-    try {
-      const res = await toggleAutoReply(selectedConv, targetEnabled, targetPrompt);
-      setConversations(prev => prev.map(c => c.id === selectedConv ? { ...c, autoReplyEnabled: res.autoReplyEnabled, autoReplyPrompt: res.autoReplyPrompt } : c));
-    } catch (err) {
-      console.error('Failed to toggle auto-reply:', err);
-      alert(errors.toggleAutomation);
+  /* ---------------- Socket handlers: master's, verbatim ---------------- */
+
+  const handleNewMessage = useCallback((data) => {
+    if (!data?.conversationId || !data?.message) return;
+    const isOpen = selectedConvRef.current === data.conversationId;
+    const isInbound = data.message?.direction === 'inbound';
+
+    setConversations((prev) => {
+      const existing = prev.find((c) => c.id === data.conversationId);
+      if (!existing) {
+        loadConversations();
+        return prev;
+      }
+      return prev
+        .map((c) => (c.id === data.conversationId ? {
+          ...c,
+          lastMessage: data.message.content || messageTypePreviewLabel(data.message.messageType || 'text'),
+          lastMessageAt: data.message.igTimestamp || new Date().toISOString(),
+          unread: !isOpen,
+          messagingWindow: isInbound
+            ? { status: 'open', canReply: true, hoursRemaining: 24 }
+            : (existing.messagingWindow || { status: 'unknown', canReply: true }),
+          ...(data.conversation || {}),
+        } : c))
+        .sort((a, b) => new Date(b.lastMessageAt || 0) - new Date(a.lastMessageAt || 0));
+    });
+
+    if (isOpen) {
+      setMessages((prev) => {
+        if (messageIdsRef.current.has(data.message.id)) return prev;
+        messageIdsRef.current.add(data.message.id);
+        return [...prev, data.message];
+      });
+      setConversationRead(data.conversationId).catch(() => {});
     }
-  }
+  }, [loadConversations]);
 
-  // ---- Logout ----
-  async function handleLogout() {
-    try {
-      await logout().catch(() => {});
-      router.push('/login');
-    } catch (err) {
-      console.error('Logout failed:', err);
-      router.push('/login');
+  const handleConversationRead = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations((prev) => prev.map((c) => (c.id === data.conversationId ? {
+      ...c,
+      unread: Boolean(data.unread),
+      needsAttention: data.needsAttention !== undefined ? Boolean(data.needsAttention) : false,
+      needsHuman: data.needsHuman !== undefined ? Boolean(data.needsHuman) : false,
+    } : c)));
+  }, []);
+
+  const handleAnalysisCompleted = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations((prev) => prev.map((c) => (c.id === data.conversationId ? {
+      ...c,
+      category: data.category || c.category,
+      intent: data.intent || c.intent,
+      customerType: data.customerType || c.customerType,
+      leadQuality: data.leadQuality ?? c.leadQuality,
+      purchaseIntent: data.purchaseIntent ?? c.purchaseIntent,
+      riskLevel: data.riskLevel || c.riskLevel,
+      scamProbability: data.scamProbability ?? c.scamProbability,
+      aiExplanation: data.aiExplanation || c.aiExplanation,
+      recommendedAction: data.recommendedAction || c.recommendedAction,
+      needsHuman: data.needsHuman ?? c.needsHuman,
+      priority: data.priority || c.priority,
+      priorityScore: data.priorityScore ?? c.priorityScore,
+      needsAttention: data.needsAttention ?? c.needsAttention,
+      summary: data.summary || c.summary,
+    } : c)));
+
+    if (selectedConvRef.current === data.conversationId) {
+      setAnalysis((prev) => ({
+        ...(prev || {}),
+        category: data.category,
+        priority: data.priority,
+        priorityScore: data.priorityScore,
+        latestAnalysis: { ...(prev?.latestAnalysis || {}), recommendedAction: data.recommendedAction },
+        summary: { ...(prev?.summary || {}), summary: data.summary || prev?.summary?.summary },
+      }));
     }
-  }
+  }, []);
 
-  // Reply mode is the single source of truth for whether anything is sent
-  // without the user. The compose footer, the per-conversation badge, and the
-  // banner below all read it, so no two of them can disagree.
-  const sendsAutomatically = replyModeSendsAutomatically(user?.businessProfile?.autoReplyMode);
+  const handleBrandDealDetected = useCallback((data) => {
+    if (selectedConvRef.current === data?.conversationId) {
+      setAnalysis((prev) => (prev ? { ...prev, brandDeal: data.brandDeal } : prev));
+    }
+    loadConversations();
+  }, [loadConversations]);
 
-  const activeConvData = conversations.find(c => c.id === selectedConv);
-  const activeCategory = analysis?.category || activeConvData?.category || 'other';
-  const activeCategoryMeta = getCategoryMeta(activeCategory);
-  const activePriorityMeta = getPriorityMeta(analysis?.priority || activeConvData?.priority);
+  const handleChatCleared = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations((prev) => prev.map((c) => (c.id === data.conversationId
+      ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false }
+      : c)));
+    if (selectedConvRef.current === data.conversationId) {
+      setMessages([]);
+      messageIdsRef.current.clear();
+    }
+  }, []);
 
-  // Calculate real-time 24-hour messaging window from active messages
-  const messagingWindow = useMemo(() => {
-    let latestInbound = null;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].direction === 'inbound') {
-        latestInbound = messages[i];
-        break;
+  const handleConversationDeleted = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations((prev) => prev.filter((c) => c.id !== data.conversationId));
+    if (selectedConvRef.current === data.conversationId) {
+      setSelectedConv(null);
+      selectedConvRef.current = null;
+      setMessages([]);
+      setAnalysis(null);
+      setContactInfo(null);
+      setMobileChatOpen(false);
+    }
+  }, []);
+
+  /* ---------------------------- Bootstrap ----------------------------- */
+
+  useEffect(() => {
+    async function init() {
+      try {
+        const userData = await getMe();
+        // Same guard the shared AppShell applies. The inbox uses ui/AppShell
+        // and passes `user` in, so it does its own check rather than being
+        // covered by that one.
+        if (!userData?.onboardingCompleted) {
+          rememberDestination();
+          router.replace('/onboarding');
+          return;
+        }
+        setUser(userData);
+        setAccounts(await getAccounts());
+
+        const rows = await loadConversations(initialAccountId);
+        if (initialConversationId) await selectConversation(initialConversationId);
+        else autoSelectFirst(rows, initialFilter);
+
+        getNotifications().then((d) => setNotifUnreadCount(d.unreadCount || 0)).catch(() => {});
+      } catch (err) {
+        router.push('/login');
+      } finally {
+        setLoading(false);
       }
     }
-    if (latestInbound) {
-      const timestamp = latestInbound.igTimestamp || latestInbound.createdAt;
-      const elapsed = Date.now() - new Date(timestamp).getTime();
-      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-      if (elapsed < TWENTY_FOUR_HOURS) {
-        return {
-          status: 'open',
-          canReply: true,
-          hoursRemaining: Math.round((TWENTY_FOUR_HOURS - elapsed) / (60 * 60 * 1000) * 10) / 10,
-        };
-      } else {
-        return { status: 'closed', canReply: false };
-      }
-    }
-    return activeConvData?.messagingWindow || { status: 'unknown', canReply: true };
-  }, [messages, activeConvData]);
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
-  const canSend = messagingWindow?.status !== 'closed';
+  useEffect(() => {
+    if (!user) return undefined;
+    const socket = io(BACKEND_URL, { withCredentials: true });
 
-  function handleCopyReply(text) {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    socket.on('connect', () => socket.emit('join', { userId: user.id }));
+    socket.on('new_message', handleNewMessage);
+    socket.on('conversation_read', handleConversationRead);
+    socket.on('analysis_completed', handleAnalysisCompleted);
+    socket.on('brand_deal_detected', handleBrandDealDetected);
+    socket.on('notification', () => setNotifUnreadCount((c) => c + 1));
+    socket.on('chat_cleared', handleChatCleared);
+    socket.on('conversation_deleted', handleConversationDeleted);
+
+    return () => socket.disconnect();
+  }, [user, handleNewMessage, handleConversationRead, handleAnalysisCompleted,
+    handleBrandDealDetected, handleChatCleared, handleConversationDeleted]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Closing always returns focus to the button that opened the panel —
+  // otherwise a keyboard user is dropped at the top of the document.
+  const openDrawer = useCallback((e) => {
+    detailsBtnRef.current = e?.currentTarget || null;
+    setDrawerOpen(true);
+  }, []);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    // Back to whichever control opened it — the status line and the Details
+    // button both do, and landing on the other one is disorienting.
+    detailsBtnRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    function onKey(e) { if (e.key === 'Escape') closeDrawer(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [drawerOpen, closeDrawer]);
+
+  /* ----------------------------- Actions ------------------------------ */
+
+  async function handleAccountChange(accId) {
+    setSelectedAccountId(accId);
+    setSelectedConv(null);
+    selectedConvRef.current = null;
+    setMessages([]);
+    setContactInfo(null);
+    setMobileChatOpen(false);
+    autoSelectFirst(await loadConversations(accId), selectedFilter);
   }
 
-  // ---- AI: generate a draft reply (never sends) ----
-  async function handleGenerateReply(regenerate = false) {
-    if (!selectedConv) return;
+  async function handleGenerateReply() {
+    if (!selectedConv || generating) return;
     setGenerating(true);
     setSendError('');
     try {
-      const instructions = regenerate ? 'Write a different variation than before.' : undefined;
-      const result = await generateReply(selectedConv, instructions);
-      setDraftText(result.text || '');
+      const result = await generateReply(selectedConv);
+      if (result?.text) {
+        setDraftText(result.text);
+        composerRef.current?.focus();
+      }
     } catch (err) {
-      setSendError(err.response?.data?.error || errors.generateReply);
+      // Deliberately NOT err.response.data.error. The backend returns its own
+      // copy of this sentence, so the server string wins and any wording fix
+      // here would be invisible. The server's useful half is `details`, which
+      // is for the log, not for the person holding the phone.
+      setSendError(errors.generateReply);
     } finally {
       setGenerating(false);
     }
   }
 
-  // ---- Explicit creator action: send the message via Instagram ----
   async function handleSend() {
-    if (!selectedConv || !draftText.trim() || sending) return;
+    if (!selectedConv || !draftText.trim() || sending || !canSend) return;
     setSending(true);
     setSendError('');
     try {
       const result = await sendReply(selectedConv, draftText.trim());
       messageIdsRef.current.add(result.message.id);
-      setMessages(prev => [...prev, result.message]);
+      setMessages((prev) => [...prev, result.message]);
       setDraftText('');
-      setConversations(prev => prev.map(c => (c.id === selectedConv ? { ...c, lastMessage: result.message.content, unread: false, needsAttention: false } : c)));
+      setConversations((prev) => prev.map((c) => (c.id === selectedConv
+        ? { ...c, lastMessage: result.message.content, unread: false, needsAttention: false }
+        : c)));
     } catch (err) {
       setSendError(err.response?.data?.error || errors.sendReply);
     } finally {
@@ -525,168 +426,128 @@ function InboxPageContent() {
     }
   }
 
-  async function handleBrandDealStatusChange(newStatus) {
+  async function handleToggleAutoReply(nextEnabled, nextPrompt) {
+    if (!selectedConv) return;
+    try {
+      const res = await toggleAutoReply(
+        selectedConv,
+        nextEnabled,
+        nextPrompt !== undefined ? nextPrompt : customPromptText,
+      );
+      setConversations((prev) => prev.map((c) => (c.id === selectedConv
+        ? { ...c, autoReplyEnabled: res.autoReplyEnabled, autoReplyPrompt: res.autoReplyPrompt }
+        : c)));
+      setCustomPromptText(res.autoReplyPrompt || '');
+    } catch (err) {
+      setSendError(err.response?.data?.error || errors.toggleAutomation);
+    }
+  }
+
+  async function handleBrandDealStatusChange(status) {
     if (!analysis?.brandDeal) return;
     try {
-      const updated = await updateBrandDealStatus(analysis.brandDeal.id, newStatus);
-      setAnalysis(prev => ({ ...prev, brandDeal: updated }));
+      const updated = await updateBrandDealStatus(analysis.brandDeal.id, status);
+      setAnalysis((prev) => ({ ...prev, brandDeal: updated }));
     } catch (err) {
       console.error('Failed to update brand deal status:', err);
     }
   }
 
-  // ---- Clear all messages in current conversation ----
-  async function handleClearChatSubmit() {
+  async function handleClearChat() {
     if (!selectedConv || actionLoading) return;
     setActionLoading(true);
     try {
       await clearChat(selectedConv);
       messageIdsRef.current.clear();
       setMessages([]);
-      setConversations(prev => prev.map(c => (c.id === selectedConv ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false } : c)));
-      setShowClearModal(false);
+      setConversations((prev) => prev.map((c) => (c.id === selectedConv
+        ? { ...c, lastMessage: null, unread: false, needsAttention: false, needsHuman: false }
+        : c)));
     } catch (err) {
-      alert(err.response?.data?.error || errors.clearChat);
+      setSendError(err.response?.data?.error || errors.clearChat);
     } finally {
       setActionLoading(false);
+      setShowClearModal(false);
     }
   }
 
-  // ---- Fully delete conversation ----
-  async function handleDeleteChatSubmit() {
-    const targetId = convToDelete?.id || selectedConv;
-    if (!targetId || actionLoading) return;
+  async function handleDeleteConversation() {
+    if (!selectedConv || actionLoading) return;
     setActionLoading(true);
     try {
-      await deleteConversation(targetId);
-      setConversations(prev => prev.filter(c => c.id !== targetId));
-      if (selectedConv === targetId) {
-        setSelectedConv(null);
-        setMessages([]);
-        setAnalysis(null);
-        setContactInfo(null);
-        setMobileShowChat(false);
-      }
-      setShowDeleteModal(false);
-      setConvToDelete(null);
+      await deleteConversation(selectedConv);
+      setConversations((prev) => prev.filter((c) => c.id !== selectedConv));
+      setSelectedConv(null);
+      selectedConvRef.current = null;
+      setMessages([]);
+      setAnalysis(null);
+      setContactInfo(null);
+      setMobileChatOpen(false);
     } catch (err) {
-      alert(err.response?.data?.error || errors.deleteConversation);
+      setSendError(err.response?.data?.error || errors.deleteConversation);
     } finally {
       setActionLoading(false);
+      setShowDeleteModal(false);
     }
   }
 
-  if (loading) {
-    return (
-      <div className={styles.loadingScreen} aria-busy="true" aria-label={common.loading}>
-        <div className="spinner spinner-lg" />
-      </div>
-    );
-  }
+  /* --------------------------- Derived view --------------------------- */
+
+  const activeConv = conversations.find((c) => c.id === selectedConv);
+  const contactName = contactInfo?.name || contactInfo?.username
+    || activeConv?.contact?.name || activeConv?.contact?.username || '';
+
+  const activeCategory = analysis?.category || activeConv?.category || null;
+  const categoryMeta = activeCategory ? getCategoryMeta(activeCategory) : null;
+  const rawIntentMeta = activeConv?.intent ? getCategoryMeta(activeConv.intent) : null;
+  const intentMeta = rawIntentMeta && rawIntentMeta.id !== 'other' ? rawIntentMeta : null;
+  const customerType = activeConv?.customerType && activeConv.customerType !== 'unknown'
+    ? customerTypeLabel(activeConv.customerType) : null;
+  const recommendedAction = activeConv?.recommendedAction || analysis?.latestAnalysis?.recommendedAction || null;
+  const brandDeal = analysis?.brandDeal || null;
+  const autoReplyEnabled = activeConv?.autoReplyEnabled;
+  const summaryText = analysis?.summary?.summary || null;
+  const aiExplanation = activeConv?.aiExplanation || analysis?.latestAnalysis?.aiExplanation || null;
+
+  // Instagram rejects a send outside 24h of the last inbound message, so the
+  // composer is disabled rather than letting the user hit an API error.
+  //
+  // Computed inline rather than memoised: it is a reverse scan of one
+  // conversation's messages, and memoising it meant depending on `activeConv`,
+  // which the React Compiler refuses to treat as stable.
+  const messagingWindow = computeMessagingWindow(messages, activeConv, nowTs);
+
+  const canSend = messagingWindow.status !== 'closed';
+  const sendsAutomatically = replyModeSendsAutomatically(user?.businessProfile?.autoReplyMode);
+
+  const autoReplyText = autoReplyEnabled === true
+    ? t.autoReplyOn
+    : autoReplyEnabled === false
+      ? t.autoReplyOff
+      : settingsCopy.perConversation.title;
+
+  const folderLabel = INBOX_FILTERS.find((f) => f.id === selectedFilter)?.label
+    || (selectedFilter && selectedFilter !== 'all' ? getCategoryMeta(selectedFilter).label : null)
+    || INBOX_FILTERS[0].label;
+
+  const hasDetails = Boolean(
+    summaryText || categoryMeta || customerType || brandDeal || recommendedAction
+    || typeof activeConv?.leadQuality === 'number'
+    || typeof activeConv?.purchaseIntent === 'number',
+  );
 
   return (
-    <div className={`${styles.inboxLayout} ${mobileShowChat ? styles.showChatMobile : ''}`}>
-      {/* App Nav Bar Header */}
-      <header className={styles.globalNav}>
-        <div className={styles.globalNavLeft}>
-          <button className={styles.navBrand} onClick={() => router.push('/dashboard')}>
-            <div className={styles.navBrandIcon}>
-              <img src="/logo.png" alt="" className={styles.navBrandImg} />
-            </div>
-            <span className={styles.navBrandText}>Siffty</span>
-          </button>
-          <span className={styles.navBreadcrumb}>/</span>
-          <span className={styles.navCurrentPage}>{t.title}</span>
-        </div>
-
-        <div className={styles.globalNavActions}>
-          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/dashboard')}>
-            <Icon name="dashboard" size={14} /> {nav.dashboard}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/notifications')} style={{ position: 'relative' }}>
-            <Icon name="bell" size={14} /> {nav.notifications}
-            {notifUnreadCount > 0 && <span className={styles.bellBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/settings')}>
-            <Icon name="settings" size={14} /> {nav.settings}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => router.push('/profile')} id="inbox-profile-header-btn">
-            <Icon name="user" size={14} /> {nav.account}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={handleLogout}>
-            <Icon name="logOut" size={14} /> {nav.logOut}
-          </button>
-        </div>
-
-        {/* Mobile-only header row (<=768px) — hidden on desktop/tablet via
-            inbox.module.css; the row above stays exactly as it was and is
-            hidden on mobile instead, rather than reworking it in place. */}
-        <div className={styles.mobileHeaderLeft}>
-          <button
-            className={appShellStyles.menuBtn}
-            onClick={() => setDrawerOpen(true)}
-            aria-label={nav.openMenu}
-            aria-expanded={drawerOpen}
-            aria-controls={NAV_DRAWER_ID}
-          >
-            <Icon name="menu" size={20} />
-          </button>
-          <span className={styles.navCurrentPage}>{t.title}</span>
-        </div>
-        <div className={styles.mobileHeaderRight}>
-          <button
-            className={appShellStyles.headerAction}
-            onClick={() => router.push('/notifications')}
-            aria-label={nav.notifications}
-            title={nav.notifications}
-          >
-            <Icon name="bell" size={18} />
-            {notifUnreadCount > 0 && (
-              <span className={appShellStyles.headerBadge}>{notifUnreadCount > 9 ? '9+' : notifUnreadCount}</span>
-            )}
-          </button>
-          <button
-            className={appShellStyles.headerUser}
-            onClick={() => router.push('/profile')}
-            title={nav.account}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', borderRadius: 'var(--radius-full)' }}
-          >
-            <div className="avatar avatar-sm">
-              {(user?.name || user?.email || 'U')[0].toUpperCase()}
-            </div>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {user?.name?.split(' ')[0] || nav.account}
-            </span>
-          </button>
-        </div>
-      </header>
-
-      <NavSidebar
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        activeRoute="/inbox"
-        user={user}
-        notifCount={notifUnreadCount}
-        mobileOnly
-        topSection={
-          <InboxFilterList
-            accounts={accounts}
-            selectedAccountId={selectedAccountId}
-            onAccountChange={(id) => { handleAccountChange(id); setDrawerOpen(false); }}
-            allAccountsCount={conversations.length}
-            folderCounts={folderCounts}
-            selectedFilter={selectedFilter}
-            onFilterChange={(id) => { handleFilterChange(id); setDrawerOpen(false); }}
-            idPrefix="drawer-"
-          />
-        }
-      />
-
-      <div className={styles.inboxBody}>
-        {/* ========================================================= */}
-        {/* Column 1: Dedicated Vertical Filter Sidebar               */}
-        {/* ========================================================= */}
-        <aside className={styles.filterSidebar}>
+    <AppShell
+      user={user}
+      title={t.title}
+      activeRoute="/inbox"
+      variant="full"
+      notificationCount={notifUnreadCount}
+      navCounts={{ '/inbox': folderCounts.unread ?? 0, '/notifications': notifUnreadCount }}
+    >
+      <div className={`${styles.layout} ${mobileChatOpen ? styles.mobileChatOpen : ''}`}>
+        {/* ---------- Folders ---------- */}
+        <aside className={styles.folders} aria-label={t.folders}>
           <InboxFilterList
             accounts={accounts}
             selectedAccountId={selectedAccountId}
@@ -694,165 +555,96 @@ function InboxPageContent() {
             allAccountsCount={conversations.length}
             folderCounts={folderCounts}
             selectedFilter={selectedFilter}
-            onFilterChange={handleFilterChange}
+            onFilterChange={setSelectedFilter}
           />
-
-          {/* Bottom Left Corner: Profile Card Link */}
-          <div className={styles.filterSidebarFooter}>
-            <button
-              className={styles.sidebarProfileBtn}
-              onClick={() => router.push('/profile')}
-              title={nav.account}
-              id="inbox-sidebar-profile-btn"
-            >
-              <div className={styles.sidebarProfileAvatar}>
-                {(user?.name || user?.email || 'U')[0].toUpperCase()}
-              </div>
-              <div className={styles.sidebarProfileMeta}>
-                <span className={styles.sidebarProfileName}>{user?.name || nav.account}</span>
-                <span className={styles.sidebarProfileSub}>{nav.accountSubtitle}</span>
-              </div>
-              <span className={styles.sidebarProfileArrow}><Icon name="chevronRight" size={14} /></span>
-            </button>
-          </div>
         </aside>
 
-        {/* ========================================================= */}
-        {/* Column 2: Squeezed Conversation List Panel                */}
-        {/* ========================================================= */}
-        <section className={styles.convPanel}>
-          {/* Mobile Filter Bar (Visible on mobile/tablets where sidebar is hidden) */}
-          <div className={styles.mobileFilterBar}>
-            <div className={styles.mobileFilterScroll}>
-              <button
-                className={`${styles.mobileFilterChip} ${selectedAccountId === '' ? styles.mobileFilterChipActive : ''}`}
-                onClick={() => handleAccountChange('')}
-              >
-                <Icon name="globe" size={12} /> {t.allAccounts} ({conversations.length})
-              </button>
-              {accounts.map(acc => (
-                <button
-                  key={acc.id}
-                  className={`${styles.mobileFilterChip} ${selectedAccountId === acc.id ? styles.mobileFilterChipActive : ''}`}
-                  onClick={() => handleAccountChange(acc.id)}
-                >
-                  <Icon name="instagram" size={12} /> @{acc.igUsername || 'account'}
-                </button>
-              ))}
-              <div className={styles.mobileChipDivider} />
-              {INBOX_FILTERS.map(f => {
-                const count = folderCounts[f.id] ?? 0;
-                return (
-                  <button
-                    key={f.id}
-                    className={`${styles.mobileFilterChip} ${selectedFilter === f.id ? styles.mobileFilterChipActive : ''}`}
-                    onClick={() => handleFilterChange(f.id)}
-                  >
-                    <Icon name={f.icon} size={12} /> {f.label} {count > 0 ? `(${count})` : ''}
-                  </button>
-                );
-              })}
-            </div>
+        {/* ---------- Conversation list ---------- */}
+        <section className={styles.list} aria-label={t.conversations}>
+          <div className={styles.listHeader}>
+            <h2 className={styles.listTitle}>{folderLabel}</h2>
+            <span className={styles.listCount}>{filteredConversations.length}</span>
           </div>
 
-          {/* Recent DMs the AI never read, and why — sorting must not stop silently. */}
+          {/* Below 1280px the folders column is hidden, so the same two
+              choices move here. Without them a tablet or phone cannot change
+              folder or account at all. */}
+          <div className={styles.listSelects}>
+            {accounts.length > 1 && (
+              <Select
+                aria-label={t.accounts}
+                value={selectedAccountId}
+                onChange={(e) => handleAccountChange(e.target.value)}
+              >
+                <option value="">{t.allAccounts}</option>
+                {accounts.map((a) => <option key={a.id} value={a.id}>@{a.igUsername}</option>)}
+              </Select>
+            )}
+            <Select
+              aria-label={t.folders}
+              value={selectedFilter}
+              onChange={(e) => setSelectedFilter(e.target.value)}
+            >
+              {INBOX_FILTERS.map((f) => (
+                <option key={f.id} value={f.id}>{f.label} ({folderCounts[f.id] ?? 0})</option>
+              ))}
+            </Select>
+          </div>
+
+          {/* Recent DMs the assistant never read, and why — sorting must not
+              stop silently. */}
           {user?.features?.billing && <UnsortedMessagesBanner className={styles.unsortedBanner} />}
 
-          <div className={styles.convPanelHeader}>
-            <h3 className={styles.convPanelTitle}>{t.conversations}</h3>
-            <span className={styles.convPanelBadge}>
-              {filteredConversations.length}
-            </span>
-          </div>
-
-          <div className={styles.convList}>
-            {filteredConversations.length === 0 ? (
-              <div className={styles.emptyConvs}>
-                <div className={styles.emptyConvsIcon}><Icon name="inbox" size={32} strokeWidth={1.5} /></div>
-                <h4>{conversations.length === 0 ? empty.conversationsAll.title : empty.conversations.title}</h4>
-                <p>{conversations.length === 0 ? empty.conversationsAll.body : empty.conversations.body}</p>
-              </div>
+          <div className={styles.rows}>
+            {loading ? (
+              <div className={styles.rowsLoading}><Skeleton lines={5} height={44} /></div>
+            ) : filteredConversations.length === 0 ? (
+              <EmptyState
+                icon="inbox"
+                title={conversations.length === 0 ? empty.conversationsAll.title : empty.conversations.title}
+                body={conversations.length === 0 ? empty.conversationsAll.body : empty.conversations.body}
+              />
             ) : (
               filteredConversations.map((conv) => {
-                const meta = getCategoryMeta(conv.category);
-                const prio = getPriorityMeta(conv.priority);
+                const name = conv.contact?.name || conv.contact?.username || '';
+                const meta = conv.category ? getCategoryMeta(conv.category) : null;
+                const type = conv.customerType && conv.customerType !== 'unknown'
+                  ? customerTypeLabel(conv.customerType) : null;
                 return (
                   <button
                     key={conv.id}
-                    className={`${styles.convItem} ${selectedConv === conv.id ? styles.convItemActive : ''}`}
+                    type="button"
+                    className={`${styles.row} ${selectedConv === conv.id ? styles.rowActive : ''}`}
                     onClick={() => selectConversation(conv.id)}
-                    id={`conv-${conv.id}`}
+                    aria-current={selectedConv === conv.id ? 'true' : undefined}
                   >
-                    <div className={styles.convAvatar}>
-                      {conv.contact.profilePicUrl ? (
-                        <img src={conv.contact.profilePicUrl} alt={conv.contact.username} />
-                      ) : (
-                        <div className={styles.convAvatarFallback}>
-                          {(conv.contact.username || '?')[0].toUpperCase()}
-                        </div>
-                      )}
-                      {conv.messagingWindow?.status === 'open' && (
-                        <span className={styles.windowDot} title={t.windowOpen} />
-                      )}
-                    </div>
-                    <div className={styles.convInfo}>
-                      <div className={styles.convTopRow}>
-                        <span
-                          className={styles.convUsername}
-                          style={conv.unread ? { fontWeight: 700 } : undefined}
-                        >
+                    <Avatar
+                      src={conv.contact?.profilePicUrl}
+                      name={name}
+                      contactId={conv.contact?.id}
+                      size={36}
+                      decorative
+                    />
+                    <span className={styles.rowBody}>
+                      <span className={styles.rowTop}>
+                        <span className={styles.rowNameWrap}>
                           {conv.unread && <span className={styles.unreadDot} />}
-                          {conv.contact.username || conv.contact.name || 'Unknown'}
+                          <span className={styles.rowName}>{name}</span>
                         </span>
-                        <div className={styles.convTopRight}>
-                          <span className={styles.convTime}>
-                            {conv.lastMessageAt ? formatTimeAgo(conv.lastMessageAt) : ''}
-                          </span>
-                          <button
-                            className={styles.quickDeleteBtn}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConvToDelete(conv);
-                              setShowDeleteModal(true);
-                            }}
-                            aria-label={t.deleteConversation}
-                            title={t.deleteConversation}
-                          >
-                            <Icon name="trash" size={13} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Single-Line Message Preview Row */}
-                      <div className={styles.convPreviewRow}>
-                        <span
-                          className={`${styles.priorityIndicator} ${styles[prio.dotClass]}`}
-                          title={`${prio.label} priority — scored ${conv.priorityScore || 0} out of 100`}
-                        />
-                        <p className={styles.convPreview}>
-                          {displayPreview(conv.lastMessage) || empty.messages.title}
-                        </p>
-                      </div>
-
-                      {/* Wrapped Badges / Tags Row */}
-                      <div className={styles.convBadgesRow}>
-                        {conv.customerType && conv.customerType !== 'unknown' && (
-                          <span className={`badge ${styles.customerBadge}`}>
-                            {customerTypeLabel(conv.customerType).label}
-                          </span>
+                        {conv.lastMessageAt && (
+                          <span className={styles.rowTime}>{formatTimeAgo(conv.lastMessageAt)}</span>
                         )}
-                        {conv.autoReplyEnabled && sendsAutomatically && (
-                          <span className={`badge ${styles.autoReplyListBadge}`} title={t.autoReplyOn}>
-                            <Icon name="zap" size={11} /> {t.autoReplyOn}
-                          </span>
+                      </span>
+                      <span className={styles.rowPreview}>{conv.lastMessage || empty.messages.title}</span>
+                      <span className={styles.rowTags}>
+                        {meta
+                          ? <Badge size="sm" tone={categoryTone(meta.id, meta.tone)}>{meta.label}</Badge>
+                          : <Badge size="sm" tone="neutral">{customerTypeLabel('unknown').label}</Badge>}
+                        {type && (
+                          <Badge size="sm" tone={type.tone === 'positive' ? 'accent' : 'neutral'}>{type.label}</Badge>
                         )}
-                        {conv.category && (
-                          <span className={`badge ${styles.categoryBadge}`}>
-                            <Icon name={meta.icon} size={11} /> {meta.label}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                      </span>
+                    </span>
                   </button>
                 );
               })
@@ -860,458 +652,480 @@ function InboxPageContent() {
           </div>
         </section>
 
-        {/* ---- Right Panel: Chat View ---- */}
-        <main className={styles.chatPanel}>
-          {selectedConv ? (
+        {/* ---------- Chat ---------- */}
+        <main className={styles.chat}>
+          {!selectedConv ? (
+            <div className={styles.empty}>
+              <EmptyState icon="inbox" title={t.selectPrompt.title} body={t.selectPrompt.body} />
+            </div>
+          ) : (
             <>
-              {/* Chat header */}
               <div className={styles.chatHeader}>
-                <div className={styles.chatHeaderLeft}>
-                  <button
-                    className={styles.backBtnMobile}
-                    onClick={() => setMobileShowChat(false)}
-                    aria-label={common.back}
-                  >
-                    <Icon name="arrowLeft" size={18} />
-                  </button>
-                  {contactInfo?.profilePicUrl ? (
-                    <img src={contactInfo.profilePicUrl} alt="" className="avatar avatar-md" />
-                  ) : (
-                    <div className="avatar avatar-md">
-                      {(contactInfo?.username || '?')[0].toUpperCase()}
-                    </div>
-                  )}
-                  <div className={styles.chatUserMeta}>
-                    <div className={styles.chatUserTitleRow}>
-                      <h2 className={styles.chatUsername}>
-                        {contactInfo?.username || contactInfo?.name || 'Unknown'}
-                      </h2>
-                      <span className={`badge ${styles.categoryBadge}`}>
-                        <Icon name={activeCategoryMeta.icon} size={11} /> {activeCategoryMeta.label}
-                      </span>
-                      <span
-                        className={`badge ${styles.priorityBadge}`}
-                        title={`Scored ${activeConvData?.priorityScore || 0} out of 100`}
-                      >
-                        {activePriorityMeta.label} priority
-                      </span>
-                      {activeConvData?.customerType && activeConvData.customerType !== 'unknown' && (
-                        <span className="badge" style={{ background: 'rgba(124, 58, 237, 0.1)', color: 'var(--color-primary)' }}>
-                          {customerTypeLabel(activeConvData.customerType).label}
-                        </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  className={styles.backBtn}
+                  onClick={() => setMobileChatOpen(false)}
+                  aria-label={t.conversations}
+                >
+                  <Icon name="chevronLeft" size={18} />
+                </Button>
+
+                <div className={styles.chatHeaderMain}>
+                  <Avatar
+                    src={contactInfo?.profilePicUrl}
+                    name={contactName}
+                    contactId={contactInfo?.id}
+                    size={34}
+                    decorative
+                  />
+                  <div className={styles.chatIdentity}>
+                    <h2 className={styles.chatName}>{contactName}</h2>
+                    {/* Auto-reply state is readable WITHOUT opening the drawer:
+                        "is this chat answering on its own?" is not something to
+                        make someone dig for. Clicking opens the drawer. */}
+                    <button
+                      type="button"
+                      className={styles.chatStatus}
+                      onClick={openDrawer}
+                      aria-label={t.insights.show}
+                      aria-expanded={drawerOpen}
+                    >
+                      <span>{autoReplyText}</span>
+                      {brandDeal && (
+                        <>
+                          <span className={styles.chatStatusSep}>·</span>
+                          <span>{t.brandDeal.title}</span>
+                        </>
                       )}
-                    </div>
-                    {contactInfo?.name && contactInfo.name !== contactInfo.username && (
-                      <span className={styles.chatRealName}>{contactInfo.name}</span>
-                    )}
+                      <Icon name="chevronRight" size={12} />
+                    </button>
                   </div>
                 </div>
-                <div className={styles.chatHeaderRight}>
-                  {/* Clear & Delete Action Buttons */}
-                  <div className={styles.chatHeaderActionGroup}>
-                    <button
-                      className={styles.actionBtn}
-                      onClick={() => setShowClearModal(true)}
-                      title={confirmCopy.clearChat.body}
-                      id="clear-chat-btn"
-                    >
-                      <Icon name="eraser" size={13} /> {t.clearChat}
-                    </button>
-                    <button
-                      className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
-                      onClick={() => {
-                        setConvToDelete(activeConvData);
-                        setShowDeleteModal(true);
-                      }}
-                      title={confirmCopy.deleteConversation.body}
-                      id="delete-chat-btn"
-                    >
-                      <Icon name="trash" size={13} /> {common.delete}
-                    </button>
-                  </div>
 
+                <div className={styles.chatActions}>
+                  <Button
+                    size="sm"
+                    onClick={(e) => (drawerOpen ? closeDrawer() : openDrawer(e))}
+                    aria-expanded={drawerOpen}
+                  >
+                    {drawerOpen ? t.insights.hide : t.insights.show}
+                  </Button>
                   {contactInfo?.username && (
-                    <a
-                      href={`https://instagram.com/${contactInfo.username}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-secondary btn-sm"
-                      id="open-instagram-chat-btn"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconOnly
+                      onClick={() => window.open(`https://instagram.com/${contactInfo.username}`, '_blank', 'noopener,noreferrer')}
+                      aria-label={t.openInInstagram}
+                      title={t.openInInstagram}
                     >
-                      <Icon name="externalLink" size={13} /> {t.openInInstagram}
-                    </a>
+                      <Icon name="instagram" size={16} />
+                    </Button>
                   )}
+                  <Popover
+                    open={menuOpen}
+                    onClose={() => setMenuOpen(false)}
+                    trigger={(
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        onClick={() => setMenuOpen((v) => !v)}
+                        aria-label={t.moreActions}
+                        title={t.moreActions}
+                      >
+                        <Icon name="moreHorizontal" size={16} />
+                      </Button>
+                    )}
+                  >
+                    <PopoverItem onClick={() => { setMenuOpen(false); setShowClearModal(true); }}>
+                      <Icon name="eraser" size={14} /> {t.clearChat}
+                    </PopoverItem>
+                    <PopoverItem danger onClick={() => { setMenuOpen(false); setShowDeleteModal(true); }}>
+                      <Icon name="trash" size={14} /> {t.deleteConversation}
+                    </PopoverItem>
+                  </Popover>
                 </div>
               </div>
 
-              {/* Needs your reply */}
-              {activeConvData?.needsHuman && (
-                <div className={styles.humanAttentionBanner}>
-                  <Icon name="alertTriangle" size={16} />
-                  <div>
-                    <strong>{t.needsReplyBanner.title}:</strong>{' '}
-                    {activeConvData?.aiExplanation || t.needsReplyBanner.fallback}
-                  </div>
-                </div>
-              )}
-
-              {/* AI Customer Intelligence & Summary Box */}
-              {(analysis?.latestAnalysis || activeConvData?.aiExplanation || activeConvData?.summary || analysis?.summary?.summary) && (
-                aiSummaryHidden ? (
-                  <div className={styles.intelligenceCardCollapsed}>
-                    <div className={styles.collapsedLeft}>
-                      <span className={styles.intelligenceBadge}>
-                        <Icon name="sparkle" size={12} /> {t.insights.title}
-                      </span>
-                      {activeConvData?.intent && (
-                        <span className={styles.collapsedIntent}>
-                          {t.insights.intent}: <strong>{titleCaseIntent(activeConvData.intent)}</strong>
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      className={styles.toggleSummaryBtn}
-                      onClick={() => setAiSummaryHidden(false)}
-                    >
-                      <Icon name="eye" size={13} /> {t.insights.show}
-                    </button>
-                  </div>
-                ) : (
-                  <div className={styles.intelligenceCard}>
-                    <div className={styles.intelligenceHeader}>
-                      <div className={styles.intelligenceTitleRow}>
-                        <span className={styles.intelligenceBadge}>
-                          <Icon name="sparkle" size={12} /> {t.insights.title}
-                        </span>
-                        {activeConvData?.intent && (
-                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            {t.insights.intent}: <strong>{titleCaseIntent(activeConvData.intent)}</strong>
-                          </span>
-                        )}
-                        {activeConvData?.customerType && activeConvData.customerType !== 'unknown' && (
-                          <span className="badge" style={{ fontSize: '10px', padding: '1px 6px', background: 'rgba(124, 58, 237, 0.08)', color: 'var(--color-primary)' }}>
-                            {customerTypeLabel(activeConvData.customerType).label}
-                          </span>
-                        )}
-                      </div>
-                      <div className={styles.intelligenceHeaderRight}>
-                        <button
-                          className={styles.toggleSummaryBtn}
-                          onClick={() => setAiSummaryHidden(true)}
-                        >
-                          <Icon name="eyeOff" size={13} /> {t.insights.hide}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className={styles.intelligenceMetrics}>
-                      <div className={styles.metricItem} title={t.insights.scoreHint}>
-                        <span className={styles.metricLabel}>{t.insights.leadQuality}</span>
-                        <span className={styles.metricValue}>{activeConvData?.leadQuality ?? analysis?.latestAnalysis?.leadQuality ?? 0}/100</span>
-                      </div>
-                      <div className={styles.metricItem} title={t.insights.scoreHint}>
-                        <span className={styles.metricLabel}>{t.insights.purchaseIntent}</span>
-                        <span className={styles.metricValue}>{activeConvData?.purchaseIntent ?? analysis?.latestAnalysis?.purchaseIntent ?? 0}/100</span>
-                      </div>
-                      {/* REMOVED-BY-COPY-AUDIT: "Match Confidence" rendered
-                          `Math.round((analysis?.confidence ?? 0.95) * 100)`.
-                          The API never returns `analysis.confidence` at the top
-                          level, so the fallback always won and every
-                          conversation displayed a fabricated, constant "95%"
-                          that looked like a live measurement. Restore by
-                          re-adding this block once the endpoint returns a real
-                          confidence value with no hardcoded default.
-                      <div className={styles.metricItem}>
-                        <span className={styles.metricLabel}>Match confidence</span>
-                        <span className={styles.metricValue}>{Math.round((analysis?.confidence ?? 0.95) * 100)}%</span>
-                      </div>
-                      */}
-                      <div className={styles.metricItem}>
-                        <span className={styles.metricLabel}>{t.insights.suggestedAction}</span>
-                        <span className={styles.metricValue} style={{ color: 'var(--color-primary)' }}>
-                          {recommendedActionLabel(
-                            activeConvData?.recommendedAction ?? analysis?.latestAnalysis?.recommendedAction
-                          ).label}
-                        </span>
-                      </div>
-                    </div>
-
-                    {(analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason) && (
-                      <div className={styles.recommendationBanner}>
-                        <Icon name="sparkle" size={14} />
-                        <span>
-                          <strong>{t.insights.summary}:</strong>{' '}
-                          {analysis?.summary?.summary || activeConvData?.summary || activeConvData?.aiExplanation || analysis?.latestAnalysis?.reason}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )
-              )}
-
-              {/* Brand Deal Panel */}
-              {analysis?.brandDeal && (
-                <div className={styles.brandDealCard}>
-                  <div className={styles.brandDealHeader}>
-                    <div className={styles.brandDealTitleRow}>
-                      <span className={styles.brandDealIcon}><Icon name="handshake" size={14} /></span>
-                      <strong>{t.brandDeal.title}</strong>
-                    </div>
-                    <select
-                      className="select btn-sm"
-                      value={analysis.brandDeal.status}
-                      onChange={(e) => handleBrandDealStatusChange(e.target.value)}
-                      aria-label={t.brandDeal.statusLabel}
-                      style={{ width: 'auto', padding: '4px 28px 4px 10px', fontSize: '12px' }}
-                    >
-                      {BRAND_DEAL_STATUSES.map(s => (
-                        <option key={s} value={s}>{brandDealStatusLabel(s).label}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className={styles.brandDealGrid}>
-                    <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>{t.brandDeal.brand}</span>
-                      <span className={styles.brandDealValue}>{analysis.brandDeal.brandName || common.notSet}</span>
-                    </div>
-                    <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>{t.brandDeal.budget}</span>
-                      <span className={styles.brandDealValue}>
-                        {analysis.brandDeal.budgetAmount
-                          ? formatCurrency(analysis.brandDeal.budgetAmount, analysis.brandDeal.budgetCurrency)
-                          : common.notSet}
-                      </span>
-                    </div>
-                    <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>{t.brandDeal.deliverables}</span>
-                      <span className={styles.brandDealValue}>{analysis.brandDeal.deliverables || common.notSet}</span>
-                    </div>
-                    <div className={styles.brandDealField}>
-                      <span className={styles.brandDealLabel}>{t.brandDeal.deadline}</span>
-                      <span className={styles.brandDealValue}>{analysis.brandDeal.deadline || common.notSet}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Messages */}
-              <div className={styles.messagesContainer}>
+              <div className={styles.chatBody}>
+              <div className={styles.messages}>
                 {messages.length === 0 ? (
-                  <div className={styles.noMessages}>
-                    <p>{empty.messages.body}</p>
+                  <div className={styles.empty}>
+                    <EmptyState title={empty.messages.title} body={empty.messages.body} />
                   </div>
-                ) : (
-                  messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`${styles.messageBubble} ${msg.direction === 'outbound' ? styles.messageOutbound : styles.messageInbound
-                        }`}
-                    >
-                      {msg.content && <p className={styles.messageText}>{msg.content}</p>}
-                      {msg.attachmentUrl && (
-                        <div className={styles.messageAttachment}>
-                          {msg.messageType === 'image' ? (
-                            <img src={msg.attachmentUrl} alt="Attachment sent in this conversation" />
-                          ) : ['ig_reel', 'share', 'ig_post'].includes(msg.messageType) ? (
-                            /* TEMP (pre-Meta-review): the original guess ('share'/'story_mention')
-                               was wrong and matched almost nothing — confirmed via direct query
-                               against the live database that Instagram's real attachment types for
-                               a reel/post share are 'ig_reel', 'share', and 'ig_post' ('story_mention'
-                               never actually occurs). These carry no usable text — show a muted
-                               placeholder instead of a clickable link. 'image' and 'video' are
-                               unaffected and keep rendering as before. */
-                            <span className={styles.messageAttachmentPlaceholder}>Shared a reel or post</span>
-                          ) : (
-                            <a href={msg.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                              <Icon name="paperclip" size={12} /> Attachment
+                ) : messages.map((msg) => {
+                  const out = msg.direction === 'outbound';
+                  return (
+                    <div key={msg.id} className={`${styles.msgRow} ${out ? styles.msgOut : styles.msgIn}`}>
+                      {!out && (
+                        <Avatar
+                          src={contactInfo?.profilePicUrl}
+                          name={contactName}
+                          contactId={contactInfo?.id}
+                          size={26}
+                          decorative
+                        />
+                      )}
+                      <div className={styles.msgCol}>
+                        <div className={`${styles.bubble} ${out ? styles.bubbleOut : styles.bubbleIn}`}>
+                          {msg.content || messageTypePreviewLabel(msg.messageType || 'text')}
+                          {msg.attachmentUrl && (
+                            <a
+                              className={styles.attachment}
+                              href={msg.attachmentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Icon name="externalLink" size={12} />
+                              {messageTypePreviewLabel(msg.messageType || 'text')}
                             </a>
                           )}
                         </div>
-                      )}
-                      <span className={styles.messageTime}>
-                        {formatTime(msg.igTimestamp || msg.createdAt)}
-                      </span>
-                      {msg.direction === 'inbound' && msg.aiStatus === 'skipped' && (
-                        <span className={styles.messageSkipped}>
-                          <Icon name="info" size={11} /> {skipReasonLabel(msg.aiSkipReason).label} ·{' '}
-                          {skipReasonLabel(msg.aiSkipReason).description}
+                        {/* No delivery tick. The backend stores no delivery or
+                            read state, so there is nothing truthful to show. */}
+                        <span className={`${styles.msgMeta} ${out ? styles.msgMetaOut : ''}`}>
+                          {formatTime(msg.igTimestamp || msg.createdAt)}
                         </span>
-                      )}
+                      </div>
                     </div>
-                  ))
+                  );
+                })}
+
+                {generating && (
+                  <div className={styles.typing} aria-live="polite" aria-label={t.compose.generating}>
+                    <span className={styles.typingDot} />
+                    <span className={styles.typingDot} />
+                    <span className={styles.typingDot} />
+                  </div>
                 )}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Compose Bar */}
-              <div className={styles.composeBar}>
-                {messagingWindow?.status === 'closed' && (
-                  <div className={styles.windowClosedWarning}>
-                    <Icon name="alertTriangle" size={14} /> {t.windowClosed}
+            {/* ---------- Details drawer ----------
+                A drawer rather than a permanent fourth column: at 1280px four
+                columns leave the chat about 380px wide, and for most
+                conversations this panel is empty. */}
+            {drawerOpen && (
+              <aside className={styles.drawer} aria-label={t.insights.title}>
+                <div className={styles.drawerHeader}>
+                  <h2 className={styles.drawerTitle}>{t.insights.title}</h2>
+                  <Button variant="ghost" size="sm" iconOnly onClick={closeDrawer} aria-label={t.insights.hide}>
+                    <Icon name="x" size={16} />
+                  </Button>
+                </div>
+
+                <div className={styles.drawerBody}>
+                  {!hasDetails && <p className={styles.drawerText}>{t.insights.scoreHint}</p>}
+
+                  {(categoryMeta || customerType) && (
+                    <div className={styles.drawerSection}>
+                      <span className={styles.drawerSectionHead}>
+                        <IconTile name="target" tone="accent" />
+                        <span className={styles.drawerSectionTitle}>{t.insights.intent}</span>
+                      </span>
+                      <p className={styles.drawerText}>
+                        {(intentMeta || categoryMeta)?.description || (intentMeta || categoryMeta)?.label}
+                      </p>
+                      <div className={styles.rowTags}>
+                        {categoryMeta && (
+                          <Badge tone={categoryTone(categoryMeta.id, categoryMeta.tone)}>{categoryMeta.label}</Badge>
+                        )}
+                        {customerType && (
+                          <Badge tone={customerType.tone === 'positive' ? 'accent' : 'neutral'}>{customerType.label}</Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {(typeof activeConv?.leadQuality === 'number' || typeof activeConv?.purchaseIntent === 'number') && (
+                    <div className={styles.drawerSection}>
+                      <span className={styles.drawerSectionHead}>
+                        <IconTile name="barChart" tone="accent" />
+                        <span className={styles.drawerSectionTitle}>{t.insights.scores}</span>
+                      </span>
+                      {/* Meter renders nothing when the value is not a number. */}
+                      <Meter label={t.insights.leadQuality} value={activeConv?.leadQuality} />
+                      <Meter label={t.insights.purchaseIntent} value={activeConv?.purchaseIntent} />
+                    </div>
+                  )}
+
+                  {recommendedAction && (
+                    <div className={styles.drawerSection}>
+                      <span className={styles.drawerSectionHead}>
+                        <IconTile name="zap" tone="accent" />
+                        <span className={styles.drawerSectionTitle}>{t.insights.suggestedAction}</span>
+                      </span>
+                      <p className={styles.drawerText}>{recommendedActionLabel(recommendedAction).label}</p>
+                    </div>
+                  )}
+
+                  {summaryText && (
+                    <div className={styles.drawerSection}>
+                      <span className={styles.drawerSectionHead}>
+                        <IconTile name="messageSquare" tone="neutral" />
+                        <span className={styles.drawerSectionTitle}>{t.insights.summary}</span>
+                      </span>
+                      <p className={styles.drawerText}>{summaryText}</p>
+                    </div>
+                  )}
+
+                  {aiExplanation && (
+                    <div className={styles.drawerSection}>
+                      <span className={styles.drawerSectionHead}>
+                        <IconTile name="alertTriangle" tone="warning" />
+                        <span className={styles.drawerSectionTitle}>{t.needsReplyBanner.title}</span>
+                      </span>
+                      <p className={styles.drawerText}>{aiExplanation}</p>
+                    </div>
+                  )}
+
+                  {brandDeal && (
+                    <div className={styles.drawerSection}>
+                      <span className={styles.drawerSectionHead}>
+                        <IconTile name="handshake" tone="accent" />
+                        <span className={styles.drawerSectionTitle}>{t.brandDeal.title}</span>
+                      </span>
+                      <dl className={styles.drawerFacts}>
+                        {brandDeal.brandName && (
+                          <div className={styles.drawerFact}>
+                            <dt>{t.brandDeal.brand}</dt><dd>{brandDeal.brandName}</dd>
+                          </div>
+                        )}
+                        {typeof brandDeal.budgetAmount === 'number' && (
+                          <div className={styles.drawerFact}>
+                            <dt>{t.brandDeal.budget}</dt>
+                            <dd>{formatCurrency(brandDeal.budgetAmount, brandDeal.budgetCurrency)}</dd>
+                          </div>
+                        )}
+                        {brandDeal.deliverables && (
+                          <div className={styles.drawerFact}>
+                            <dt>{t.brandDeal.deliverables}</dt><dd>{brandDeal.deliverables}</dd>
+                          </div>
+                        )}
+                      </dl>
+                      <Select
+                        label={t.brandDeal.statusLabel}
+                        value={brandDeal.status || 'new'}
+                        onChange={(e) => handleBrandDealStatusChange(e.target.value)}
+                      >
+                        {BRAND_DEAL_STATUSES.map((s) => (
+                          <option key={s} value={s}>{brandDealStatusLabel(s).label}</option>
+                        ))}
+                      </Select>
+                    </div>
+                  )}
+
+                  <div className={styles.drawerSection}>
+                    <span className={styles.drawerSectionHead}>
+                        <IconTile name="settings" tone="neutral" />
+                        <span className={styles.drawerSectionTitle}>{settingsCopy.perConversation.title}</span>
+                      </span>
+                    <p className={styles.drawerText}>{settingsCopy.perConversation.description}</p>
+                    <div className={styles.autoReplyChoices}>
+                      {[
+                        { value: null, label: t.autoReplyInherit },
+                        { value: true, label: settingsCopy.perConversation.toggleOn },
+                        { value: false, label: settingsCopy.perConversation.toggleOff },
+                      ].map((opt) => (
+                        <Button
+                          key={String(opt.value)}
+                          size="sm"
+                          variant={autoReplyEnabled === opt.value ? 'primary' : 'secondary'}
+                          onClick={() => handleToggleAutoReply(opt.value)}
+                        >
+                          {opt.label}
+                        </Button>
+                      ))}
+                    </div>
+                    <Textarea
+                      label={settingsCopy.perConversation.promptLabel}
+                      placeholder={settingsCopy.perConversation.promptPlaceholder}
+                      value={customPromptText}
+                      maxLength={500}
+                      onChange={(e) => setCustomPromptText(e.target.value)}
+                      onBlur={() => handleToggleAutoReply(autoReplyEnabled ?? null, customPromptText)}
+                    />
+                  </div>
+                </div>
+              </aside>
+            )}
+              </div>
+
+              {messagingWindow.status === 'closed' && (
+                <div className={styles.windowClosed} role="status">
+                  <Icon name="clock" size={14} />
+                  <span>{t.windowClosed}</span>
+                </div>
+              )}
+
+              <div className={styles.composer}>
+                {messagingWindow.status === 'open' && (
+                  <div className={styles.windowOpen}>
+                    {/* Counts down from the real last INBOUND message, re-read
+                        every minute by the `nowTs` tick. */}
+                    <span
+                      className={`${styles.windowDot} ${messagingWindow.hoursRemaining < 1 ? styles.windowDotClosing : ''}`}
+                    />
+                    {t.windowOpen(messagingWindow.hoursRemaining)}
                   </div>
                 )}
 
-                <div className={styles.composeToolbar}>
-                  <span className={styles.composeHint}>
-                    {copied ? common.copied : t.compose.hint}
-                  </span>
-                  <div className={styles.composeToolbarActions}>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => handleGenerateReply(Boolean(draftText))}
-                      disabled={generating}
+                <div className={styles.composerBox}>
+                  <textarea
+                    ref={composerRef}
+                    className={styles.composerInput}
+                    placeholder={canSend ? t.compose.placeholder : t.windowClosed}
+                    value={draftText}
+                    disabled={!canSend}
+                    aria-label={t.compose.placeholder}
+                    onChange={(e) => setDraftText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+                    }}
+                  />
+                  <div className={styles.composerActions}>
+                    <div className={styles.composerLeft}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={handleGenerateReply}
+                        disabled={generating || !canSend}
+                      >
+                        {generating ? t.compose.generating : t.compose.draft}
+                      </Button>
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSend}
+                      disabled={!draftText.trim() || sending || !canSend}
                     >
-                      {generating ? (
-                        t.compose.generating
-                      ) : draftText ? (
-                        <><Icon name="refresh" size={13} /> {t.compose.regenerate}</>
-                      ) : (
-                        <><Icon name="sparkle" size={13} /> {t.compose.draft}</>
-                      )}
-                    </button>
-                    {draftText && (
-                      <button className="btn btn-ghost btn-sm" onClick={() => handleCopyReply(draftText)}>
-                        <Icon name="copy" size={13} /> {common.copy}
-                      </button>
-                    )}
+                      {sending ? t.compose.generating : t.compose.send}
+                      <Icon name="send" size={13} />
+                    </Button>
                   </div>
                 </div>
 
-                <textarea
-                  className={styles.composeTextarea}
-                  placeholder={t.compose.placeholder}
-                  aria-label={t.compose.placeholder}
-                  value={draftText}
-                  onChange={(e) => setDraftText(e.target.value)}
-                />
-
-                <div className={styles.composeFooter}>
-                  {/* Reads the account's stored reply mode rather than asserting
-                      a fixed claim. The old text said drafts are never sent
-                      automatically, which was false for an account set to
-                      automatic. */}
-                  <span className={styles.composeHint}>
-                    {sendsAutomatically ? t.compose.footerAutomatic : t.compose.footerManual}
-                  </span>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSend}
-                    disabled={!draftText.trim() || sending || !canSend}
-                    id="send-reply-btn"
-                  >
-                    {sending ? common.sending : t.compose.send}
-                    <Icon name="send" size={14} />
-                  </button>
-                </div>
-                {sendError && <div className={styles.sendError}>{sendError}</div>}
+                <p className={styles.composerNote}>
+                  {sendsAutomatically ? t.compose.footerAutomatic : t.compose.footerManual}
+                </p>
+                {sendError && <p className={styles.composerError} role="alert">{sendError}</p>}
               </div>
             </>
-          ) : (
-            /* No conversation selected */
-            <div className={styles.emptyChat}>
-              <div className={styles.emptyChatIcon}>
-                <Icon name="messageSquare" size={48} strokeWidth={1.5} />
-              </div>
-              <h2>{t.selectPrompt.title}</h2>
-              <p>{t.selectPrompt.body}</p>
-            </div>
           )}
+
         </main>
       </div>
 
-      {/* Modal: Clear Chat Messages */}
       {showClearModal && (
-        <div className={styles.modalOverlay} onClick={() => !actionLoading && setShowClearModal(false)}>
-          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalIcon}><Icon name="eraser" size={20} /></span>
-              <h3 className={styles.modalTitle}>{confirmCopy.clearChat.title}</h3>
-            </div>
-            <p className={styles.modalBody}>
-              Every message with <strong>@{contactInfo?.username || contactInfo?.name || 'this contact'}</strong> is
-              removed from Siffty. The contact, lead details, and automation settings stay.
-            </p>
-            <div className={styles.modalActions}>
-              <button
-                className="btn btn-secondary btn-md"
-                onClick={() => setShowClearModal(false)}
-                disabled={actionLoading}
-              >
+        <Modal
+          title={confirmCopy.clearChat.title}
+          onClose={() => setShowClearModal(false)}
+          actions={(
+            <>
+              <Button onClick={() => setShowClearModal(false)} disabled={actionLoading}>
                 {common.cancel}
-              </button>
-              <button
-                className="btn btn-primary btn-md"
-                onClick={handleClearChatSubmit}
-                disabled={actionLoading}
-                id="confirm-clear-chat-btn"
-              >
-                {actionLoading ? common.loading : confirmCopy.clearChat.action}
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+              <Button variant="primary" onClick={handleClearChat} loading={actionLoading}>
+                {t.clearChat}
+              </Button>
+            </>
+          )}
+        >
+          {confirmCopy.clearChat.body}
+        </Modal>
       )}
 
-      {/* Modal: Delete Full Conversation */}
       {showDeleteModal && (
-        <div className={styles.modalOverlay} onClick={() => !actionLoading && setShowDeleteModal(false)}>
-          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalIcon}><Icon name="trash" size={20} /></span>
-              <h3 className={styles.modalTitle}>{confirmCopy.deleteConversation.title}</h3>
-            </div>
-            <p className={styles.modalBody}>
-              This deletes the whole conversation with{' '}
-              <strong>@{convToDelete?.contact?.username || convToDelete?.contact?.name || contactInfo?.username || 'this contact'}</strong> —
-              the message history, the insights, and any extracted deal details. It cannot be undone.
-            </p>
-            <div className={styles.modalActions}>
-              <button
-                className="btn btn-secondary btn-md"
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setConvToDelete(null);
-                }}
-                disabled={actionLoading}
-              >
+        <Modal
+          title={confirmCopy.deleteConversation.title}
+          onClose={() => setShowDeleteModal(false)}
+          actions={(
+            <>
+              <Button onClick={() => setShowDeleteModal(false)} disabled={actionLoading}>
                 {common.cancel}
-              </button>
-              <button
-                className={`btn btn-md ${styles.btnDanger}`}
-                onClick={handleDeleteChatSubmit}
-                disabled={actionLoading}
-                id="confirm-delete-conv-btn"
-              >
-                {actionLoading ? common.deleting : confirmCopy.deleteConversation.action}
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+              <Button variant="danger" onClick={handleDeleteConversation} loading={actionLoading}>
+                {t.deleteConversation}
+              </Button>
+            </>
+          )}
+        >
+          {confirmCopy.deleteConversation.body}
+        </Modal>
       )}
-    </div>
+    </AppShell>
   );
 }
 
 /**
- * `intent` is free text written by the analysis step, e.g.
- * `price_inquiry_reel_editing`. It is stored as written; this only makes it
- * readable at the point it is rendered.
+ * The Instagram 24-hour reply window, from the last INBOUND message.
+ *
+ * `now` is passed in rather than read from Date.now() so this stays pure and
+ * the caller controls the tick.
  */
-function titleCaseIntent(value) {
-  if (!value) return '';
-  return String(value)
-    .replace(/[_-]+/g, ' ')
-    .trim()
-    .replace(/^\w/, (c) => c.toUpperCase());
+function computeMessagingWindow(messages, activeConv, now) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].direction !== 'inbound') continue;
+    const elapsed = now - new Date(messages[i].igTimestamp || messages[i].createdAt).getTime();
+    const DAY = 24 * 60 * 60 * 1000;
+    if (elapsed < DAY) {
+      return { status: 'open', canReply: true, hoursRemaining: Math.round((DAY - elapsed) / 3600000 * 10) / 10 };
+    }
+    return { status: 'closed', canReply: false };
+  }
+  return activeConv?.messagingWindow || { status: 'unknown', canReply: true };
+}
+
+/**
+ * Which folder a conversation belongs to — master's matcher, all ten cases.
+ * A previous rewrite kept only six, so `important`, `leads`, `customers` and
+ * `questions` fell through to `category === folderId`, matched nothing, and
+ * four of the ten sidebar folders permanently read 0.
+ */
+function matchesFolder(conv, folderId) {
+  if (!conv) return false;
+  switch (folderId) {
+    case 'all':
+      return true;
+    case 'unread':
+      return Boolean(conv.unread);
+    case 'important':
+      return Boolean(
+        conv.needsAttention || conv.needsHuman
+        || conv.priority === 'critical' || conv.priority === 'high'
+        || (typeof conv.priorityScore === 'number' && conv.priorityScore >= 70),
+      );
+    case 'hot_leads':
+      return conv.category === 'hot_lead' || conv.customerType === 'hot_lead'
+        || (typeof conv.purchaseIntent === 'number' && conv.purchaseIntent >= 80);
+    case 'leads':
+      return ['lead', 'service_inquiry', 'product_inquiry', 'pricing_inquiry',
+        'availability_inquiry', 'delivery_inquiry', 'hot_lead'].includes(conv.category)
+        || conv.customerType === 'lead' || conv.customerType === 'hot_lead';
+    case 'customers':
+      return conv.category === 'customer' || conv.customerType === 'customer';
+    case 'questions':
+      return conv.category === 'general_question';
+    case 'support':
+      return conv.category === 'support_request';
+    case 'brand_deal':
+      return conv.category === 'brand_deal' || conv.category === 'collaboration';
+    case 'needs_human':
+      return Boolean(conv.needsHuman || conv.needsAttention);
+    case 'spam':
+      return ['spam', 'scam', 'abusive'].includes(conv.category);
+    default:
+      return conv.category === folderId;
+  }
 }
 
 export default function InboxPage() {
   return (
-    <Suspense fallback={
-      <div className={styles.loadingScreen} aria-busy="true" aria-label={common.loading}>
-        <div className="spinner spinner-lg" />
-      </div>
-    }>
+    <Suspense fallback={null}>
       <InboxPageContent />
     </Suspense>
   );

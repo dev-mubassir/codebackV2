@@ -1,907 +1,473 @@
-/* ============================================
- * Dashboard — Cloudflare-inspired Layout
- * ============================================ */
+/* ==========================================================================
+   Dashboard — four stacked sections, each stating what its numbers count.
+   ========================================================================== */
 
-.loadingSkeleton {
-  padding: 8px 0;
+.pageHead { margin-bottom: var(--ui-space-8); }
+
+.greeting {
+  margin: 0 0 var(--ui-space-1);
+  font-size: var(--ui-text-xl);
+  font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
 }
 
-.skeletonTitle {
-  height: 28px;
-  width: 300px;
-  margin-bottom: 24px;
+.greetingSub {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
 }
 
-.skeletonCards {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
+.trialSlot { margin-bottom: var(--ui-space-6); }
 
-.skeletonCard {
-  height: 100px;
-  border-radius: var(--radius-lg);
-}
+/* ---------- Section frame ---------------------------------------------- */
 
-/* ---- Page Header ---- */
-.pageHeader {
+.section { margin-bottom: var(--ui-space-10); }
+
+.sectionHead {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 28px;
-  gap: 16px;
+  gap: var(--ui-space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--ui-space-4);
 }
 
-.pageHeader a {
-  text-decoration: none;
-  flex-shrink: 0;
+.sectionTitle {
+  margin: 0 0 2px;
+  font-size: var(--ui-text-lg);
+  font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
 }
 
-.pageTitle {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-  letter-spacing: -0.02em;
+/* This line is load-bearing, not decoration: it is where each section says
+   whether its numbers are the live queue, the selected range, or all time. */
+.sectionHint {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
 }
 
-.pageSubtitle {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
+.sectionActions { display: flex; align-items: center; gap: var(--ui-space-2); }
 
-/* ---- Alert Banner ---- */
-.alertBanner {
+/* ---------- Alerts ------------------------------------------------------ */
+
+.alert {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--color-warning-subtle);
-  border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: var(--radius-lg);
-  margin-bottom: 24px;
+  gap: var(--ui-space-3);
+  margin-bottom: var(--ui-space-4);
+  padding: var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
 }
 
-.alertIcon {
-  font-size: var(--text-md);
-  flex-shrink: 0;
-}
+.alertBody { min-width: 0; display: flex; flex-direction: column; gap: var(--ui-space-2); }
 
-.alertContent {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.alertContent strong {
-  font-size: var(--text-sm);
+.alertTitle {
+  margin: 0;
+  font-size: var(--ui-text-base);
   font-weight: 600;
-  color: var(--color-warning-text);
+  color: var(--ui-ink);
 }
 
-.alertContent span {
-  font-size: var(--text-sm);
-  color: var(--color-warning-text);
-  opacity: 0.8;
+.alertText {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
 }
 
-/* ---- Metrics Grid ---- */
-.metricsGrid {
+.alertLink {
+  align-self: flex-start;
+  font-size: var(--ui-text-base);
+  font-weight: 500;
+  color: var(--ui-accent);
+  text-decoration: none;
+}
+
+.alertLink:hover { text-decoration: underline; }
+
+.alertLink:focus-visible {
+  outline: none;
+  border-radius: var(--ui-radius-sm);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
+}
+
+/* ---------- Right now: metric cards ------------------------------------- */
+
+.metricGrid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 28px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ui-space-3);
 }
 
 .metricCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 20px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
-  cursor: pointer;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-4);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  font-family: inherit;
   text-align: left;
-  color: var(--text-primary);
-  width: 100%;
+  cursor: pointer;
+  transition: border-color var(--ui-transition), background-color var(--ui-transition);
 }
 
-.metricCard:hover {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
-}
+.metricCard:hover { border-color: var(--ui-border-strong); background: var(--ui-surface-subtle); }
 
-.metricIconWrap {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--text-md);
-}
-
-.metricIconAttention {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning);
-}
-
-.metricIconDeals {
-  background: var(--color-error-subtle);
-}
-
-.metricIconCollabs {
-  background: var(--color-info-subtle);
-}
-
-.metricIconUnread {
-  background: var(--color-primary-subtle);
-  color: var(--color-primary);
+.metricCard:focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
 }
 
 .metricValue {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text-primary);
+  font-size: var(--ui-text-2xl);
+  font-weight: 600;
   line-height: 1;
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .metricLabel {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-/* ---- While You Were Away ---- */
-.awayCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  margin-bottom: 28px;
-}
-
-.awayHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.cardTitle {
-  font-size: var(--text-md);
+  font-size: var(--ui-text-base);
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ui-ink);
 }
 
-.awaySubtext {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  font-weight: 500;
+.metricHint {
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
 }
 
-.awayGrid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+/* ---------- Since your last visit: chips -------------------------------- */
+
+.chipRow { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--ui-transition), background-color var(--ui-transition);
 }
 
-.awayChip {
+.chip:hover { border-color: var(--ui-border-strong); background: var(--ui-surface-subtle); }
+
+.chip:focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
+}
+
+.chipCount {
+  font-size: var(--ui-text-md);
+  font-weight: 600;
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.chipLabel { font-size: var(--ui-text-base); color: var(--ui-text-body); }
+
+/* ---------- Reply mode -------------------------------------------------- */
+
+.replyMode {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  color: var(--text-primary);
-  font-size: var(--text-sm);
+  gap: var(--ui-space-3);
+  margin-bottom: var(--ui-space-4);
+  padding: var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
 }
 
-.awayChip:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-subtle);
+.replyModeBody { flex: 1; min-width: 0; }
+
+.replyModeTitle {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
 }
 
-.awayChipCount {
-  font-weight: 700;
-  font-size: var(--text-md);
+.replyModeHint {
+  margin: 0;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
 }
 
-.awayChipLabel {
-  color: var(--text-secondary);
-  text-transform: capitalize;
+/* ---------- Analytics cards --------------------------------------------- */
+
+.chartRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-3);
+  margin-bottom: var(--ui-space-3);
 }
 
-/* ---- Section Header ---- */
-.sectionHeader {
+.compactRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ui-space-3);
+}
+
+.chartCard, .compactCard { display: flex; flex-direction: column; }
+
+.chartHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  gap: var(--ui-space-2);
+  margin-bottom: var(--ui-space-2);
 }
 
-.sectionCount {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
+.cardLabel {
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
 }
 
-/* ---- Connected Accounts ---- */
-.accountsList {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+/* The range on the card itself. A number under a date picker that does not say
+   whether the picker applies to it is the bug this whole page was fixing. */
+.rangeTag {
+  flex-shrink: 0;
+  font-size: var(--ui-text-xs);
+  color: var(--ui-text-faint);
+  white-space: nowrap;
+}
+
+.bigNumberRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ui-space-2);
+  margin-bottom: var(--ui-space-2);
+}
+
+.bigNumber {
+  font-size: var(--ui-text-2xl);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.cardHint {
+  margin-top: var(--ui-space-2);
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.deltaUp, .deltaDown {
+  font-size: var(--ui-text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.deltaUp { color: var(--ui-success); }
+.deltaDown { color: var(--ui-text-muted); }
+
+/* ---------- Sparkline ---------------------------------------------------- */
+
+.spark { position: relative; margin-top: auto; padding-top: var(--ui-space-3); }
+
+.sparkSvg { display: block; width: 100%; height: 72px; overflow: visible; }
+
+.sparkLine {
+  fill: none;
+  stroke: var(--ui-accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* A flat 8% wash, not a gradient — the landing page's gradient fills were the
+   first thing that read as generated. */
+.sparkArea { fill: var(--ui-tile-accent-bg); stroke: none; }
+
+.sparkDot {
+  fill: var(--ui-surface);
+  stroke: var(--ui-accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkReadout {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin: 0;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.sparkAxis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--ui-space-1);
+  font-size: var(--ui-text-xs);
+  color: var(--ui-text-faint);
+}
+
+.noData {
+  margin: var(--ui-space-4) 0 0;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-faint);
+}
+
+/* ---------- Breakdown ---------------------------------------------------- */
+
+.breakdown {
+  margin-top: var(--ui-space-6);
+  padding-top: var(--ui-space-6);
+  border-top: 1px solid var(--ui-border);
+}
+
+.breakdownGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ui-space-3);
+}
+
+.breakdownCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+}
+
+.breakdownValue {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ui-space-2);
+  font-size: var(--ui-text-xl);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.breakdownPct {
+  font-size: var(--ui-text-sm);
+  font-weight: 500;
+  color: var(--ui-text-muted);
+}
+
+.breakdownLabel {
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
+}
+
+.breakdownHint {
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.sampleNote {
+  margin: var(--ui-space-3) 0 0;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-faint);
+}
+
+/* ---------- Connected accounts ------------------------------------------ */
+
+.accountList {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
   overflow: hidden;
+  background: var(--ui-surface);
 }
 
 .accountRow {
   display: flex;
   align-items: center;
-  padding: 16px 20px;
-  gap: 16px;
-  border-bottom: 1px solid var(--border-subtle);
-  transition: background var(--transition-fast);
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border);
 }
 
-.accountRow:last-child {
-  border-bottom: none;
-}
+.accountRow:last-child { border-bottom: none; }
 
-.accountRow:hover {
-  background: var(--bg-surface-secondary);
-}
-
-.accountLeft {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  min-width: 0;
-}
-
-.accountAvatar {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-full);
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.accountAvatarFallback {
-  flex-shrink: 0;
-}
-
-.accountInfo {
-  min-width: 0;
-}
-
-.accountUsername {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
+.accountInfo { min-width: 0; display: flex; flex-direction: column; }
 
 .accountName {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  margin-top: 1px;
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountSub {
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .accountMeta {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
 }
 
-.accountMetaItem {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
+.accountMetaItem { font-size: var(--ui-text-sm); color: var(--ui-text-muted); }
+
+.accountActions { flex-shrink: 0; display: flex; gap: var(--ui-space-2); }
+
+/* ---------- Narrow ------------------------------------------------------- */
+
+@media (max-width: 1023px) {
+  .metricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .breakdownGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chartRow { grid-template-columns: minmax(0, 1fr); }
+  .compactRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-.accountActions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
+@media (max-width: 767px) {
+  .section { margin-bottom: var(--ui-space-8); }
 
-/* ---- Empty State ---- */
-.emptyState {
-  text-align: center;
-  padding: 60px 24px;
-  background: var(--bg-surface);
-  border: 1px dashed var(--border-default);
-  border-radius: var(--radius-lg);
-}
+  .compactRow { grid-template-columns: minmax(0, 1fr); }
 
-.emptyIcon {
-  margin-bottom: 16px;
-  color: var(--text-tertiary);
-}
+  .replyMode { flex-wrap: wrap; }
 
-.emptyTitle {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-}
-
-.emptyDesc {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  max-width: 360px;
-  margin: 0 auto;
-}
-
-/* ---- Responsive ---- */
-@media (max-width: 900px) {
-  .metricsGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .pageHeader {
-    flex-direction: column;
-  }
-
+  /* The row becomes a stacked card: four columns of 36px avatar + badges +
+     two buttons cannot share 343px without something being unreadable. */
   .accountRow {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .accountMeta {
     flex-wrap: wrap;
-  }
-}
-
-@media (max-width: 480px) {
-  .pageTitle {
-    font-size: var(--text-xl);
-  }
-
-  .metricsGrid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    margin-bottom: 20px;
-  }
-
-  .metricCard {
-    padding: 14px 12px;
-    gap: 6px;
-  }
-
-  .metricValue {
-    font-size: var(--text-xl);
-  }
-
-  .metricLabel {
-    font-size: 11px;
-  }
-
-  .skeletonCards {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
-
-  .awayCard {
-    padding: 16px;
-  }
-
-  .card {
-    padding: 16px;
-  }
-}
-
-/* ============================================
- * Cloudflare-Inspired Analytics Section
- * ============================================ */
-
-.analyticsSection {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.analyticsHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.analyticsTitle {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
-}
-
-.analyticsControls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.timeRangeSelectWrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.timeRangeSelect {
-  appearance: none;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  padding: 6px 32px 6px 32px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.timeRangeSelect:hover,
-.timeRangeSelect:focus {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-sm);
-}
-
-.calendarIcon {
-  position: absolute;
-  left: 10px;
-  pointer-events: none;
-  color: var(--text-secondary);
-}
-
-.chevronIcon {
-  position: absolute;
-  right: 10px;
-  pointer-events: none;
-  color: var(--text-tertiary);
-}
-
-.analyticsIconBtn {
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.analyticsIconBtn:hover {
-  background: var(--bg-surface-secondary);
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.spinning {
-  animation: spinIcon 0.8s linear infinite;
-}
-
-@keyframes spinIcon {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.analyticsGridTop {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-}
-
-.analyticsGridBottom {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.analyticsCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 20px 22px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 190px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-
-.analyticsCard:hover {
-  border-color: var(--border-strong);
-}
-
-.analyticsCardCompact {
-  min-height: 155px;
-}
-
-.cardHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.cardLabel {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  letter-spacing: -0.01em;
-}
-
-.cardDots {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  line-height: 1;
-  padding: 0 4px;
-}
-
-.cardDots:hover {
-  color: var(--text-primary);
-}
-
-.metricNumberRow {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.metricBigValue {
-  font-size: 30px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-}
-
-.deltaPositive {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-success);
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.deltaNegative {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-error);
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.deltaNeutral {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-}
-
-.sparklineContainer {
-  width: 100%;
-  height: 110px;
-  position: relative;
-  margin-top: 10px;
-  cursor: crosshair;
-}
-
-.sparklineSvg {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.sparklineTooltip {
-  position: absolute;
-  top: 0;
-  background: #0f172a;
-  color: #ffffff;
-  padding: 4px 8px;
-  border-radius: 5px;
-  font-size: 11px;
-  pointer-events: none;
-  white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  z-index: 20;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transform: translate(-50%, -115%);
-  transition: left 0.05s ease-out;
-}
-
-.sparklineTooltipValue {
-  font-weight: 700;
-  color: #38bdf8;
-  font-size: 12px;
-}
-
-.sparklineTooltipLabel {
-  font-size: 10px;
-  color: #94a3b8;
-  font-weight: 500;
-}
-
-.noDataPlaceholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 90px;
-  color: var(--text-tertiary);
-  font-size: 13px;
-  font-weight: 400;
-  text-align: center;
-}
-
-/* ---- Category-Adaptive Intelligence Card ---- */
-.categoryIntelligenceCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 22px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-}
-
-.categoryHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.categoryTitle {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.categorySubtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
-
-.categoryGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.categoryChip {
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.categoryChipTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.categoryChipIcon {
-  font-size: 16px;
-}
-
-.categoryChipValue {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.categoryChipLabel {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.categoryChipDesc {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.3;
-}
-
-/* ---- Intent Distribution Progress Visualizer ---- */
-.distributionSection {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.distributionHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.distributionTitle {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.distributionBar {
-  width: 100%;
-  height: 10px;
-  background: var(--bg-surface-secondary);
-  border-radius: var(--radius-full);
-  display: flex;
-  overflow: hidden;
-}
-
-.distributionSegment {
-  height: 100%;
-  transition: width 0.3s ease-in-out;
-}
-
-.distributionLegend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 4px;
-}
-
-.legendItem {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.legendDot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-}
-
-.legendCount {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.legendPct {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-@media (max-width: 1024px) {
-  .analyticsGridBottom {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .categoryGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 768px) {
-  .analyticsGridTop {
-    grid-template-columns: 1fr;
-  }
-
-  .analyticsGridBottom {
-    grid-template-columns: 1fr;
-  }
-
-  .categoryGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .analyticsHeaderRow {
-    flex-direction: column;
     align-items: flex-start;
+    row-gap: var(--ui-space-3);
   }
-}
 
-
-/* ---- Copy audit additions ---- */
-
-/* Stat-card eyebrow labels are written in caps in content/copy.js. The
-   tracking here is what makes them read as a label rather than shouting. */
-.cardLabel {
-  text-transform: none;
-  letter-spacing: 0.06em;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-}
-
-/* One-line definition under a number, so the card explains itself. */
-.cardHint {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.35;
-  display: block;
-}
-
-.metricHint {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.35;
-  margin-top: 2px;
-}
-
-/* Reply mode banner — states plainly whether anything sends without the user. */
-.replyModeBanner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.replyModeLeft {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.replyModeLeft strong {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.replyModeHint {
-  color: var(--text-tertiary);
-}
-
-.distributionTotal {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 500;
-}
-
-.distributionNote {
-  margin-top: 8px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.4;
+  .accountMeta { flex-basis: 100%; }
+  .accountActions { flex-basis: 100%; }
+  .accountActions > * { flex: 1; }
 }

@@ -1,13 +1,36 @@
 'use client';
 
+/**
+ * Admin — connected Instagram accounts: filter, export, and the three
+ * per-account actions.
+ *
+ * Data layer is master's, including the Gate-1 initial load (see admin/users).
+ *
+ * Changed:
+ *   - Disconnect used window.confirm() with the handle spliced into the title
+ *     by string replace. It is the shared Modal now, handle on its own line.
+ *   - Success and failure notices were both rendered in the warning style, so
+ *     "access refreshed" and "couldn't refresh" looked identical. Each notice
+ *     now carries the tone it already had in state.
+ *   - The account picture was a bare <img> with no fallback when Instagram's
+ *     URL expires; it is the shared Avatar, which falls back to the initial.
+ */
+
 import { useEffect, useState, useCallback } from 'react';
 import { getAdminAccounts, refreshAccountToken, resubscribeAccountWebhook, disconnectAccountAdmin } from '@/lib/api';
 import Icon from '@/app/components/Icon';
+import { Avatar, Badge, Button, Input, Modal, Select, Skeleton } from '@/app/components/ui';
 import { admin as t, common, errors, empty, confirm as confirmCopy, toast } from '@/content/copy';
 import { tokenStatusLabel } from '@/content/labels';
 import { formatDateTime, formatCount } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
 import styles from '../admin.module.css';
+
+const NOTICE_TONE = { success: styles.noticeSuccess, error: styles.noticeError };
+
+// "Reconnect needed" is shown as warning — something to act on — the same as
+// on the customer's own profile page, not the danger labels.js assigns it.
+const connectionTone = (tone) => (tone === 'positive' ? 'positive' : 'warning');
 
 export default function AdminAccountsPage() {
   const [accounts, setAccounts] = useState([]);
@@ -15,22 +38,38 @@ export default function AdminAccountsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
+  const [disconnecting, setDisconnecting] = useState(null);
+  const [disconnectBusy, setDisconnectBusy] = useState(false);
+  const [disconnectError, setDisconnectError] = useState('');
 
   const loadAccounts = useCallback(async (searchQuery = search, status = statusFilter) => {
     setLoading(true);
     try {
       const data = await getAdminAccounts(searchQuery, status);
       setAccounts(data);
-    } catch (err) {
+    } catch {
       setNotice({ tone: 'error', text: errors.admin.accounts });
     } finally {
       setLoading(false);
     }
   }, [search, statusFilter]);
 
+  // Initial load — see the note on the same effect in admin/users.
   useEffect(() => {
-    loadAccounts('', '');
-  }, [loadAccounts]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getAdminAccounts('', '');
+        if (cancelled) return;
+        setAccounts(data);
+      } catch {
+        if (!cancelled) setNotice({ tone: 'error', text: errors.admin.accounts });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function handleFilterSubmit(e) {
     e.preventDefault();
@@ -42,7 +81,7 @@ export default function AdminAccountsPage() {
       await refreshAccountToken(acc.id);
       setNotice({ tone: 'success', text: `${toast.adminTokenRefreshed} for @${acc.igUsername}` });
       await loadAccounts();
-    } catch (err) {
+    } catch {
       setNotice({ tone: 'error', text: `${errors.admin.refreshToken} @${acc.igUsername}` });
     }
   }
@@ -52,38 +91,54 @@ export default function AdminAccountsPage() {
       await resubscribeAccountWebhook(acc.id);
       setNotice({ tone: 'success', text: `${toast.adminResubscribed} for @${acc.igUsername}` });
       await loadAccounts();
-    } catch (err) {
+    } catch {
       setNotice({ tone: 'error', text: `${errors.admin.resubscribe} @${acc.igUsername}` });
     }
   }
 
-  async function handleDisconnect(acc) {
-    if (!confirm(`${confirmCopy.adminDisconnectAccount.title.replace('this account', `@${acc.igUsername}`)}\n\n${confirmCopy.adminDisconnectAccount.body}`)) return;
+  function openDisconnect(acc) {
+    setDisconnectError('');
+    setDisconnecting(acc);
+  }
+
+  const closeDisconnect = useCallback(() => {
+    if (disconnectBusy) return;
+    setDisconnecting(null);
+    setDisconnectError('');
+  }, [disconnectBusy]);
+
+  async function handleDisconnect() {
+    if (!disconnecting) return;
+    setDisconnectBusy(true);
+    setDisconnectError('');
     try {
-      await disconnectAccountAdmin(acc.id);
+      await disconnectAccountAdmin(disconnecting.id);
+      setDisconnecting(null);
       setNotice({ tone: 'success', text: toast.adminAccountDisconnected });
       await loadAccounts();
-    } catch (err) {
-      setNotice({ tone: 'error', text: errors.admin.disconnect });
+    } catch {
+      setDisconnectError(errors.admin.disconnect);
+    } finally {
+      setDisconnectBusy(false);
     }
   }
 
   return (
-    <div>
-      {/* Toolbar */}
+    <div className={styles.stack}>
       <div className={styles.toolbar}>
-        <form onSubmit={handleFilterSubmit} style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <input
-            type="text"
-            className={styles.searchInput}
+        <form onSubmit={handleFilterSubmit} className={styles.filters} role="search">
+          <Input
+            type="search"
+            className={styles.filterField}
             placeholder={t.accounts.searchPlaceholder}
             aria-label={t.accounts.searchPlaceholder}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
 
-          <select
-            className={styles.selectInput}
+          <Select
+            className={styles.filterSelect}
+            aria-label={t.accounts.columns.status}
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
@@ -93,120 +148,125 @@ export default function AdminAccountsPage() {
             <option value="">{t.accounts.statusAll}</option>
             <option value="VALID">{t.accounts.statusValid}</option>
             <option value="NEEDS_RECONNECT">{t.accounts.statusNeedsReconnect}</option>
-          </select>
+          </Select>
 
-          <button type="submit" className="btn btn-secondary btn-sm">{common.filter}</button>
+          <Button type="submit" size="sm">{common.filter}</Button>
         </form>
 
-        <div>
-          <a
-            href={`${BACKEND_URL}/api/admin/accounts/export/csv`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-secondary btn-sm"
-          >
-            <Icon name="download" size={13} /> {t.accounts.exportCsv}
-          </a>
-        </div>
+        <a
+          href={`${BACKEND_URL}/api/admin/accounts/export/csv`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.linkBtn}
+        >
+          <Icon name="download" size={13} /> {t.accounts.exportCsv}
+        </a>
       </div>
 
       {notice && (
         <div
-          className={`${styles.alertBox} ${styles.alertBoxWarning}`}
+          className={`${styles.notice} ${NOTICE_TONE[notice.tone] || ''}`}
           role={notice.tone === 'error' ? 'alert' : 'status'}
         >
-          <span className={styles.alertText}>{notice.text}</span>
-          <button className="btn btn-secondary btn-sm" onClick={() => setNotice(null)}>{common.close}</button>
+          <span className={`${styles.noticeBody} ${styles.noticeText}`}>{notice.text}</span>
+          <Button size="sm" variant="ghost" onClick={() => setNotice(null)}>{common.close}</Button>
         </div>
       )}
 
-      <div className={styles.tableContainer}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>{t.accounts.columns.account}</th>
-              <th>{t.accounts.columns.owner}</th>
-              <th>{t.accounts.columns.status}</th>
-              <th>{t.accounts.columns.lastWebhook}</th>
-              <th>{t.accounts.columns.conversations}</th>
-              <th style={{ textAlign: 'right' }}>{t.accounts.columns.actions}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
+      <section className={styles.panel}>
+        <div className={styles.tableScroll}>
+          <table className={styles.table}>
+            <thead>
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', padding: '32px' }} aria-busy="true">
-                  <div className="spinner spinner-lg" style={{ margin: '0 auto' }} />
-                </td>
+                <th>{t.accounts.columns.account}</th>
+                <th>{t.accounts.columns.owner}</th>
+                <th>{t.accounts.columns.status}</th>
+                <th>{t.accounts.columns.lastWebhook}</th>
+                <th>{t.accounts.columns.conversations}</th>
+                <th className={styles.alignRight}>{t.accounts.columns.actions}</th>
               </tr>
-            ) : accounts.length === 0 ? (
-              <tr>
-                <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '32px' }}>
-                  {search || statusFilter ? t.accounts.empty : empty.adminAccounts.body}
-                </td>
-              </tr>
-            ) : (
-              accounts.map(acc => (
-                <tr key={acc.id}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {acc.igProfilePic ? (
-                        <img src={acc.igProfilePic} alt="" className="avatar" />
-                      ) : (
-                        <div className="avatar">{(acc.igUsername || '?')[0].toUpperCase()}</div>
-                      )}
-                      <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>@{acc.igUsername || 'unknown'}</div>
-                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                          {t.accounts.instagramId} {acc.igUserId}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td>
-                    <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{acc.user?.name || t.users.unnamed}</div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{acc.user?.email || t.users.noEmail}</div>
-                  </td>
-
-                  <td>
-                    <span className={acc.tokenStatus === 'VALID' ? styles.badgeValid : styles.badgeExpired}>
-                      {tokenStatusLabel(acc.tokenStatus).label}
-                    </span>
-                  </td>
-
-                  <td>{acc.lastWebhookAt ? formatDateTime(acc.lastWebhookAt) : common.never}</td>
-
-                  <td>{formatCount(acc._count?.conversations)}</td>
-
-                  <td style={{ textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleRefresh(acc)}
-                      >
-                        <Icon name="refresh" size={13} /> {t.accounts.refreshToken}
-                      </button>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => handleResubscribe(acc)}
-                      >
-                        <Icon name="zap" size={13} /> {t.accounts.resubscribe}
-                      </button>
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={() => handleDisconnect(acc)}
-                      >
-                        {t.accounts.disconnect}
-                      </button>
-                    </div>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan="6" aria-busy="true" aria-label={common.loading}>
+                    <Skeleton lines={3} height={20} />
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : accounts.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className={styles.cellEmpty}>
+                    {search || statusFilter ? t.accounts.empty : empty.adminAccounts.body}
+                  </td>
+                </tr>
+              ) : accounts.map((acc) => {
+                const status = tokenStatusLabel(acc.tokenStatus);
+                return (
+                  <tr key={acc.id}>
+                    <td>
+                      <div className={styles.cellIdentity}>
+                        <Avatar src={acc.igProfilePic} name={acc.igUsername} size={32} decorative />
+                        <div>
+                          <div className={styles.cellPrimary}>@{acc.igUsername || 'unknown'}</div>
+                          <div className={styles.cellSub}>{t.accounts.instagramId} {acc.igUserId}</div>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td>
+                      <div className={styles.cellPrimary}>{acc.user?.name || t.users.unnamed}</div>
+                      <div className={styles.cellSub}>{acc.user?.email || t.users.noEmail}</div>
+                    </td>
+
+                    <td><Badge tone={connectionTone(status.tone)}>{status.label}</Badge></td>
+
+                    <td>{acc.lastWebhookAt ? formatDateTime(acc.lastWebhookAt) : common.never}</td>
+
+                    <td>{formatCount(acc._count?.conversations)}</td>
+
+                    <td className={styles.alignRight}>
+                      <div className={styles.rowActions}>
+                        <Button size="sm" onClick={() => handleRefresh(acc)}>
+                          <Icon name="refresh" size={13} /> {t.accounts.refreshToken}
+                        </Button>
+                        <Button size="sm" onClick={() => handleResubscribe(acc)}>
+                          <Icon name="zap" size={13} /> {t.accounts.resubscribe}
+                        </Button>
+                        <Button size="sm" variant="danger" onClick={() => openDisconnect(acc)}>
+                          {t.accounts.disconnect}
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {disconnecting && (
+        <Modal
+          title={confirmCopy.adminDisconnectAccount.title}
+          onClose={closeDisconnect}
+          actions={(
+            <>
+              <Button size="sm" onClick={closeDisconnect} disabled={disconnectBusy}>{common.cancel}</Button>
+              <Button size="sm" variant="danger" onClick={handleDisconnect} loading={disconnectBusy}>
+                {confirmCopy.adminDisconnectAccount.action}
+              </Button>
+            </>
+          )}
+        >
+          <p className={styles.dialogWho}>@{disconnecting.igUsername || 'unknown'}</p>
+          <p className={styles.dialogBody}>{confirmCopy.adminDisconnectAccount.body}</p>
+          {disconnectError && (
+            <p className={`${styles.notice} ${styles.noticeError} ${styles.dialogError}`} role="alert">
+              {disconnectError}
+            </p>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

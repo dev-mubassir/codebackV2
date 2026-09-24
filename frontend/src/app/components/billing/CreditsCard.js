@@ -63,7 +63,7 @@ export default function CreditsCard({ summary }) {
       </div>
       <p className={styles.help}>{billing.credits.usedThisCycle(credits.usedPercent)}</p>
 
-      <div style={{ marginTop: 12 }}>
+      <div className={styles.gapTopSm}>
         <div className={styles.splitRow}>
           <span>{billing.credits.current}</span>
           <span className={styles.splitValue}>{formatCount(credits.current)}</span>
@@ -74,7 +74,7 @@ export default function CreditsCard({ summary }) {
         </div>
       </div>
 
-      <p className={styles.help} style={{ marginTop: 10 }}>
+      <p className={`${styles.help} ${styles.helpAfter}`}>
         {billing.credits.bankedHelp}
       </p>
     </section>

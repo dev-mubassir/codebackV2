@@ -1,7 +1,25 @@
 'use client';
 
+/**
+ * Admin — support lookup: find a customer or a connected account, read-only.
+ *
+ * Data layer is master's.
+ *
+ * Changed: the page repeated its own title under the topbar, which already
+ * says "Support lookup" — only the one-line description stays. Inline styles
+ * became classes, the results grid collapses to one column on narrow screens
+ * (master's was a fixed two columns at every width), and the conversation
+ * inspector is the shared Modal.
+ *
+ * NOT reachable, in master or here: nothing calls handleInspectConversation,
+ * and the search endpoint returns customers and accounts, not conversations,
+ * so there is no id to open. The inspector is kept and restyled so that
+ * wiring it later is a data change only. Reported.
+ */
+
 import { useState } from 'react';
 import { supportSearch, getSupportConversation } from '@/lib/api';
+import { Badge, Button, Input, Modal, Skeleton } from '@/app/components/ui';
 import { admin as t, common, errors, empty } from '@/content/copy';
 import { tokenStatusLabel } from '@/content/labels';
 import { formatDateTime } from '@/content/format';
@@ -12,7 +30,7 @@ export default function AdminSupportPage() {
   const [results, setResults] = useState({ users: [], accounts: [] });
   const [loading, setLoading] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState(null);
-  const [loadingConv, setLoadingConv] = useState(false);
+  const [, setLoadingConv] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
 
@@ -26,7 +44,7 @@ export default function AdminSupportPage() {
       const data = await supportSearch(query.trim());
       setResults(data);
       setSearched(true);
-    } catch (err) {
+    } catch {
       setError(errors.admin.search);
     } finally {
       setLoading(false);
@@ -38,151 +56,133 @@ export default function AdminSupportPage() {
     try {
       const data = await getSupportConversation(convId);
       setSelectedConversation(data);
-    } catch (err) {
+    } catch {
       setError(errors.admin.conversation);
     } finally {
       setLoadingConv(false);
     }
   }
 
-  return (
-    <div>
-      <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
-          {t.support.title}
-        </h2>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{t.support.subtitle}</p>
-      </div>
+  const hasResults = results.users.length > 0 || results.accounts.length > 0;
 
-      {/* Search Input */}
-      <form onSubmit={handleSearch} style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
-        <input
-          type="text"
-          className={styles.searchInput}
-          placeholder={t.support.searchPlaceholder}
-          aria-label={t.support.searchPlaceholder}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          style={{ flex: 1, padding: '10px 14px' }}
-        />
-        <button type="submit" className="btn btn-primary">{t.support.submit}</button>
+  return (
+    <div className={styles.stack}>
+      <p className={styles.pageLeadText}>{t.support.subtitle}</p>
+
+      <form onSubmit={handleSearch} className={styles.filters} role="search">
+        <div className={styles.searchWide}>
+          <Input
+            type="search"
+            placeholder={t.support.searchPlaceholder}
+            aria-label={t.support.searchPlaceholder}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <Button type="submit" variant="primary" loading={loading}>{t.support.submit}</Button>
       </form>
 
       {error && (
-        <div className={`${styles.alertBox} ${styles.alertBoxWarning}`} role="alert">
-          <span className={styles.alertText}>{error}</span>
+        <div className={`${styles.notice} ${styles.noticeError}`} role="alert">
+          <span className={styles.noticeText}>{error}</span>
         </div>
       )}
 
       {loading && (
-        <div style={{ textAlign: 'center', padding: '32px' }} aria-busy="true" aria-label={common.loading}>
-          <div className="spinner spinner-lg" style={{ margin: '0 auto' }} />
+        <div aria-busy="true" aria-label={common.loading}>
+          <Skeleton lines={3} height={40} />
         </div>
       )}
 
-      {!loading && searched && results.users.length === 0 && results.accounts.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-tertiary)' }}>
-          <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-primary)' }}>
-            {empty.search.title}
-          </h3>
-          <p style={{ fontSize: 'var(--text-xs)', marginTop: '4px' }}>{empty.search.body}</p>
+      {!loading && searched && !hasResults && (
+        <div className={`${styles.panel} ${styles.cellEmpty}`}>
+          <p className={styles.cellPrimary}>{empty.search.title}</p>
+          <p className={styles.cellSub}>{empty.search.body}</p>
         </div>
       )}
 
-      {/* Search Results */}
-      {!loading && (results.users.length > 0 || results.accounts.length > 0) && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-          {/* Matched Users */}
-          <div className={styles.tableContainer}>
-            <div style={{ padding: '12px 16px', background: 'var(--bg-surface-secondary)', borderBottom: '1px solid var(--border-default)', fontWeight: 600, fontSize: 'var(--text-xs)' }}>
-              {t.support.matchedUsers} ({results.users.length})
+      {!loading && hasResults && (
+        <div className={styles.resultsGrid}>
+          <section className={styles.panel}>
+            <div className={styles.panelHeader}>
+              <h2 className={styles.panelTitle}>
+                {t.support.matchedUsers} ({results.users.length})
+              </h2>
             </div>
-            <table className={styles.table}>
-              <tbody>
-                {results.users.map(u => (
-                  <tr key={u.id}>
-                    <td>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.name || t.users.unnamed}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{u.email || t.users.noEmail}</div>
-                    </td>
-                    <td>
-                      {u.instagramAccounts?.map(a => (
-                        <span key={a.id} className={styles.badgeValid} style={{ marginRight: '4px' }}>
-                          @{a.igUsername}
-                        </span>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Matched Accounts */}
-          <div className={styles.tableContainer}>
-            <div style={{ padding: '12px 16px', background: 'var(--bg-surface-secondary)', borderBottom: '1px solid var(--border-default)', fontWeight: 600, fontSize: 'var(--text-xs)' }}>
-              {t.support.matchedAccounts} ({results.accounts.length})
+            <div className={styles.tableScroll}>
+              <table className={`${styles.table} ${styles.tableCompact}`}>
+                <tbody>
+                  {results.users.map((u) => (
+                    <tr key={u.id}>
+                      <td>
+                        <div className={styles.cellPrimary}>{u.name || t.users.unnamed}</div>
+                        <div className={styles.cellSub}>{u.email || t.users.noEmail}</div>
+                      </td>
+                      <td>
+                        <div className={styles.badgeRow}>
+                          {u.instagramAccounts?.map((a) => (
+                            <Badge key={a.id} tone="neutral">@{a.igUsername}</Badge>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <table className={styles.table}>
-              <tbody>
-                {results.accounts.map(acc => (
-                  <tr key={acc.id}>
-                    <td>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>@{acc.igUsername}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                        {t.support.owner}: {acc.user?.name || acc.user?.email || common.unknown}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={acc.tokenStatus === 'VALID' ? styles.badgeValid : styles.badgeExpired}>
-                        {tokenStatusLabel(acc.tokenStatus).label}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          </section>
+
+          <section className={styles.panel}>
+            <div className={styles.panelHeader}>
+              <h2 className={styles.panelTitle}>
+                {t.support.matchedAccounts} ({results.accounts.length})
+              </h2>
+            </div>
+            <div className={styles.tableScroll}>
+              <table className={`${styles.table} ${styles.tableCompact}`}>
+                <tbody>
+                  {results.accounts.map((acc) => {
+                    const status = tokenStatusLabel(acc.tokenStatus);
+                    return (
+                      <tr key={acc.id}>
+                        <td>
+                          <div className={styles.cellPrimary}>@{acc.igUsername}</div>
+                          <div className={styles.cellSub}>
+                            {t.support.owner}: {acc.user?.name || acc.user?.email || common.unknown}
+                          </div>
+                        </td>
+                        <td className={styles.alignRight}>
+                          <Badge tone={status.tone === 'positive' ? 'positive' : 'warning'}>{status.label}</Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
       )}
 
-      {/* Conversation Inspector Modal */}
       {selectedConversation && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: '650px', width: '100%' }}>
-            <h3 className={styles.modalTitle}>
-              {t.support.inspectorTitle} — @{selectedConversation.instagramAccount?.igUsername} and
-              {' '}@{selectedConversation.contact?.username}
-            </h3>
-
-            <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', background: 'var(--bg-surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', margin: '12px 0' }}>
-              {selectedConversation.messages?.map(m => (
-                <div
-                  key={m.id}
-                  style={{
-                    alignSelf: m.direction === 'outbound' ? 'flex-end' : 'flex-start',
-                    background: m.direction === 'outbound' ? 'var(--color-primary)' : 'var(--bg-surface)',
-                    color: m.direction === 'outbound' ? 'white' : 'var(--text-primary)',
-                    padding: '8px 12px',
-                    maxWidth: '75%',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-subtle)',
-                    fontSize: 'var(--text-xs)'
-                  }}
-                >
-                  <div>{m.content}</div>
-                  <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '4px', textAlign: 'right' }}>
-                    {m.direction === 'outbound' ? t.support.outbound : t.support.inbound} · {formatDateTime(m.createdAt)}
-                  </div>
+        <Modal
+          title={`${t.support.inspectorTitle} — @${selectedConversation.instagramAccount?.igUsername} and @${selectedConversation.contact?.username}`}
+          onClose={() => setSelectedConversation(null)}
+          actions={(
+            <Button size="sm" onClick={() => setSelectedConversation(null)}>{t.support.inspectorClose}</Button>
+          )}
+        >
+          <div className={styles.thread}>
+            {selectedConversation.messages?.map((m) => (
+              <div key={m.id} className={`${styles.bubble} ${m.direction === 'outbound' ? styles.bubbleOut : styles.bubbleIn}`}>
+                <div>{m.content}</div>
+                <div className={styles.bubbleMeta}>
+                  {m.direction === 'outbound' ? t.support.outbound : t.support.inbound} · {formatDateTime(m.createdAt)}
                 </div>
-              ))}
-            </div>
-
-            <div className={styles.modalActions}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedConversation(null)}>{t.support.inspectorClose}</button>
-            </div>
+              </div>
+            ))}
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

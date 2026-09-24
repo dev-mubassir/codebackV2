@@ -86,11 +86,11 @@ function NotStarted({ trial, connectHref, onConnect }) {
   return (
     <Shell icon="instagram" title={t.noneTitle(trial?.days)}>
       <p className={styles.help}>{t.noneBody}</p>
-      <div style={{ marginTop: 16 }}>
+      <div className={styles.gapTop}>
         <Includes trial={trial} />
       </div>
       <div className={styles.planActions}>
-        <a href={connectHref} onClick={onConnect} className="btn btn-primary">
+        <a href={connectHref} onClick={onConnect} className={styles.btnPrimary}>
           <Icon name="instagram" size={16} /> {t.connectButton}
         </a>
       </div>
@@ -104,12 +104,12 @@ function Granted({ summary, usageHref }) {
   return (
     <Shell icon="check" title={t.grantedTitle(trial?.days)}>
       <p className={styles.help}>{t.grantedBody(formatDate(validUntil))}</p>
-      <div style={{ marginTop: 16 }}>
+      <div className={styles.gapTop}>
         <Includes trial={trial} />
       </div>
       {usageHref && (
         <div className={styles.planActions}>
-          <Link href={usageHref} className="btn btn-secondary">
+          <Link href={usageHref} className={styles.btnSecondary}>
             {t.grantedAction}
           </Link>
         </div>
@@ -124,7 +124,7 @@ function AlreadyConsumed({ plansHref }) {
     <Shell icon="info" title={t.consumedTitle}>
       <p className={styles.help}>{t.consumedBody}</p>
       <div className={styles.planActions}>
-        <Link href={plansHref} className="btn btn-primary">
+        <Link href={plansHref} className={styles.btnPrimary}>
           {t.plansButton}
         </Link>
       </div>
@@ -157,11 +157,11 @@ function Claimable({ trial, onClaimed }) {
   return (
     <Shell icon="zap" title={t.claimableTitle(trial?.days)}>
       <p className={styles.help}>{t.claimableBody}</p>
-      <div style={{ marginTop: 16 }}>
+      <div className={styles.gapTop}>
         <Includes trial={trial} />
       </div>
       <div className={styles.planActions}>
-        <button type="button" className="btn btn-primary" onClick={claim} disabled={state === 'claiming'}>
+        <button type="button" className={styles.btnPrimary} onClick={claim} disabled={state === 'claiming'}>
           {state === 'claiming' ? t.claiming : t.claimButton}
         </button>
       </div>
@@ -180,10 +180,10 @@ function Blocked({ plansHref }) {
     <Shell icon="alertTriangle" title={t.blockedTitle}>
       <p className={styles.help}>{t.blockedBody}</p>
       <div className={styles.planActions}>
-        <Link href="/contact" className="btn btn-secondary">
+        <Link href="/contact" className={styles.btnSecondary}>
           {t.blockedContact(SUPPORT_EMAIL)}
         </Link>
-        <Link href={plansHref} className="btn btn-primary">
+        <Link href={plansHref} className={styles.btnPrimary}>
           {t.plansButton}
         </Link>
       </div>
@@ -219,7 +219,7 @@ function EmailUnverified({ connected }) {
             {t.resent}
           </p>
         ) : (
-          <button type="button" className="btn btn-primary" onClick={resend} disabled={state === 'sending'}>
+          <button type="button" className={styles.btnPrimary} onClick={resend} disabled={state === 'sending'}>
             {state === 'sending' ? t.resending : t.resendButton}
           </button>
         )}

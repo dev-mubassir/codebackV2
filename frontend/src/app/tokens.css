@@ -1,0 +1,148 @@
+/* ==========================================================================
+   Siffty — internal design tokens
+   ==========================================================================
+
+   Extracted from the APPROVED pages (landing + external), then collapsed into
+   a scale. See DESIGN-SYSTEM.md for every value's source and every collapse.
+
+   WHY A SEPARATE FILE, AND WHY THE `--ui-` PREFIX.
+
+   globals.css already defines `--radius-md`, `--border-subtle`, `--shadow-sm`
+   and friends, and the external pages render through it. Redefining those
+   names would change login, register, forgot-password and reset-password —
+   pages that are approved and must not move. A separate namespace means the
+   internal rebuild cannot touch them by accident, and "did an external page
+   change?" stays answerable by grep rather than by screenshot.
+
+   RULES FOR EVERY INTERNAL PAGE AND COMPONENT
+     - No raw hex. Every colour is a var(--ui-…).
+     - No inline style for colour, radius, border or shadow.
+     - One accent: --ui-accent. Status colours are for status only.
+     - Shadows only on things that float (popover, modal). Never on a card,
+       row, input or button.
+   ========================================================================== */
+
+:root {
+  /* ---- Type ------------------------------------------------------------
+     Eight steps, collapsed from ~20 ad-hoc sizes on the landing page. */
+  --ui-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  --ui-text-xs: 11px;    /* badges, table headers, timestamps, counts */
+  --ui-text-sm: 12px;    /* secondary text, hints, metadata */
+  --ui-text-base: 13px;  /* default body: list rows, form help */
+  --ui-text-md: 14px;    /* inputs, buttons, message bubbles */
+  --ui-text-lg: 16px;    /* card and section titles */
+  --ui-text-xl: 20px;    /* page titles */
+  --ui-text-2xl: 24px;   /* the one number on a stat, where there is one */
+
+  --ui-leading-tight: 1.25;
+  --ui-leading-normal: 1.5;
+  --ui-leading-relaxed: 1.6;
+  --ui-tracking-tight: -0.01em;  /* 16px and above only */
+
+  /* ---- Neutrals --------------------------------------------------------
+     Verbatim from landing.css / public.module.css. */
+  --ui-ink: #0c0c0e;              /* primary text, primary button background */
+  --ui-ink-soft: #1e1e24;         /* primary button hover */
+  --ui-text-body: #4b5563;
+  --ui-text-muted: #71717a;
+  --ui-text-faint: #9ca3af;       /* placeholder, disabled, timestamp */
+  --ui-text-inverse: #ffffff;
+
+  --ui-surface: #ffffff;          /* cards, panels, inputs, sidebar */
+  --ui-surface-sunken: #fbfbfc;   /* page background */
+  --ui-surface-subtle: #f4f5f8;   /* hover rows, inactive tabs */
+
+  /* The approved pages carry two border greys, #e5e7eb and #e4e4e7. They are
+     1% apart and indistinguishable on screen, so this is one token. */
+  --ui-border: #e5e7eb;
+  --ui-border-strong: #d4d4d8;
+
+  /* ---- Accent — exactly one -------------------------------------------
+     The landing page also uses purple (#8b5cf6) as an "AI" flavour. Dropped:
+     one accent, and a second colour reserved for magic is decoration. */
+  --ui-accent: #4169e1;
+  --ui-accent-hover: #3154b3;
+  --ui-accent-tint: rgba(65, 105, 225, 0.12);
+  --ui-accent-ring: rgba(65, 105, 225, 0.12);
+
+  /* ---- Icon tile tints -------------------------------------------------
+     The ONLY tinted surfaces in the product. A tile is 32px, --ui-radius-md,
+     a ~10% wash of its colour behind the icon in the solid colour.
+
+     A tile's colour is a CLAIM, so there are only four and each means one
+     thing: accent = informational (no judgement), success = money already
+     earned, warning = needs a human decision, danger = hostile. Anything that
+     fits none of those gets `neutral` — a grey tile is the default, not a
+     failure. This is why there is no "purple for AI" and no per-folder
+     palette: a colour nobody can state the meaning of is decoration. */
+  --ui-tile-accent-bg: rgba(65, 105, 225, 0.10);
+  --ui-tile-success-bg: rgba(5, 150, 105, 0.10);
+  --ui-tile-warning-bg: rgba(180, 83, 9, 0.10);
+  --ui-tile-danger-bg: rgba(185, 28, 28, 0.10);
+  --ui-tile-neutral-bg: #f0f1f4;
+  --ui-tile-neutral-fg: #6b7280;
+
+  /* ---- Status — for status, never for emphasis -------------------------
+     Warning means "this needs you to act": a token about to expire, a reply
+     window about to close. It does NOT mean "unpleasant" — spam is a neutral
+     fact about a message, so spam reads neutral. */
+  --ui-success: #059669;          /* darker than the landing's #10b981 so it */
+  --ui-success-bg: #ecfdf5;       /* passes contrast as text on white */
+  --ui-success-dot: #10b981;      /* the landing value, for 6px dots only */
+  --ui-warning: #b45309;
+  --ui-warning-bg: #fffbeb;
+  --ui-danger: #b91c1c;
+  --ui-danger-bg: #fef2f2;
+
+  /* ---- Spacing — 4px base ---------------------------------------------- */
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+  --ui-space-8: 32px;
+  --ui-space-10: 40px;
+
+  /* ---- Radius — four steps, nothing above 12px ------------------------- */
+  --ui-radius-sm: 4px;     /* badges, tags, checkboxes */
+  --ui-radius-md: 6px;     /* buttons, inputs, list rows */
+  --ui-radius-lg: 10px;    /* cards, panels, modals */
+  --ui-radius-full: 9999px;/* avatars and status dots ONLY */
+
+  /* ---- Elevation -------------------------------------------------------
+     Two shadows, both for surfaces that float over other content. A card, a
+     row, an input and a button all get a 1px border and no shadow. */
+  --ui-shadow-popover: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --ui-shadow-modal: 0 12px 30px -8px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+
+  /* ---- Motion ----------------------------------------------------------
+     One duration, one curve, and only on colour-ish properties. The landing's
+     translateY(-1px) hover lift is a marketing flourish; on a dense list it
+     makes every row feel loose. */
+  --ui-transition: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ---- Layout ---------------------------------------------------------- */
+  --ui-sidebar-w: 240px;
+  --ui-topbar-h: 56px;
+  --ui-content-max: 1400px;
+  --ui-z-drawer: 40;
+  --ui-z-popover: 50;
+  --ui-z-modal: 60;
+}
+
+/* One focus treatment for the whole product, taken from the approved login
+   input. :focus-visible so it shows for keyboard users and not on mouse down. */
+.ui-focusable:focus-visible,
+.ui-root :focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --ui-transition: 0ms;
+  }
+}

@@ -46,18 +46,35 @@ export function getCategoryMeta(category) {
   return { id, label, description, tone, ...presentation };
 }
 
-/** Folders in the inbox sidebar. */
+/**
+ * Folders in the inbox sidebar.
+ *
+ * `tone` drives the tinted icon tile, and every value is a claim the folder
+ * can actually support:
+ *
+ *   warning  "you have to do something about this"  — ONE folder only, so the
+ *            colour keeps meaning anything at all.
+ *   success  money already earned.
+ *   danger   hostile senders.
+ *   accent   a real classification the assistant made.
+ *   neutral  a container, not a judgement. `All` and `Unread` describe the
+ *            view, not the messages, so they get grey.
+ *
+ * Note this is NOT the tone used for the spam BADGE, which stays neutral: on a
+ * conversation row "spam" is a fact needing no response, while the folder is a
+ * place you go to deal with hostile senders.
+ */
 export const INBOX_FILTERS = [
-  { id: 'all', label: 'All', icon: 'inbox' },
-  { id: 'unread', label: 'Unread', icon: 'messageSquare' },
-  { id: 'important', label: 'Needs your reply', icon: 'alertTriangle' },
-  { id: 'hot_leads', label: 'Hot leads', icon: 'flame' },
-  { id: 'leads', label: 'Leads and questions', icon: 'target' },
-  { id: 'customers', label: 'Customers', icon: 'wallet' },
-  { id: 'questions', label: 'General questions', icon: 'helpCircle' },
-  { id: 'support', label: 'Support', icon: 'headphones' },
-  { id: 'brand_deal', label: 'Brand deals', icon: 'handshake' },
-  { id: 'spam', label: 'Spam and scams', icon: 'ban' },
+  { id: 'all', label: 'All', icon: 'inbox', tone: 'neutral' },
+  { id: 'unread', label: 'Unread', icon: 'messageSquare', tone: 'neutral' },
+  { id: 'important', label: 'Needs your reply', icon: 'alertTriangle', tone: 'warning' },
+  { id: 'hot_leads', label: 'Hot leads', icon: 'flame', tone: 'accent' },
+  { id: 'leads', label: 'Leads and questions', icon: 'target', tone: 'accent' },
+  { id: 'customers', label: 'Customers', icon: 'wallet', tone: 'success' },
+  { id: 'questions', label: 'General questions', icon: 'helpCircle', tone: 'accent' },
+  { id: 'support', label: 'Support', icon: 'headphones', tone: 'accent' },
+  { id: 'brand_deal', label: 'Brand deals', icon: 'handshake', tone: 'accent' },
+  { id: 'spam', label: 'Spam and scams', icon: 'ban', tone: 'danger' },
 ];
 
 const PRIORITY_DOT_CLASS = {

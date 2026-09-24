@@ -148,7 +148,7 @@ export default function PlanStatusCard({ summary, onRenew }) {
 
       {onRenew && (
         <div className={styles.planActions}>
-          <button type="button" className="btn btn-primary" onClick={() => onRenew(previewCode)}>
+          <button type="button" className={styles.btnPrimary} onClick={() => onRenew(previewCode)}>
             {plan?.purchasable ? billing.renewal.renewButton : billing.renewal.buyButton}
           </button>
         </div>

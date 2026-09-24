@@ -1,28 +1,75 @@
 'use client';
 
-import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
+/**
+ * Dashboard — what is waiting for you now, what arrived since you last looked,
+ * how the selected period went, and which accounts are connected.
+ *
+ * The DATA LAYER is master's: the same five endpoints, the same six socket
+ * events, the same refresh-on-focus, the same connect-before-redirect guard for
+ * an unverified email, the same trial card behind the billing flag.
+ *
+ * WHAT CHANGED, AND WHY — three of master's numbers were the same number twice.
+ *
+ *   1. "Needs your reply" appeared in the top cards AND as an analytics metric
+ *      under the date-range selector. The two queries are byte-identical
+ *      (dashboard.js:54-63 vs analytics.js:181-189), so it was one figure shown
+ *      twice, and the copy under the selector never moved when the range
+ *      changed. It now appears once, in "Right now".
+ *   2. `categoryMetrics` and `intentDistribution` are the SAME counts from the
+ *      same source, rendered as chips and again as a bar with shares. They are
+ *      now one list: the chips carry the share.
+ *   3. Those chips are NOT scoped to the selected range — analytics.js counts
+ *      them across every current conversation — while everything else in that
+ *      section is. Both bases are now stated.
+ *
+ * So the page says, once per section, what its numbers are counting: "Right
+ * now" is the live queue, the analytics block carries the selected range on
+ * every figure, and the breakdown says it is all-time.
+ *
+ * Connected accounts moved to the bottom. It is reference, not news.
+ */
+
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { io } from 'socket.io-client';
-import { getMe, getAccounts, getInstagramAuthUrl, disconnectAccount, getDashboardSummary, getAnalyticsSummary } from '@/lib/api';
-import AppShell from '@/app/components/AppShell';
+import {
+  getMe, getAccounts, getInstagramAuthUrl, disconnectAccount,
+  getDashboardSummary, getAnalyticsSummary,
+} from '@/lib/api';
+import AppShell from '@/app/components/ui/AppShell';
 import Icon from '@/app/components/Icon';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import TrialStateCard from '@/app/components/billing/TrialStateCard';
 import useBillingSummary from '@/app/components/billing/useBillingSummary';
 import { trialCardState } from '@/lib/trialState';
+import {
+  Avatar, Badge, Button, Card, EmptyState, IconTile, Modal, Select, Skeleton,
+} from '@/app/components/ui';
 import { dashboard as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
-import { categoryLabel, replyModeLabel, replyModeSendsAutomatically, tokenStatusLabel, connectionStatusLabel } from '@/content/labels';
+import {
+  categoryLabel, replyModeLabel, replyModeSendsAutomatically,
+  tokenStatusLabel, connectionStatusLabel,
+} from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import { rememberDestination } from '@/lib/pendingDestination';
 import styles from './dashboard.module.css';
 
 /**
- * Dashboard — what arrived, what needs the user personally, which accounts are
- * connected, and how the last 24 hours / 7 days / 30 days compare.
+ * Tile tone per metric. Same rule as the inbox folders: the colour is a claim,
+ * and `warning` is spent on the one card that is a task rather than a statistic.
  */
+const METRIC_TONE = {
+  needsReply: 'warning',
+  hotLeads: 'accent',
+  brandDeals: 'accent',
+  unread: 'neutral',
+};
+
 export default function DashboardPage() {
   const router = useRouter();
+
   const [user, setUser] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -31,240 +78,206 @@ export default function DashboardPage() {
 
   const [analyticsData, setAnalyticsData] = useState(null);
   const [analyticsError, setAnalyticsError] = useState('');
-  const [analyticsTimeRange, setAnalyticsTimeRange] = useState('24h');
-  const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
+  const [timeRange, setTimeRange] = useState('24h');
+  const [refreshing, setRefreshing] = useState(false);
+
   const [isRedirecting, setIsRedirecting] = useState(false);
   const isRedirectingRef = useRef(false);
-  // Why the connect button refused, if it did. Rendered inline so the user
-  // never leaves the page to find out.
+  // Why the connect button refused, if it did. Shown in place rather than
+  // after a round trip through Instagram's consent screen.
   const [connectBlocked, setConnectBlocked] = useState(null);
+  const [disconnectTarget, setDisconnectTarget] = useState(null);
+  const [disconnecting, setDisconnecting] = useState(false);
 
-  const fetchAnalytics = useCallback(async (timeRange = '24h') => {
+  const fetchAnalytics = useCallback(async (range) => {
     try {
-      const data = await getAnalyticsSummary(timeRange);
-      setAnalyticsData(data);
+      setAnalyticsData(await getAnalyticsSummary(range));
       setAnalyticsError('');
-    } catch (e) {
+    } catch {
       setAnalyticsError(errors.analytics);
     }
   }, []);
 
   const refreshSummary = useCallback(async () => {
     try {
-      const summaryData = await getDashboardSummary();
-      setSummary(summaryData);
+      setSummary(await getDashboardSummary());
       setLoadError('');
-    } catch (e) {
+    } catch {
       setLoadError(errors.dashboard);
     }
   }, []);
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = useCallback(() => {
     refreshSummary();
-    fetchAnalytics(analyticsTimeRange);
-  }, [refreshSummary, fetchAnalytics, analyticsTimeRange]);
+    fetchAnalytics(timeRange);
+  }, [refreshSummary, fetchAnalytics, timeRange]);
 
   useEffect(() => {
-    async function loadData() {
+    let cancelled = false;
+    async function load() {
       try {
         const userData = await getMe();
+        if (cancelled) return;
         if (!userData?.onboardingCompleted) {
-          router.push('/onboarding');
+          rememberDestination();
+          router.replace('/onboarding');
           return;
         }
         setUser(userData);
-
-        const accountsData = await getAccounts();
-        setAccounts(accountsData);
-
+        setAccounts(await getAccounts());
         refreshSummary();
-        fetchAnalytics(analyticsTimeRange);
-      } catch (err) {
-        router.push('/login');
+        fetchAnalytics('24h');
+      } catch {
+        if (!cancelled) router.push('/login');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    loadData();
+    load();
+    return () => { cancelled = true; };
+    // Deliberately once: refreshAll re-runs on focus and on socket events.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [router]);
 
-  // Refresh when the user comes back from /inbox or another tab.
+  // Coming back from the inbox or another tab should not show a stale queue.
   useEffect(() => {
     const onFocus = () => refreshAll();
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refreshAll();
-    };
-
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshAll(); };
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, [refreshAll]);
 
-  // Live updates when messages are read or arrive.
   useEffect(() => {
-    if (!user?.id) return;
-
+    if (!user?.id) return undefined;
     const socket = io(BACKEND_URL, { withCredentials: true });
+    socket.on('connect', () => socket.emit('join', { userId: user.id }));
 
-    socket.on('connect', () => {
-      socket.emit('join', { userId: user.id });
-    });
+    const update = () => refreshAll();
+    socket.on('conversation_read', update);
+    socket.on('conversation_updated', update);
+    socket.on('new_message', update);
+    socket.on('chat_cleared', update);
+    socket.on('analysis_completed', update);
+    socket.on('conversation_deleted', update);
 
-    const handleSocketUpdate = () => refreshAll();
-
-    socket.on('conversation_read', handleSocketUpdate);
-    socket.on('conversation_updated', handleSocketUpdate);
-    socket.on('new_message', handleSocketUpdate);
-    socket.on('chat_cleared', handleSocketUpdate);
-    socket.on('analysis_completed', handleSocketUpdate);
-    socket.on('conversation_deleted', handleSocketUpdate);
-
-    return () => {
-      socket.disconnect();
-    };
+    return () => socket.disconnect();
   }, [user, refreshAll]);
 
-  async function handleRefreshAnalytics() {
-    setRefreshingAnalytics(true);
-    await fetchAnalytics(analyticsTimeRange);
-    setTimeout(() => setRefreshingAnalytics(false), 600);
+  async function handleRefresh() {
+    setRefreshing(true);
+    await fetchAnalytics(timeRange);
+    setRefreshing(false);
   }
 
-  function handleTimeRangeChange(e) {
-    const newRange = e.target.value;
-    setAnalyticsTimeRange(newRange);
-    fetchAnalytics(newRange);
+  function handleRangeChange(e) {
+    const next = e.target.value;
+    setTimeRange(next);
+    fetchAnalytics(next);
   }
 
   function handleConnect(e) {
     if (e) e.preventDefault();
 
-    // CATCH IT BEFORE THE REDIRECT.
-    //
-    // The backend refuses to start a connect for an unverified address and
-    // bounces to /profile?error=email_unverified. That is correct — a trial
-    // needs a confirmed address — but sending someone through Instagram's
-    // consent screen only to reject them on the way back is a bad way to
-    // deliver the news. Say it here instead. The error rendering stays as a
-    // fallback, because the redirect is also reachable directly.
-    if (user && user.needsEmail) {
-      setConnectBlocked('email_required');
-      return;
-    }
-    if (user && user.emailVerified === false) {
-      setConnectBlocked('email_unverified');
-      return;
-    }
+    // CATCH IT BEFORE THE REDIRECT. The backend refuses to start a connect for
+    // an unverified address and bounces to /profile?error=email_unverified.
+    // That is correct, but sending someone through Instagram's consent screen
+    // only to reject them on the way back is a bad way to deliver the news.
+    if (user?.needsEmail) return setConnectBlocked('email_required');
+    if (user?.emailVerified === false) return setConnectBlocked('email_unverified');
 
-    if (isRedirectingRef.current) return;
+    if (isRedirectingRef.current) return undefined;
     isRedirectingRef.current = true;
-    setIsRedirecting(true); // keep this for the UI (aria-disabled, opacity, spin)
-    // Programmatic navigation stops mobile from intercepting the link into
-    // the native Instagram app.
+    setIsRedirecting(true);
+    // Programmatic navigation stops mobile intercepting the link into the
+    // native Instagram app.
     window.location.href = getInstagramAuthUrl();
+    return undefined;
   }
 
-  async function handleDisconnect(accountId) {
-    if (!confirm(`${confirmCopy.disconnectAccount.title}\n\n${confirmCopy.disconnectAccount.body}`)) return;
-
+  async function handleDisconnect() {
+    if (!disconnectTarget || disconnecting) return;
+    setDisconnecting(true);
     try {
-      await disconnectAccount(accountId);
-      setAccounts((prev) => prev.map((a) => (a.id === accountId ? { ...a, connectionStatus: 'DISCONNECTED' } : a)));
-    } catch (err) {
+      await disconnectAccount(disconnectTarget.id);
+      setAccounts((prev) => prev.map((a) => (
+        a.id === disconnectTarget.id ? { ...a, connectionStatus: 'DISCONNECTED' } : a
+      )));
+    } catch {
       setLoadError(errors.disconnectAccount);
+    } finally {
+      setDisconnecting(false);
+      setDisconnectTarget(null);
     }
   }
 
-  if (loading) {
-    return (
-      <AppShell activeRoute="/dashboard">
-        <div className={styles.loadingSkeleton} aria-busy="true" aria-label={common.loading}>
-          <div className={`skeleton ${styles.skeletonTitle}`} />
-          <div className={styles.skeletonCards}>
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className={`skeleton ${styles.skeletonCard}`} />
-            ))}
-          </div>
-        </div>
-      </AppShell>
-    );
-  }
-
+  const rangeLabel = t.analytics.ranges[timeRange];
   const breakdown = summary?.breakdown || {};
   const away = summary?.whileYouWereAway;
   const attentionCount = summary?.attentionQueueCount || 0;
-  // `collaborations` is the combined brand_deal + collaboration count from the
-  // dashboard endpoint. Sponsorships and collabs are one concept in the UI
-  // ("brand deals"), so this is the count that belongs on the card — the
-  // narrower `brandDeals` key would undercount the folder it links to.
+  // `collaborations` is brand_deal + collaboration. Sponsorships and collabs
+  // are one concept in the UI, and the narrower `brandDeals` key would
+  // undercount the folder this card links to.
   const brandDealCount = breakdown.collaborations || 0;
 
   const replyMode = analyticsData?.replyMode;
   const replyModeMeta = replyModeLabel(replyMode);
   const sendsAutomatically = replyModeSendsAutomatically(replyMode);
 
+  const metrics = summary ? [
+    { key: 'needsReply', icon: 'alertTriangle', value: attentionCount, filter: 'important' },
+    { key: 'hotLeads', icon: 'flame', value: breakdown.hotLeads, filter: 'hot_leads' },
+    { key: 'brandDeals', icon: 'handshake', value: brandDealCount, filter: 'brand_deal' },
+    { key: 'unread', icon: 'messageSquare', value: summary.unreadCount, filter: 'unread' },
+  ] : [];
+
   return (
-    <AppShell activeRoute="/dashboard">
+    <AppShell
+      user={user}
+      title={common.productName}
+      activeRoute="/dashboard"
+      actions={(
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={handleConnect}
+          disabled={isRedirecting}
+        >
+          <Icon name="instagram" size={15} />
+          {accounts.length > 0 ? t.addAccount : t.connectInstagram}
+        </Button>
+      )}
+    >
       <AuthErrorBanner />
 
-      {/* The connect button refused before starting OAuth. Rendered here so
-          the reason appears in place, without a round trip through Instagram
-          and back. */}
       {connectBlocked && (
-        <div
-          role="alert"
-          style={{
-            display: 'flex', gap: 10, alignItems: 'flex-start',
-            padding: '12px 14px', marginBottom: 16, borderRadius: 10,
-            background: 'var(--color-error-bg, #fef2f2)',
-            border: '1px solid var(--color-error-border, #fecaca)',
-            color: 'var(--color-error-text, #991b1b)',
-            fontSize: 14, lineHeight: 1.5,
-          }}
-        >
-          <span style={{ flexShrink: 0, marginTop: 2 }}>
-            <Icon name="alertTriangle" size={15} />
-          </span>
-          <div style={{ flex: 1 }}>
-            <div>{errors.oauthCallback[connectBlocked] || errors.oauthCallback.generic}</div>
-            <div style={{ marginTop: 8 }}>
-              <Link href="/profile" className="btn" style={{ fontSize: 13, padding: '6px 12px' }}>
-                Go to your profile
-              </Link>
-            </div>
+        <div className={styles.alert} role="alert">
+          <IconTile name="alertTriangle" tone="danger" />
+          <div className={styles.alertBody}>
+            <p className={styles.alertText}>
+              {errors.oauthCallback[connectBlocked] || errors.oauthCallback.generic}
+            </p>
+            <Link href="/profile" className={styles.alertLink}>{t.accounts.goToProfile}</Link>
           </div>
         </div>
       )}
-      <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>
-            {t.greeting[greetingTimeOfDay()]}{user?.name ? `, ${user.name}` : ''}
-          </h1>
-          <p className={styles.pageSubtitle}>
-            {summary
-              ? `${plural(summary.totalDmsReviewed, 'message')} reviewed. ${plural(attentionCount, 'conversation')} ${pluralWord(attentionCount, 'needs', 'need')} your reply.`
-              : t.subtitleFallback}
-          </p>
-        </div>
-        <a
-          href={getInstagramAuthUrl()}
-          onClick={handleConnect}
-          className="btn btn-primary"
-          id="connect-instagram-dashboard-btn"
-          aria-disabled={isRedirecting}
-          style={isRedirecting ? { opacity: 0.6 } : undefined}
-        >
-          <Icon name="instagram" size={16} className={isRedirecting ? styles.spinning : undefined} />
-          {accounts.length > 0 ? t.addAccount : t.connectInstagram}
-        </a>
-      </div>
 
-      {/* Mounted only with billing on, so pre-launch the dashboard never
-          calls the billing summary at all. */}
+      <header className={styles.pageHead}>
+        <h1 className={styles.greeting}>
+          {t.greeting[greetingTimeOfDay()]}{user?.name ? `, ${user.name}` : ''}
+        </h1>
+        <p className={styles.greetingSub}>
+          {summary
+            ? `${plural(summary.totalDmsReviewed, 'message')} reviewed. ${plural(attentionCount, 'conversation')} ${pluralWord(attentionCount, 'needs', 'need')} your reply.`
+            : t.subtitleFallback}
+        </p>
+      </header>
+
+      {/* Mounted only with billing on, so pre-launch the dashboard never calls
+          the billing summary at all. */}
       {user?.features?.billing && (
         <Suspense fallback={null}>
           <TrialPrompt onConnect={handleConnect} />
@@ -272,357 +285,482 @@ export default function DashboardPage() {
       )}
 
       {loadError && (
-        <div className={styles.alertBanner} role="alert">
-          <div className={styles.alertIcon}><Icon name="alertTriangle" size={18} /></div>
-          <div className={styles.alertContent}>
-            <span>{loadError}</span>
-          </div>
+        <div className={styles.alert} role="alert">
+          <IconTile name="alertTriangle" tone="danger" />
+          <p className={styles.alertText}>{loadError}</p>
         </div>
       )}
 
       {summary?.connectionProblems?.length > 0 && (
-        <div className={styles.alertBanner} role="alert">
-          <div className={styles.alertIcon}><Icon name="alertTriangle" size={18} /></div>
-          <div className={styles.alertContent}>
-            <strong>{t.connectionAlert.title}</strong>
-            <span>
-              {summary.connectionProblems.map((a) => `@${a.igUsername || 'account'}`).join(', ')} — {t.connectionAlert.body}
-            </span>
+        <div className={styles.alert} role="alert">
+          <IconTile name="alertTriangle" tone="warning" />
+          <div className={styles.alertBody}>
+            <p className={styles.alertTitle}>{t.connectionAlert.title}</p>
+            <p className={styles.alertText}>
+              {summary.connectionProblems.map((a) => `@${a.igUsername || 'account'}`).join(', ')}
+              {' — '}{t.connectionAlert.body}
+            </p>
           </div>
         </div>
       )}
 
-      {summary && (
-        <div className={styles.metricsGrid}>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=important')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconAttention}`}>
-              <Icon name="alertTriangle" size={18} />
-            </div>
-            <div className={styles.metricValue}>{formatCount(attentionCount)}</div>
-            <div className={styles.metricLabel}>{t.metrics.needsReply.label}</div>
-            <div className={styles.metricHint}>{t.metrics.needsReply.hint}</div>
-          </button>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=hot_leads')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconDeals}`}>
-              <Icon name="flame" size={18} />
-            </div>
-            <div className={styles.metricValue}>{formatCount(breakdown.hotLeads)}</div>
-            <div className={styles.metricLabel}>{t.metrics.hotLeads.label}</div>
-            <div className={styles.metricHint}>{t.metrics.hotLeads.hint}</div>
-          </button>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=brand_deal')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconCollabs}`}>
-              <Icon name="handshake" size={18} />
-            </div>
-            <div className={styles.metricValue}>{formatCount(brandDealCount)}</div>
-            <div className={styles.metricLabel}>{t.metrics.brandDeals.label}</div>
-            <div className={styles.metricHint}>{t.metrics.brandDeals.hint}</div>
-          </button>
-          <button className={styles.metricCard} onClick={() => router.push('/inbox?filter=unread')}>
-            <div className={`${styles.metricIconWrap} ${styles.metricIconUnread}`}>
-              <Icon name="messageSquare" size={18} />
-            </div>
-            <div className={styles.metricValue}>{formatCount(summary.unreadCount)}</div>
-            <div className={styles.metricLabel}>{t.metrics.unread.label}</div>
-            <div className={styles.metricHint}>{t.metrics.unread.hint}</div>
-          </button>
-        </div>
-      )}
-
-      {away && (
-        <div className={styles.awayCard}>
-          <div className={styles.awayHeader}>
-            <h2 className={styles.cardTitle}>{t.away.title}</h2>
-            <span className={styles.awaySubtext}>{plural(away.newMessages, 'new message')}</span>
+      {/* ---------- Right now: the live queue, no date range ---------- */}
+      <section className={styles.section} aria-labelledby="now-heading">
+        <div className={styles.sectionHead}>
+          <div>
+            <h2 className={styles.sectionTitle} id="now-heading">{t.now.title}</h2>
+            <p className={styles.sectionHint}>{t.now.hint}</p>
           </div>
-          <div className={styles.awayGrid}>
-            {Object.entries(away.categoryCounts || {}).map(([category, count]) => (
-              <button key={category} className={styles.awayChip} onClick={() => router.push(`/inbox?filter=${category}`)}>
-                <span className={styles.awayChipCount}>{formatCount(count)}</span>
-                <span className={styles.awayChipLabel}>{categoryLabel(category).label}</span>
+        </div>
+
+        {loading ? (
+          <div className={styles.metricGrid}>
+            {[0, 1, 2, 3].map((i) => <Skeleton key={i} lines={1} height={96} />)}
+          </div>
+        ) : (
+          <div className={styles.metricGrid}>
+            {metrics.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                className={styles.metricCard}
+                onClick={() => router.push(`/inbox?filter=${m.filter}`)}
+              >
+                <IconTile name={m.icon} tone={METRIC_TONE[m.key]} />
+                <span className={styles.metricValue}>{formatCount(m.value)}</span>
+                <span className={styles.metricLabel}>{t.metrics[m.key].label}</span>
+                <span className={styles.metricHint}>{t.metrics[m.key].hint}</span>
               </button>
             ))}
           </div>
-          {away.needsAttention > 0 && (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => router.push('/inbox?filter=important')}
-              style={{ marginTop: '16px' }}
-            >
-              {t.away.reviewAction}
-              <Icon name="arrowRight" size={14} />
-            </button>
-          )}
-        </div>
-      )}
+        )}
+      </section>
 
-      <div className={styles.sectionHeader}>
-        <h2 className={styles.cardTitle}>{t.accounts.title}</h2>
-        <span className={styles.sectionCount}>{plural(accounts.length, 'account')}</span>
-      </div>
-
-      {accounts.length > 0 ? (
-        <div className={styles.accountsList}>
-          {accounts.map((account) => {
-            const isDisconnected = account.connectionStatus === 'DISCONNECTED';
-            const needsReconnect = account.tokenStatus === 'NEEDS_RECONNECT' || isDisconnected;
-            const status = isDisconnected
-              ? connectionStatusLabel(account.connectionStatus)
-              : tokenStatusLabel(account.tokenStatus);
-            return (
-              <div key={account.id} className={styles.accountRow}>
-                <div className={styles.accountLeft}>
-                  {account.igProfilePic ? (
-                    <img
-                      src={account.igProfilePic}
-                      alt={`Profile picture for @${account.igUsername || 'account'}`}
-                      className={styles.accountAvatar}
-                    />
-                  ) : (
-                    <div className={`avatar avatar-lg ${styles.accountAvatarFallback}`}>
-                      {(account.igUsername || '?')[0].toUpperCase()}
-                    </div>
-                  )}
-                  <div className={styles.accountInfo}>
-                    <div className={styles.accountUsername}>@{account.igUsername || 'account'}</div>
-                    {account.igName && <div className={styles.accountName}>{account.igName}</div>}
-                  </div>
-                </div>
-                <div className={styles.accountMeta}>
-                  <span className={`badge ${status.tone === 'positive' ? 'badge-success' : 'badge-warning'}`}>
-                    {status.label}
-                  </span>
-                  {account.tokenExpiresAt && (
-                    <span className={styles.accountMetaItem}>
-                      {t.accounts.tokenExpires} {formatDate(account.tokenExpiresAt)}
-                    </span>
-                  )}
-                  {account._count?.conversations !== undefined && (
-                    <span className={styles.accountMetaItem}>
-                      {plural(account._count.conversations, 'conversation')}
-                    </span>
-                  )}
-                </div>
-                <div className={styles.accountActions}>
-                  {needsReconnect ? (
-                    <a
-                      href={getInstagramAuthUrl()}
-                      onClick={handleConnect}
-                      className="btn btn-primary btn-sm"
-                      aria-disabled={isRedirecting}
-                      style={isRedirecting ? { opacity: 0.6 } : undefined}
-                    >
-                      {t.accounts.reconnect}
-                    </a>
-                  ) : (
-                    <button className="btn btn-secondary btn-sm" onClick={() => router.push(`/inbox?accountId=${account.id}`)}>
-                      {t.accounts.openInbox}
-                    </button>
-                  )}
-                  {!isDisconnected && (
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDisconnect(account.id)}>
-                      {t.accounts.disconnect}
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className={styles.emptyState}>
-          <div className={styles.emptyIcon}>
-            <Icon name="instagram" size={40} strokeWidth={1.5} />
-          </div>
-          <h3 className={styles.emptyTitle}>{empty.accounts.title}</h3>
-          <p className={styles.emptyDesc}>{empty.accounts.body}</p>
-          <a
-            href={getInstagramAuthUrl()}
-            onClick={handleConnect}
-            className="btn btn-primary"
-            aria-disabled={isRedirecting}
-            style={{ marginTop: '12px', ...(isRedirecting ? { opacity: 0.6 } : null) }}
-          >
-            {empty.accounts.action}
-          </a>
-        </div>
-      )}
-
-      <div className={styles.analyticsSection}>
-        <div className={styles.analyticsHeaderRow}>
-          <h2 className={styles.analyticsTitle}>{t.analytics.title}</h2>
-          <div className={styles.analyticsControls}>
-            <div className={styles.timeRangeSelectWrap}>
-              <span className={styles.calendarIcon}><Icon name="calendar" size={14} /></span>
-              <select
-                className={styles.timeRangeSelect}
-                value={analyticsTimeRange}
-                onChange={handleTimeRangeChange}
-                aria-label={t.analytics.rangeLabel}
-              >
-                <option value="24h">{t.analytics.ranges['24h']}</option>
-                <option value="7d">{t.analytics.ranges['7d']}</option>
-                <option value="30d">{t.analytics.ranges['30d']}</option>
-              </select>
-              <span className={styles.chevronIcon}><Icon name="chevronDown" size={12} /></span>
+      {/* ---------- Since your last visit ---------- */}
+      {away && (
+        <section className={styles.section} aria-labelledby="away-heading">
+          <div className={styles.sectionHead}>
+            <div>
+              <h2 className={styles.sectionTitle} id="away-heading">{t.away.title}</h2>
+              <p className={styles.sectionHint}>
+                {plural(away.newMessages, 'new message')}
+                {away.since ? ` ${t.away.sincePrefix} ${formatDate(away.since)}` : ''}
+              </p>
             </div>
+            {away.needsAttention > 0 && (
+              <Button size="sm" onClick={() => router.push('/inbox?filter=important')}>
+                {t.away.reviewAction}
+                <Icon name="arrowRight" size={13} />
+              </Button>
+            )}
+          </div>
 
-            <button
-              type="button"
-              className={`${styles.analyticsIconBtn} ${refreshingAnalytics ? styles.spinning : ''}`}
-              onClick={handleRefreshAnalytics}
-              title={t.analytics.refresh}
+          <div className={styles.chipRow}>
+            {Object.entries(away.categoryCounts || {}).map(([category, count]) => (
+              <button
+                key={category}
+                type="button"
+                className={styles.chip}
+                onClick={() => router.push(`/inbox?filter=${category}`)}
+              >
+                <span className={styles.chipCount}>{formatCount(count)}</span>
+                <span className={styles.chipLabel}>{categoryLabel(category).label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ---------- Analytics: everything here carries its range ---------- */}
+      <section className={styles.section} aria-labelledby="analytics-heading">
+        <div className={styles.sectionHead}>
+          <div>
+            <h2 className={styles.sectionTitle} id="analytics-heading">{t.analytics.title}</h2>
+            <p className={styles.sectionHint}>{t.analytics.inRange(rangeLabel)}</p>
+          </div>
+          <div className={styles.sectionActions}>
+            <Select
+              value={timeRange}
+              onChange={handleRangeChange}
+              aria-label={t.analytics.rangeLabel}
+            >
+              {Object.entries(t.analytics.ranges).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </Select>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              onClick={handleRefresh}
+              loading={refreshing}
               aria-label={t.analytics.refresh}
+              title={t.analytics.refresh}
             >
               <Icon name="refresh" size={14} />
-            </button>
+            </Button>
           </div>
         </div>
 
         {analyticsError && (
-          <div className={styles.alertBanner} role="alert">
-            <div className={styles.alertIcon}><Icon name="alertTriangle" size={18} /></div>
-            <div className={styles.alertContent}>
-              <span>{analyticsError}</span>
-            </div>
+          <div className={styles.alert} role="alert">
+            <IconTile name="alertTriangle" tone="danger" />
+            <p className={styles.alertText}>{analyticsError}</p>
           </div>
         )}
 
-        {/* States the reply mode plainly, so no card on this page can imply
-            replies are being sent when the account is set to manual. */}
+        {/* Stated plainly, so no number on this page can imply replies are
+            going out when the account is set to manual. */}
         {replyMode && (
-          <div className={styles.replyModeBanner}>
-            <span className={styles.replyModeLeft}>
-              <Icon name={sendsAutomatically ? 'zap' : 'user'} size={14} />
-              <strong>{t.analytics.replyModeBanner.title}:</strong> {replyModeMeta.label}
-              <span className={styles.replyModeHint}>{replyModeMeta.description}</span>
-            </span>
-            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/settings?tab=replies')}>
+          <div className={styles.replyMode}>
+            <IconTile name={sendsAutomatically ? 'zap' : 'user'} tone={sendsAutomatically ? 'accent' : 'neutral'} />
+            <div className={styles.replyModeBody}>
+              <p className={styles.replyModeTitle}>
+                {t.analytics.replyModeBanner.title}: {replyModeMeta.label}
+              </p>
+              <p className={styles.replyModeHint}>{replyModeMeta.description}</p>
+            </div>
+            <Button size="sm" onClick={() => router.push('/settings?tab=replies')}>
               {t.analytics.replyModeBanner.manageAction}
-            </button>
+            </Button>
           </div>
         )}
 
-        <div className={styles.analyticsGridTop}>
-          <div className={styles.analyticsCard}>
-            <div>
-              <div className={styles.cardHeaderRow}>
-                <span className={styles.cardLabel}>{t.analytics.totalMessages.label}</span>
-              </div>
-              <div className={styles.metricNumberRow}>
-                <span className={styles.metricBigValue}>{analyticsData?.totalDms?.formatted || '0'}</span>
-                <DeltaBadge changePercent={analyticsData?.totalDms?.changePercent} />
-              </div>
-              <span className={styles.cardHint}>{t.analytics.totalMessages.hint}</span>
+        <div className={styles.chartRow}>
+          <Card className={styles.chartCard}>
+            <div className={styles.chartHead}>
+              <span className={styles.cardLabel}>{t.analytics.totalMessages.label}</span>
+              <span className={styles.rangeTag}>{rangeLabel}</span>
             </div>
-            <SparklineChart
+            <div className={styles.bigNumberRow}>
+              <span className={styles.bigNumber}>{analyticsData?.totalDms?.formatted ?? '—'}</span>
+              <Delta changePercent={analyticsData?.totalDms?.changePercent} />
+            </div>
+            <Sparkline
               series={analyticsData?.totalDms?.series}
               labels={analyticsData?.totalDms?.labels}
               unit={t.analytics.totalMessages.unit}
-              strokeColor="#4169e1"
-              fillId="sparkline-dms-grad"
             />
-          </div>
+          </Card>
 
-          <div className={styles.analyticsCard}>
-            <div>
-              <div className={styles.cardHeaderRow}>
-                <span className={styles.cardLabel}>{t.analytics.hotLeads.label}</span>
-              </div>
-              <div className={styles.metricNumberRow}>
-                <span className={styles.metricBigValue}>{analyticsData?.hotLeads?.formatted || '0'}</span>
-                <DeltaBadge changePercent={analyticsData?.hotLeads?.changePercent} />
-              </div>
-              <span className={styles.cardHint}>{t.analytics.hotLeads.hint}</span>
+          <Card className={styles.chartCard}>
+            <div className={styles.chartHead}>
+              <span className={styles.cardLabel}>{t.analytics.hotLeads.label}</span>
+              <span className={styles.rangeTag}>{rangeLabel}</span>
             </div>
-            <SparklineChart
+            <div className={styles.bigNumberRow}>
+              <span className={styles.bigNumber}>{analyticsData?.hotLeads?.formatted ?? '—'}</span>
+              <Delta changePercent={analyticsData?.hotLeads?.changePercent} />
+            </div>
+            <Sparkline
               series={analyticsData?.hotLeads?.series}
               labels={analyticsData?.hotLeads?.labels}
               unit={t.analytics.hotLeads.unit}
-              strokeColor="#f59e0b"
-              fillId="sparkline-hotleads-grad"
             />
-          </div>
+          </Card>
         </div>
 
-        <div className={styles.analyticsGridBottom}>
-          <CompactMetric
-            label={t.analytics.needsReply.label}
-            value={analyticsData?.needsAttention?.formatted}
-            hint={t.analytics.needsReply.hint}
-          />
-          <CompactMetric
+        {/* "Needs your reply" is deliberately absent here: its query is
+            byte-identical to the one behind the card in "Right now", so it was
+            the same number under a range selector that never moved it. */}
+        <div className={styles.compactRow}>
+          <Compact
             label={t.analytics.brandDeals.label}
             value={analyticsData?.brandDeals?.formatted}
             hint={t.analytics.brandDeals.hint}
+            range={rangeLabel}
           />
-          <CompactMetric
+          <Compact
             label={t.analytics.autoReplies.label}
             value={analyticsData?.autoRepliesSent?.formatted}
             hint={sendsAutomatically ? t.analytics.autoReplies.hintOn : t.analytics.autoReplies.hintOff}
+            range={rangeLabel}
           />
-          <CompactMetric
+          <Compact
             label={t.analytics.spamBlocked.label}
             value={analyticsData?.spamBlocked?.formatted}
             hint={t.analytics.spamBlocked.hint}
+            range={rangeLabel}
           />
         </div>
 
-        <div className={styles.categoryIntelligenceCard}>
-          <div className={styles.categoryHeader}>
-            <div>
-              <h3 className={styles.categoryTitle}>{t.analytics.breakdown.title}</h3>
-              <p className={styles.categorySubtitle}>{t.analytics.breakdown.subtitle}</p>
-            </div>
-          </div>
+        <Breakdown
+          metrics={analyticsData?.categoryMetrics}
+          distribution={analyticsData?.intentDistribution}
+          total={analyticsData?.distributionTotal || 0}
+        />
+      </section>
 
-          <div className={styles.categoryGrid}>
-            {(analyticsData?.categoryMetrics || []).map((m) => (
-              <div key={m.key || m.label} className={styles.categoryChip}>
-                <div className={styles.categoryChipTop}>
-                  <span className={styles.categoryChipIcon}><Icon name={m.icon} size={16} /></span>
-                  <span className={styles.categoryChipValue}>{formatCount(m.value)}</span>
-                </div>
-                <span className={styles.categoryChipLabel}>{m.label}</span>
-                <span className={styles.categoryChipDesc}>{m.hint}</span>
-              </div>
-            ))}
+      {/* ---------- Connected accounts: reference, so it sits last ---------- */}
+      <section className={styles.section} aria-labelledby="accounts-heading">
+        <div className={styles.sectionHead}>
+          <div>
+            <h2 className={styles.sectionTitle} id="accounts-heading">{t.accounts.title}</h2>
+            <p className={styles.sectionHint}>{plural(accounts.length, 'account')}</p>
           </div>
-
-          {analyticsData?.intentDistribution && (
-            <DistributionBar
-              items={analyticsData.intentDistribution}
-              total={analyticsData.distributionTotal || 0}
-            />
-          )}
         </div>
-      </div>
+
+        {accounts.length === 0 ? (
+          <EmptyState
+            icon="instagram"
+            title={empty.accounts.title}
+            body={empty.accounts.body}
+            action={<Button variant="primary" onClick={handleConnect} disabled={isRedirecting}>{empty.accounts.action}</Button>}
+          />
+        ) : (
+          <div className={styles.accountList}>
+            {accounts.map((account) => {
+              const isDisconnected = account.connectionStatus === 'DISCONNECTED';
+              const needsReconnect = account.tokenStatus === 'NEEDS_RECONNECT' || isDisconnected;
+              const status = isDisconnected
+                ? connectionStatusLabel(account.connectionStatus)
+                : tokenStatusLabel(account.tokenStatus);
+              return (
+                <div key={account.id} className={styles.accountRow}>
+                  <Avatar
+                    src={account.igProfilePic}
+                    name={account.igUsername || account.igName}
+                    size={36}
+                    decorative
+                  />
+                  <div className={styles.accountInfo}>
+                    <span className={styles.accountName}>@{account.igUsername || 'account'}</span>
+                    {account.igName && <span className={styles.accountSub}>{account.igName}</span>}
+                  </div>
+
+                  <div className={styles.accountMeta}>
+                    <Badge tone={status.tone === 'positive' ? 'positive' : 'warning'}>{status.label}</Badge>
+                    {account.tokenExpiresAt && (
+                      <span className={styles.accountMetaItem}>
+                        {t.accounts.tokenExpires} {formatDate(account.tokenExpiresAt)}
+                      </span>
+                    )}
+                    {typeof account._count?.conversations === 'number' && (
+                      <span className={styles.accountMetaItem}>
+                        {plural(account._count.conversations, 'conversation')}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={styles.accountActions}>
+                    {needsReconnect ? (
+                      <Button variant="primary" size="sm" onClick={handleConnect} disabled={isRedirecting}>
+                        {t.accounts.reconnect}
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => router.push(`/inbox?accountId=${account.id}`)}>
+                        {t.accounts.openInbox}
+                      </Button>
+                    )}
+                    {!isDisconnected && (
+                      <Button variant="danger" size="sm" onClick={() => setDisconnectTarget(account)}>
+                        {t.accounts.disconnect}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* master used window.confirm(), which cannot be styled, cannot be
+          dismissed with the keyboard consistently, and is blocked outright in
+          some embedded browsers. */}
+      {disconnectTarget && (
+        <Modal
+          title={confirmCopy.disconnectAccount.title}
+          onClose={() => setDisconnectTarget(null)}
+          actions={(
+            <>
+              <Button onClick={() => setDisconnectTarget(null)} disabled={disconnecting}>
+                {common.cancel}
+              </Button>
+              <Button variant="danger" onClick={handleDisconnect} loading={disconnecting}>
+                {t.accounts.disconnect}
+              </Button>
+            </>
+          )}
+        >
+          {confirmCopy.disconnectAccount.body}
+        </Modal>
+      )}
     </AppShell>
   );
 }
 
+/* ============================== Pieces ============================== */
+
+function Compact({ label, value, hint, range }) {
+  return (
+    <Card className={styles.compactCard}>
+      <div className={styles.chartHead}>
+        <span className={styles.cardLabel}>{label}</span>
+        <span className={styles.rangeTag}>{range}</span>
+      </div>
+      <span className={styles.bigNumber}>{value ?? '—'}</span>
+      <span className={styles.cardHint}>{hint}</span>
+    </Card>
+  );
+}
+
 /**
- * The trial card for the dashboard — where the connect flow lands.
+ * One breakdown, not two.
  *
- * Shows the confirmation straight after a connect that granted a trial
- * (?trial=TRIAL_GRANTED on the redirect), and otherwise explains why a tenant
- * with no trial or plan has neither: already used, email unverified, or not
- * started yet. A live trial or a paid plan shows nothing here — the billing
- * page owns that, and repeating it would push the inbox numbers down.
+ * master rendered `categoryMetrics` as a chip grid AND `intentDistribution` as
+ * a segmented bar with a legend — the same counts from the same source, twice.
+ * The share lives on the chip now, and the bar is gone.
  *
- * Uses the dashboard's own handleConnect, so the unverified-email check still
- * runs before anyone is sent through Instagram's consent screen.
+ * Percentages appear only once the sample is big enough to mean anything. Below
+ * that the counts still show, because they are honest; only the shares are
+ * withheld, with a line saying why.
+ */
+/**
+ * Keys that already have a card of their own further up the page. The API
+ * returns them inside `categoryMetrics` too, so without this filter "Hot
+ * leads" appeared three times on one screen — the live queue, the selected
+ * range, and here — each counting something different, none of them wrong,
+ * and no reader able to tell them apart.
+ */
+const BREAKDOWN_SHOWN_ABOVE = new Set(['hot_leads', 'deals', 'spam']);
+
+function Breakdown({ metrics, distribution, total }) {
+  const items = (metrics || []).filter((m) => !BREAKDOWN_SHOWN_ABOVE.has(m.key));
+  if (items.length === 0) return null;
+
+  const showShare = total >= MIN_PERCENT_SAMPLE;
+  const shareByKey = new Map((distribution || []).map((d) => [d.key, d.pct]));
+
+  return (
+    <section className={styles.breakdown} aria-labelledby="breakdown-heading">
+      <div className={styles.sectionHead}>
+        <div>
+          <h3 className={styles.sectionTitle} id="breakdown-heading">{t.analytics.breakdown.title}</h3>
+          {/* These are all-time, unlike everything above. Said, not implied. */}
+          <p className={styles.sectionHint}>{t.analytics.breakdown.subtitle}</p>
+        </div>
+      </div>
+
+      <div className={styles.breakdownGrid}>
+        {items.map((m) => {
+          const pct = shareByKey.get(m.key);
+          return (
+            <div key={m.key || m.label} className={styles.breakdownCard}>
+              <IconTile name={m.icon} tone="neutral" />
+              <span className={styles.breakdownValue}>
+                {formatCount(m.value)}
+                {showShare && typeof pct === 'number' && (
+                  <span className={styles.breakdownPct}>{pct}%</span>
+                )}
+              </span>
+              <span className={styles.breakdownLabel}>{m.label}</span>
+              {m.hint && <span className={styles.breakdownHint}>{m.hint}</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {!showShare && total > 0 && (
+        <p className={styles.sampleNote}>{t.analytics.breakdown.sampleTooSmall}</p>
+      )}
+    </section>
+  );
+}
+
+/** Renders nothing when there is no previous period to compare against. */
+function Delta({ changePercent }) {
+  if (typeof changePercent !== 'number' || !Number.isFinite(changePercent) || changePercent === 0) {
+    return null;
+  }
+  const up = changePercent > 0;
+  return (
+    <span className={up ? styles.deltaUp : styles.deltaDown}>
+      {up ? '+' : ''}{changePercent}%
+    </span>
+  );
+}
+
+/**
+ * A line, its area, and a hover readout. One accent colour, no gradient stack
+ * and no second "AI" hue — master drew the hot-leads line in amber purely to
+ * differentiate two cards that already have different headings.
+ */
+function Sparkline({ series, labels, unit }) {
+  const [hovered, setHovered] = useState(null);
+
+  if (!series || series.length === 0 || series.every((v) => v === 0)) {
+    return <p className={styles.noData}>{t.analytics.noData}</p>;
+  }
+
+  const W = 320;
+  const H = 72;
+  const PAD_TOP = 8;
+  const PAD_BOTTOM = 8;
+  const usable = H - PAD_TOP - PAD_BOTTOM;
+  const max = Math.max(...series, 1);
+
+  const points = series.map((val, i) => ({
+    x: (i / (series.length - 1 || 1)) * W,
+    y: PAD_TOP + usable - (val / max) * usable,
+    val,
+  }));
+
+  const line = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
+    .join(' ');
+  const area = `${line} L ${W} ${H} L 0 ${H} Z`;
+
+  function onMove(e) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
+    setHovered(Math.round(ratio * (series.length - 1)));
+  }
+
+  const active = hovered !== null ? points[hovered] : null;
+  const activeLabel = hovered !== null ? labels?.[hovered] : null;
+
+  return (
+    <div
+      className={styles.spark}
+      onMouseMove={onMove}
+      onMouseLeave={() => setHovered(null)}
+      onTouchMove={(e) => e.touches?.[0] && onMove(e.touches[0])}
+      onTouchEnd={() => setHovered(null)}
+    >
+      {active && (
+        <p className={styles.sparkReadout} aria-live="polite">
+          <strong>{formatCount(active.val)}</strong> {unit}
+          {activeLabel ? ` · ${activeLabel}` : ''}
+        </p>
+      )}
+      <svg className={styles.sparkSvg} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+        <path className={styles.sparkArea} d={area} />
+        <path className={styles.sparkLine} d={line} />
+        {active && <circle className={styles.sparkDot} cx={active.x} cy={active.y} r="3.5" />}
+      </svg>
+      <div className={styles.sparkAxis}>
+        <span>{labels?.[0]}</span>
+        <span>{labels?.[labels.length - 1]}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The trial card, where the connect flow lands. Unchanged from master: billing
+ * is restyle-only and comes last in this rebuild.
  */
 function TrialPrompt({ onConnect }) {
   const searchParams = useSearchParams();
   const { summary, reload } = useBillingSummary();
-  // A claim from this card confirms the same way a connect does: the granted
-  // card, once, rather than the prompt silently disappearing.
   const [claimedOutcome, setClaimedOutcome] = useState(null);
-  const state = trialCardState(summary, { justConnectedOutcome: claimedOutcome || searchParams.get('trial') });
+  const state = trialCardState(summary, {
+    justConnectedOutcome: claimedOutcome || searchParams.get('trial'),
+  });
   if (!state) return null;
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div className={styles.trialSlot}>
       <TrialStateCard
         summary={summary}
         state={state}
@@ -634,191 +772,6 @@ function TrialPrompt({ onConnect }) {
           setClaimedOutcome(outcome);
         }}
       />
-    </div>
-  );
-}
-
-function CompactMetric({ label, value, hint }) {
-  return (
-    <div className={`${styles.analyticsCard} ${styles.analyticsCardCompact}`}>
-      <div>
-        <div className={styles.cardHeaderRow}>
-          <span className={styles.cardLabel}>{label}</span>
-        </div>
-        <div className={styles.metricNumberRow}>
-          <span className={styles.metricBigValue}>{value || '0'}</span>
-        </div>
-      </div>
-      <span className={styles.cardHint}>{hint}</span>
-    </div>
-  );
-}
-
-/**
- * Shares are only shown once there is a sample large enough for them to mean
- * something. Below the threshold the counts still render — they are honest —
- * but the percentages are replaced with a line saying why.
- */
-function DistributionBar({ items, total }) {
-  const showPercentages = total >= MIN_PERCENT_SAMPLE;
-
-  if (total === 0) {
-    return (
-      <div className={styles.distributionSection}>
-        <span className={styles.distributionTitle}>{t.analytics.breakdown.distributionTitle}</span>
-        <p className={styles.noDataPlaceholder}>{t.analytics.noData}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.distributionSection}>
-      <div className={styles.distributionHeader}>
-        <span className={styles.distributionTitle}>{t.analytics.breakdown.distributionTitle}</span>
-        <span className={styles.distributionTotal}>{plural(total, 'conversation')}</span>
-      </div>
-
-      <div className={styles.distributionBar}>
-        {items.map((item) => (
-          <div
-            key={item.key}
-            className={styles.distributionSegment}
-            style={{ width: `${item.pct}%`, backgroundColor: item.color }}
-            title={`${item.label}: ${plural(item.count, 'conversation')}`}
-          />
-        ))}
-      </div>
-
-      <div className={styles.distributionLegend}>
-        {items.map((item) => (
-          <div key={item.key} className={styles.legendItem}>
-            <span className={styles.legendDot} style={{ backgroundColor: item.color }} />
-            <span>{item.label}</span>
-            <span className={styles.legendCount}>{formatCount(item.count)}</span>
-            {showPercentages && <span className={styles.legendPct}>{item.pct}%</span>}
-          </div>
-        ))}
-      </div>
-
-      {!showPercentages && (
-        <p className={styles.distributionNote}>{t.analytics.breakdown.sampleTooSmall}</p>
-      )}
-    </div>
-  );
-}
-
-function DeltaBadge({ changePercent }) {
-  // Null means the previous period had nothing to compare against.
-  if (changePercent === null || changePercent === undefined || changePercent === 0) {
-    return null;
-  }
-  if (changePercent > 0) {
-    return <span className={styles.deltaPositive}>+{changePercent}%</span>;
-  }
-  return <span className={styles.deltaNegative}>{changePercent}%</span>;
-}
-
-function SparklineChart({ series = [], labels = [], unit = 'messages', strokeColor = '#4169e1', fillId = 'sparkline-grad' }) {
-  const [hoveredIdx, setHoveredIdx] = useState(null);
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-
-  if (!series || series.length === 0 || series.every((v) => v === 0)) {
-    return <div className={styles.noDataPlaceholder}>{t.analytics.noData}</div>;
-  }
-
-  const maxVal = Math.max(...series, 1);
-  const chartWidth = 320;
-  const chartHeight = 85;
-  const topPadding = 12;
-  const bottomPadding = 10;
-  const usableHeight = chartHeight - topPadding - bottomPadding;
-
-  const points = series.map((val, idx) => {
-    const x = (idx / (series.length - 1 || 1)) * chartWidth;
-    const y = topPadding + usableHeight - (val / maxVal) * usableHeight;
-    return { x, y, val };
-  });
-
-  const pathD = points.reduce((acc, pt, idx) => (
-    idx === 0 ? `M ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}` : `${acc} L ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`
-  ), '');
-
-  const lastPoint = points[points.length - 1] || { x: chartWidth, y: chartHeight };
-  const firstPoint = points[0] || { x: 0, y: chartHeight };
-  const areaD = `${pathD} L ${lastPoint.x.toFixed(1)} ${chartHeight} L ${firstPoint.x.toFixed(1)} ${chartHeight} Z`;
-
-  const topTick = maxVal >= 1000 ? `${(maxVal / 1000).toFixed(1)}k` : maxVal;
-  const midTick = Math.round(maxVal / 2) >= 1000 ? `${(Math.round(maxVal / 2) / 1000).toFixed(1)}k` : Math.round(maxVal / 2);
-
-  function handlePointerMove(e) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const chartPixelWidth = (chartWidth / 380) * rect.width;
-    const ratio = Math.min(Math.max(mouseX / chartPixelWidth, 0), 1);
-    const idx = Math.min(Math.max(Math.round(ratio * (series.length - 1)), 0), series.length - 1);
-
-    setHoveredIdx(idx);
-    setTooltipPos({ x: (points[idx].x / 380) * rect.width, y: (points[idx].y / 95) * rect.height });
-  }
-
-  function handlePointerLeave() {
-    setHoveredIdx(null);
-  }
-
-  const activePoint = hoveredIdx !== null ? points[hoveredIdx] : null;
-  const activeLabel = hoveredIdx !== null && labels && labels[hoveredIdx] ? labels[hoveredIdx] : '';
-
-  return (
-    <div
-      className={styles.sparklineContainer}
-      onMouseMove={handlePointerMove}
-      onMouseLeave={handlePointerLeave}
-      onTouchMove={(e) => {
-        if (e.touches && e.touches[0]) handlePointerMove(e.touches[0]);
-      }}
-      onTouchEnd={handlePointerLeave}
-    >
-      {hoveredIdx !== null && activePoint && (
-        <div
-          className={styles.sparklineTooltip}
-          style={{
-            left: `${Math.max(35, Math.min(tooltipPos.x, 285))}px`,
-            top: `${Math.max(20, tooltipPos.y)}px`,
-          }}
-        >
-          <span className={styles.sparklineTooltipValue}>
-            {formatCount(activePoint.val)} {unit}
-          </span>
-          {activeLabel && <span className={styles.sparklineTooltipLabel}>{activeLabel}</span>}
-        </div>
-      )}
-
-      <svg className={styles.sparklineSvg} viewBox="0 0 380 95" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={strokeColor} stopOpacity="0.2" />
-            <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
-          </linearGradient>
-        </defs>
-
-        <line x1="0" y1={topPadding} x2={chartWidth} y2={topPadding} stroke="var(--border-subtle)" strokeDasharray="3 3" strokeWidth="1" />
-        <line x1="0" y1={topPadding + usableHeight / 2} x2={chartWidth} y2={topPadding + usableHeight / 2} stroke="var(--border-subtle)" strokeDasharray="3 3" strokeWidth="1" />
-        <line x1="0" y1={chartHeight} x2={chartWidth} y2={chartHeight} stroke="var(--border-subtle)" strokeWidth="1" />
-
-        <text x="332" y={topPadding + 4} fill="var(--text-tertiary)" fontSize="10" fontFamily="var(--font-sans)">{topTick}</text>
-        <text x="332" y={topPadding + usableHeight / 2 + 3} fill="var(--text-tertiary)" fontSize="10" fontFamily="var(--font-sans)">{midTick}</text>
-        <text x="332" y={chartHeight + 1} fill="var(--text-tertiary)" fontSize="10" fontFamily="var(--font-sans)">0</text>
-
-        <path d={areaD} fill={`url(#${fillId})`} />
-        <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-
-        {activePoint && (
-          <g>
-            <line x1={activePoint.x} y1={topPadding} x2={activePoint.x} y2={chartHeight} stroke="#64748b" strokeDasharray="2 2" strokeWidth="1.2" />
-            <circle cx={activePoint.x} cy={activePoint.y} r="4.5" fill="#ffffff" stroke={strokeColor} strokeWidth="2.5" />
-          </g>
-        )}
-      </svg>
     </div>
   );
 }

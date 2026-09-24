@@ -68,27 +68,6 @@ export default function PlanCard({
         <li>Unused replies roll over</li>
       </ul>
 
-      {/* Add-on prices sit on the card on purpose: the Starter-vs-Pro gap is
-          the whole upgrade argument, and it only works if both are visible
-          side by side. */}
-      {(packPrice || igPrice) && (
-        <div className={styles.addons}>
-          <span className={styles.addonsLabel}>Add-ons</span>
-          {packPrice && pack && (
-            <div className={styles.addonRow}>
-              <span>+{pack.creditAmount.toLocaleString('en-IN')} replies</span>
-              <span className={styles.addonPrice}>{formatPrice(packPrice.amount, packPrice.currency)}</span>
-            </div>
-          )}
-          {igPrice && (
-            <div className={styles.addonRow}>
-              <span>+1 Instagram account</span>
-              <span className={styles.addonPrice}>{formatPrice(igPrice.amount, igPrice.currency)}</span>
-            </div>
-          )}
-        </div>
-      )}
-
       {action && <div className={styles.action}>{action}</div>}
     </div>
   );

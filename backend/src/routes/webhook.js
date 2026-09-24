@@ -347,10 +347,23 @@ async function handleIncomingMessage(account, messagingEvent) {
     },
   });
 
-  // Fetch profile if contact doesn't exist or profile is stale (older than 24 hours)
+  // Fetch the profile when the contact is new, when we last looked more than a
+  // day ago, or when the stored photo URL is about to stop working.
+  //
+  // That last case is the one that matters for broken avatars. Instagram
+  // profile picture URLs are SIGNED and carry an `oe=` expiry roughly four
+  // days out; after it the CDN returns 403. The plain 24-hour staleness rule
+  // below refreshes often enough for someone who keeps messaging, but it is
+  // keyed on when we last *fetched*, not on when the URL *dies* — so a URL
+  // fetched 23 hours before its own expiry was considered fresh and went stale
+  // an hour later. Checking the expiry directly costs nothing (it is parsed
+  // out of the URL we already hold, no network call) and refreshes the photo
+  // on the last DM before it would have broken.
+  const profilePicExpiring = instagram.isProfilePicExpiring(contact?.profilePicUrl);
   const shouldFetchProfile = !contact ||
     !contact.lastFetchedAt ||
-    (Date.now() - contact.lastFetchedAt.getTime() > 24 * 60 * 60 * 1000);
+    (Date.now() - contact.lastFetchedAt.getTime() > 24 * 60 * 60 * 1000) ||
+    profilePicExpiring;
 
   if (shouldFetchProfile) {
     const accessToken = decrypt(account.accessToken);

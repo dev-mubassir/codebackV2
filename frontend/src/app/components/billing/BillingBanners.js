@@ -61,13 +61,13 @@ export default function BillingBanners({ summary, onRenew, onTopUp }) {
   const banners = [];
 
   const renewAction = onRenew ? (
-    <button type="button" className="btn btn-primary btn-sm" onClick={onRenew}>
+    <button type="button" className={styles.btnPrimarySm} onClick={onRenew}>
       {billing.banners.renewButton}
     </button>
   ) : null;
 
   const topUpAction = onTopUp ? (
-    <button type="button" className="btn btn-primary btn-sm" onClick={onTopUp}>
+    <button type="button" className={styles.btnPrimarySm} onClick={onTopUp}>
       {billing.banners.topUpButton}
     </button>
   ) : null;

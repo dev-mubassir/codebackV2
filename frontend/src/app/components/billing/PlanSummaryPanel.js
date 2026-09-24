@@ -54,8 +54,8 @@ function RenewalReminderToggle({ initial }) {
   }
 
   return (
-    <div style={{ marginTop: 16 }}>
-      <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+    <div className={styles.gapTop}>
+      <label className={styles.checkRow}>
         <input type="checkbox" checked={on} onChange={onChange} disabled={state === 'saving'} />
         <span>{t.label}</span>
       </label>
@@ -117,7 +117,7 @@ export function PlanSummaryPanelView({ summary, onClaimed }) {
           <h2 className={styles.panelTitle}>{t.heading}</h2>
           <p className={styles.help}>{t.description}</p>
         </div>
-        <Link href="/billing" className="btn btn-secondary btn-sm">
+        <Link href="/billing" className={styles.btnSecondarySm}>
           {t.manageLink}
         </Link>
       </div>

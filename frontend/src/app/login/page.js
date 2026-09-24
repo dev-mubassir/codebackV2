@@ -40,22 +40,54 @@ export default function LoginPage() {
 
   return (
     <div className={styles.authContainer}>
+      {/* Background Decorative Grid & Ambient Cones */}
+      <div className={styles.bgGridOverlay} aria-hidden="true" />
+      <div className={styles.ambientGlow} aria-hidden="true" />
+
+      {/* Top Brand Link */}
+      <Link href="/" className={styles.topBrandNav} title="Back to Siffty.com">
+        <BrandLogo size={36} className={styles.topBrandLogo} />
+        <span className={styles.topBrandTitle}>Siffty</span>
+      </Link>
+
+      {/* Auth Card */}
       <div className={styles.authCard}>
         <AuthErrorBanner />
 
         <div className={styles.authHeader}>
-          <div className={styles.authLogo}><BrandLogo size={40} /></div>
+          <div className={styles.statusBadge}>
+            <span className={styles.pulseDot} />
+            <span>Workspace Sign In</span>
+          </div>
           <h1 className={styles.authTitle}>{auth.login.title}</h1>
           <p className={styles.authSubtitle}>{auth.login.subtitle}</p>
         </div>
 
         {error && (
           <div className={styles.errorBanner} role="alert">
-            <Icon name="alertTriangle" size={14} />
+            <Icon name="alertTriangle" size={16} />
             <span>{error}</span>
           </div>
         )}
 
+        {/* Google OAuth Button */}
+        <div>
+          <a
+            href={getGoogleAuthUrl()}
+            className={styles.googleBtn}
+            id="login-google-btn"
+          >
+            <GoogleIcon size={18} />
+            <span>Continue with Google</span>
+          </a>
+        </div>
+
+        {/* Divider */}
+        <div className={styles.divider}>
+          <span>or continue with email</span>
+        </div>
+
+        {/* Email/Password Form */}
         <form onSubmit={handleSubmit} className={styles.authForm}>
           <div className={styles.formGroup}>
             <label className={styles.formLabel} htmlFor="email">
@@ -74,13 +106,18 @@ export default function LoginPage() {
           </div>
 
           <div className={styles.formGroup}>
-            <label className={styles.formLabel} htmlFor="password">
-              {auth.login.passwordLabel}
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className={styles.formLabel} htmlFor="password">
+                {auth.login.passwordLabel}
+              </label>
+              <Link href="/forgot-password" className={styles.forgotPasswordLink}>
+                Forgot password?
+              </Link>
+            </div>
             <PasswordInput
               id="password"
               className="input"
-              placeholder="••••••••"
+              placeholder="••••••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -89,58 +126,52 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className={`btn btn-primary ${styles.submitBtn}`}
+            className={styles.submitBtn}
             disabled={loading}
             id="login-submit-btn"
           >
-            {loading ? auth.login.submitting : auth.login.submit}
+            {loading ? (
+              <span>Logging in...</span>
+            ) : (
+              <>
+                <span>{auth.login.submit}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                  <polyline points="12 5 19 12 12 19" />
+                </svg>
+              </>
+            )}
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: 12 }}>
-          <Link href="/forgot-password" className={styles.authLink}>
-            Forgot your password?
-          </Link>
-        </div>
-
-        {/*
-          Full-page navigation, not fetch(): this starts an OAuth redirect
-          chain that ends on the backend, so it must leave the SPA entirely.
-        */}
-        <div style={{ marginTop: 16 }}>
-          <a
-            href={getGoogleAuthUrl()}
-            className={`btn ${styles.submitBtn}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              minHeight: 40,
-            }}
-          >
-            <GoogleIcon size={18} />
-            <span>Continue with Google</span>
-          </a>
-        </div>
-
+        {/* Footer Navigation */}
         <div className={styles.authFooter}>
-          {auth.login.footer}
+          {auth.login.footer}{' '}
           <Link href="/register" className={styles.authLink}>
             {auth.login.footerAction}
           </Link>
         </div>
 
-        <nav
-          aria-label="Legal"
-          style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '4px 12px', marginTop: 16 }}
-        >
-          <Link href="/privacy" className={styles.authLink}>{legal.footerLinks.privacy}</Link>
-          <Link href="/terms" className={styles.authLink}>{legal.footerLinks.terms}</Link>
-          <Link href="/data-deletion" className={styles.authLink}>{legal.footerLinks.dataDeletion}</Link>
-          <Link href="/support" className={styles.authLink}>{legal.footerLinks.support}</Link>
-        </nav>
+        {/* Terms & Privacy Policy Consent */}
+        <p className={styles.termsConsent}>
+          By signing in, you agree to our{' '}
+          <Link href="/terms" target="_blank" rel="noopener noreferrer">
+            Terms of Service
+          </Link>{' '}
+          and acknowledge our{' '}
+          <Link href="/privacy" target="_blank" rel="noopener noreferrer">
+            Privacy Policy
+          </Link>.
+        </p>
       </div>
+
+      {/* Bottom Legal Navigation */}
+      <nav aria-label="Legal" className={styles.legalNav}>
+        <Link href="/privacy" className={styles.legalLink}>{legal.footerLinks.privacy}</Link>
+        <Link href="/terms" className={styles.legalLink}>{legal.footerLinks.terms}</Link>
+        <Link href="/data-deletion" className={styles.legalLink}>{legal.footerLinks.dataDeletion}</Link>
+        <Link href="/support" className={styles.legalLink}>{legal.footerLinks.support}</Link>
+      </nav>
     </div>
   );
 }

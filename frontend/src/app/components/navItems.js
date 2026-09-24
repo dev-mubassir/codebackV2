@@ -1,12 +1,13 @@
 import { nav } from '@/content/copy';
 
 /**
- * The app's navigation, built once and shared by both shells.
+ * The app's navigation, built once.
  *
- * AppShell and NavSidebar each carried their own byte-identical copy of this
- * list. That was survivable while the list was static — but the billing entry
- * is CONDITIONAL, and a condition duplicated in two places is a condition
- * that eventually disagrees with itself. One builder, two callers.
+ * It began as two byte-identical copies, one in the old AppShell and one in
+ * NavSidebar. That was survivable while the list was static — but the billing
+ * entry is CONDITIONAL, and a condition duplicated in two places is a
+ * condition that eventually disagrees with itself. Both of those files are
+ * gone now (2026-09-24); components/ui/AppShell is the only caller.
  *
  * BILLING IS GATED, deliberately. Until BILLING_ENABLED is set, the billing
  * routes 404 and there is no pricing to show, so a permanent nav entry would

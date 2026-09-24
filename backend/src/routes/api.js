@@ -21,6 +21,7 @@ const { getOrCreatePreferences } = require('../services/preferencesService');
 const { getOrCreateBusinessProfile } = require('../services/businessProfileService');
 const { normalizeCategory } = require('../lib/constants');
 const { emitToUser } = require('../lib/socket');
+const { createRateLimiter } = require('../lib/rateLimit');
 
 // All API routes require authentication
 // The canonical chain. requireWorkspace resolves the caller's owned
@@ -523,7 +524,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
 
     if (result.failed || !result.text) {
       return res.status(502).json({
-        error: "Couldn't draft a reply just now. Write your own below.",
+        error: "Couldn't draft a reply just now — write your own in the box above.",
         details: result.errorMessage || 'The AI provider did not return a draft.',
       });
     }
@@ -542,7 +543,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
     res.json({ id: saved.id, text: saved.generatedText, model: saved.model, createdAt: saved.createdAt });
   } catch (error) {
     console.error('[API] Error generating reply:', error.message);
-    res.status(500).json({ error: "Couldn't draft a reply just now. Write your own below." });
+    res.status(500).json({ error: "Couldn't draft a reply just now — write your own in the box above." });
   }
 });
 
@@ -669,9 +670,43 @@ router.post('/conversations/:id/reply', async (req, res) => {
 
 // ============================================
 // POST /api/contacts/:id/refresh-profile
-// Force-refresh a contact's profile from Instagram (debugging helper)
+//
+// Re-fetch one contact's username/name/photo from Instagram.
+//
+// This is no longer just a debugging helper: the frontend <Avatar> component
+// calls it when a stored profile picture URL fails to load, because Instagram
+// CDN URLs are signed and expire after roughly four days. That makes it
+// user-triggerable at the rate of "every broken avatar on screen", so it is
+// throttled twice over:
+//
+//   1. PROFILE_MIN_REFRESH_MS below — a database-backed freshness check on
+//      contact.lastFetchedAt. This is the one that actually protects the Graph
+//      API quota: it survives restarts and holds across multiple instances,
+//      because the timestamp lives in Postgres rather than in a process.
+//   2. refreshProfileLimiter — an in-memory request limiter, so a client that
+//      ignores the 429 cannot spin the endpoint even though step 1 makes each
+//      call cheap.
+//
+// Tenant isolation is unchanged and was already correct: requireAuth +
+// requireWorkspace run for the whole router, and the findFirst below scopes on
+// `instagramAccount: { userId: req.userId }`, so another tenant's contact id
+// returns 404 rather than data.
 // ============================================
-router.post('/contacts/:id/refresh-profile', async (req, res) => {
+
+// One Instagram call per contact per hour. A signed URL lives for days, so
+// refreshing more often than this cannot fix anything it has not already fixed.
+const PROFILE_MIN_REFRESH_MS = 60 * 60 * 1000;
+
+// Keyed by user id; the contact id is part of the request path, which the
+// limiter folds into its bucket key — so this is per-user, per-contact.
+const refreshProfileLimiter = createRateLimiter({
+  windowMs: PROFILE_MIN_REFRESH_MS,
+  max: 4,
+  keyBy: (req) => req.userId,
+  message: 'That profile was refreshed recently. Try again later.',
+});
+
+router.post('/contacts/:id/refresh-profile', refreshProfileLimiter, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -685,6 +720,16 @@ router.post('/contacts/:id/refresh-profile', async (req, res) => {
 
     if (!contact) {
       return res.status(404).json({ error: 'That contact no longer exists.' });
+    }
+
+    // Already refreshed within the window — hand back what we have instead of
+    // spending a Graph API call. The caller cannot tell the difference, and a
+    // second broken load in the same hour is not going to be fixed by asking
+    // Instagram the same question again.
+    const age = contact.lastFetchedAt ? Date.now() - contact.lastFetchedAt.getTime() : Infinity;
+    if (age < PROFILE_MIN_REFRESH_MS) {
+      const { instagramAccount, ...safeContact } = contact;
+      return res.json(safeContact);
     }
 
     const accessToken = decrypt(contact.instagramAccount.accessToken);

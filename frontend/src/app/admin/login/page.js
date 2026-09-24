@@ -1,15 +1,27 @@
 'use client';
 
+/**
+ * Staff sign-in.
+ *
+ * Submit logic is master's, unchanged — including `password.trim()`, which
+ * strips spaces a password may legitimately contain. That is auth behaviour,
+ * so it is reported rather than changed here.
+ *
+ * Changed: ~30 inline style declarations and a raw rgba() became classes on
+ * --ui tokens; the labels were not connected to their inputs (clicking a label
+ * did nothing and screen readers announced unlabelled fields), they are now;
+ * the card's drop shadow is gone (cards are flat everywhere else); the "ADMIN"
+ * pill above a title that already says "Siffty admin" is replaced by the logo.
+ */
+
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { adminLogin } from '@/lib/api';
-import Icon from '@/app/components/Icon';
 import PasswordInput from '@/app/components/PasswordInput';
+import { Button } from '@/app/components/ui';
 import { admin as t, errors } from '@/content/copy';
 import styles from '../admin.module.css';
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -35,59 +47,24 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'var(--bg-page)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '24px'
-    }}>
-      <div style={{
-        background: 'var(--bg-surface)',
-        border: '1px solid var(--border-default)',
-        borderRadius: 'var(--radius-lg)',
-        padding: '36px',
-        maxWidth: '400px',
-        width: '100%',
-        boxShadow: 'var(--shadow-md)'
-      }}>
-        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <span className="badge badge-primary" style={{ fontSize: '11px', marginBottom: '8px' }}>
-            {t.login.eyebrow}
-          </span>
-          <h1 style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '8px', color: 'var(--text-primary)' }}>
-            {t.login.title}
-          </h1>
-          <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            {t.login.subtitle}
-          </p>
+    <main className={styles.loginPage}>
+      <div className={styles.loginCard}>
+        <div className={styles.loginHead}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/assets/siffty-logo-sm.webp" alt="" className={styles.loginMark} width={36} height={36} />
+          <h1 className={styles.loginTitle}>{t.login.title}</h1>
+          <p className={styles.loginSub}>{t.login.subtitle}</p>
         </div>
 
-        {error && (
-          <div style={{
-            background: 'var(--color-error-subtle)',
-            border: '1px solid rgba(239, 68, 68, 0.2)',
-            color: 'var(--color-error-text)',
-            padding: '10px 14px',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--text-xs)',
-            marginBottom: '20px',
-            fontWeight: 500,
-            textAlign: 'center'
-          }} role="alert">
-            {error}
-          </div>
-        )}
+        {error && <p className={styles.loginError} role="alert">{error}</p>}
 
-        <form onSubmit={handleSubmit} autoComplete="off" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              {t.login.usernameLabel}
-            </label>
+        <form onSubmit={handleSubmit} autoComplete="off" className={styles.loginForm}>
+          <div className={styles.field}>
+            <label htmlFor="admin-username" className={styles.label}>{t.login.usernameLabel}</label>
             <input
+              id="admin-username"
               type="text"
-              className="input"
+              className={styles.control}
               placeholder={t.login.usernamePlaceholder}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -96,12 +73,11 @@ export default function AdminLoginPage() {
             />
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
-              {t.login.passwordLabel}
-            </label>
+          <div className={styles.field}>
+            <label htmlFor="admin-password" className={styles.label}>{t.login.passwordLabel}</label>
             <PasswordInput
-              className="input"
+              id="admin-password"
+              className={styles.control}
               placeholder={t.login.passwordPlaceholder}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -110,16 +86,11 @@ export default function AdminLoginPage() {
             />
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary btn-lg"
-            style={{ width: '100%', marginTop: '8px' }}
-            disabled={submitting}
-          >
+          <Button type="submit" variant="primary" block loading={submitting}>
             {submitting ? t.login.submitting : t.login.submit}
-          </button>
+          </Button>
         </form>
       </div>
-    </div>
+    </main>
   );
 }

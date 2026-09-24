@@ -1,486 +1,314 @@
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 32px 24px 64px;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-}
+/* ==========================================================================
+   Account — identity, credentials, a read-only business summary, deletion.
+   ========================================================================== */
 
-.pageHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+.pageHead { margin-bottom: var(--ui-space-5); }
 
 .pageTitle {
-  font-size: var(--text-2xl);
-  font-weight: 800;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
+  margin: 0 0 var(--ui-space-1);
+  font-size: var(--ui-text-xl);
+  font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
 }
 
-.pageSubtitle {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  margin-top: 4px;
+.pageSub {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
 }
 
-/* Header User Profile Banner */
-.profileHero {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 24px;
+.stack { display: flex; flex-direction: column; gap: var(--ui-space-4); }
+
+/* ---------- Identity ----------------------------------------------------- */
+
+.identity {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  box-shadow: var(--shadow-sm);
-  gap: 20px;
-  flex-wrap: wrap;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-4);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
 }
 
-.profileHeroLeft {
-  display: flex;
-  align-items: center;
-  gap: 18px;
+.identityMeta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.identityName {
+  font-size: var(--ui-text-lg);
+  font-weight: 600;
+  color: var(--ui-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.heroAvatar {
-  width: 64px;
-  height: 64px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, var(--color-ai), var(--color-ai-light));
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  font-weight: 700;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+.identityEmail {
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identityRight {
   flex-shrink: 0;
-}
-
-.heroMeta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.heroName {
-  font-size: var(--text-lg);
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.heroEmail {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.heroBadges {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--ui-space-3);
 }
 
-.roleBadge {
-  font-size: 11px;
+.identityDate { font-size: var(--ui-text-sm); color: var(--ui-text-faint); }
+
+/* ---------- Forms -------------------------------------------------------- */
+
+.fieldStack { display: flex; flex-direction: column; gap: var(--ui-space-4); }
+
+.field { display: flex; flex-direction: column; gap: var(--ui-space-1); }
+
+/* PasswordInput renders its own <input>, so it cannot use the shared Field
+   wrapper. These three match .label / .control / .fieldError in ui.module.css
+   exactly, so the password rows sit flush with the fields above them. */
+.label {
+  font-size: var(--ui-text-sm);
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: rgba(124, 58, 237, 0.1);
-  color: var(--color-primary);
+  color: var(--ui-text-body);
 }
 
-.planBadge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--color-success);
-}
-
-.heroDate {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-}
-
-/* Card Styling */
-.card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: var(--shadow-sm);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.cardHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 12px;
-}
-
-.cardTitle {
-  font-size: var(--text-md);
-  font-weight: 700;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cardDescription {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-/* Form Styles */
-.formGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.formGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.formLabel {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.formInput {
+.control {
   width: 100%;
-  padding: 10px 14px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: var(--form-text);
-  transition: all var(--transition-fast);
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-ink);
+  font-family: var(--ui-font);
+  font-size: var(--ui-text-md);
+  transition: border-color var(--ui-transition), box-shadow var(--ui-transition);
 }
 
-/* Glow is keyed to --color-primary (blue); it previously used the purple AI
-   accent, which read as a mismatched halo around a blue border. */
-.formInput:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.12);
-  background: var(--bg-surface);
+.control::placeholder { color: var(--ui-text-faint); }
+
+.control:focus-visible,
+.control:focus {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
 }
 
-.formInput:disabled {
-  opacity: 0.7;
+.control:disabled {
+  background: var(--ui-surface-subtle);
+  color: var(--ui-text-muted);
   cursor: not-allowed;
-  background: rgba(0, 0, 0, 0.03);
+}
+
+.fieldError { font-size: var(--ui-text-sm); color: var(--ui-danger); }
+
+.sectionDivide {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  padding-top: var(--ui-space-2);
+  margin-top: var(--ui-space-1);
+  border-top: 1px solid var(--ui-border);
+}
+
+.sectionLabel {
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
 }
 
 .formActions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
-  margin-top: 8px;
+  gap: var(--ui-space-3);
+  flex-wrap: wrap;
+  margin-top: var(--ui-space-5);
+  padding-top: var(--ui-space-4);
+  border-top: 1px solid var(--ui-border);
 }
 
-/* Accounts List */
-.accountList {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
+.inlineError { margin: 0; font-size: var(--ui-text-base); color: var(--ui-danger); }
 
-.accountCard {
-  display: flex;
+.savedNote {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  gap: var(--ui-space-1);
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-success);
 }
 
-.accountLeft {
-  display: flex;
+/* ---------- Business summary --------------------------------------------- */
+
+.cardLink {
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ui-space-1);
+  font-size: var(--ui-text-base);
+  font-weight: 500;
+  color: var(--ui-accent);
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-.accountAvatar {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-full);
-  background: var(--color-primary-subtle);
-  color: var(--color-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: var(--text-sm);
-  overflow: hidden;
+.cardLink:hover { text-decoration: underline; }
+
+.cardLink:focus-visible {
+  outline: none;
+  border-radius: var(--ui-radius-sm);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
 }
 
-.accountAvatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+.typeRow { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); }
 
-.accountMeta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.accountUsername {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.accountStatus {
-  font-size: 11px;
-  color: var(--color-success);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* Business Snapshot */
-.businessGrid {
+.miniGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-4);
+  padding-top: var(--ui-space-4);
+  border-top: 1px solid var(--ui-border);
 }
 
-.businessItem {
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
+/* Match the read-only fields the shared component renders, so the reply-mode
+   and tone rows below them do not look like a different kind of thing. */
+.readField { display: flex; flex-direction: column; gap: 2px; }
 
-.businessItemLabel {
-  font-size: 11px;
-  color: var(--text-tertiary);
+.readLabel {
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-weight: 600;
+  color: var(--ui-text-faint);
 }
 
-.businessItemValue {
-  font-size: var(--text-sm);
-  color: var(--text-primary);
-  font-weight: 600;
+.readValue {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
+  overflow-wrap: anywhere;
 }
 
-/* Danger Zone */
-.dangerCard {
-  background: var(--color-error-subtle);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: var(--radius-lg);
-  padding: 24px;
+.emptyText { margin: 0; font-size: var(--ui-text-base); color: var(--ui-text-muted); }
+
+/* ---------- Connected accounts ------------------------------------------- */
+
+.accountList { display: flex; flex-direction: column; }
+
+.accountRow {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border);
 }
 
-.dangerHeader {
+.accountRow:last-child { border-bottom: none; }
+
+.accountName {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Danger zone --------------------------------------------------
+   Separated by a danger border rather than by distance alone: this is the one
+   block on the page that destroys everything, and it has to look unlike the
+   cards above it before it is read, not after. */
+
+.danger {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--ui-space-4);
+  flex-wrap: wrap;
+  margin-top: var(--ui-space-4);
+  padding: var(--ui-space-4);
+  background: var(--ui-danger-bg);
+  border: 1px solid var(--ui-danger);
+  border-radius: var(--ui-radius-lg);
 }
+
+.dangerHead { display: flex; align-items: flex-start; gap: var(--ui-space-3); min-width: 0; }
 
 .dangerTitle {
-  font-size: var(--text-md);
-  font-weight: 700;
-  color: var(--color-error);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dangerText {
-  font-size: var(--text-xs);
-  color: var(--color-error-text);
-  line-height: 1.5;
-}
-
-.dangerActions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.btnDanger {
-  background: var(--color-error);
-  color: white;
-  border: none;
+  margin: 0 0 2px;
+  font-size: var(--ui-text-lg);
   font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-danger);
 }
 
-.btnDanger:hover {
-  background: var(--color-error-hover);
+.dangerBody {
+  margin: 0;
+  max-width: 60ch;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
 }
 
-/* Alert Banners */
-.successBanner {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: var(--color-success-text);
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  font-weight: 500;
-}
-
-.errorBanner {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--color-error-text);
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  font-size: var(--text-xs);
-  font-weight: 500;
-}
-
-/* Modal Overlay */
-.modalOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modalCard {
-  width: 100%;
-  max-width: 480px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
-  padding: 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.modalHeader {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.modalIcon {
-  font-size: 28px;
-}
-
-.modalTitle {
-  font-size: var(--text-lg);
-  font-weight: 700;
-  color: var(--color-error);
-}
+/* ---------- Delete modal -------------------------------------------------- */
 
 .modalBody {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  line-height: 1.6;
+  margin: 0 0 var(--ui-space-3);
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
 }
 
-.modalActions {
+.modalList {
+  margin: 0 0 var(--ui-space-4);
+  padding-left: var(--ui-space-5);
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 8px;
+  flex-direction: column;
+  gap: var(--ui-space-1);
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
 }
 
-@media (max-width: 640px) {
-  .container {
-    padding: 16px 12px 48px;
-    gap: 20px;
-  }
+/* ---------- Legal --------------------------------------------------------- */
 
-  .profileHero {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 16px;
-    gap: 14px;
-  }
-
-  .card {
-    padding: 16px;
-  }
-
-  .dangerCard {
-    padding: 16px;
-  }
-
-  .modalCard {
-    padding: 20px 16px;
-    max-width: 100%;
-  }
-
-  .accountCard {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-
-  .accountCard button {
-    width: 100%;
-  }
-
-  .formActions button {
-    width: 100%;
-  }
-
-  .dangerActions button {
-    width: 100%;
-  }
+.legalNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-1) var(--ui-space-4);
+  font-size: var(--ui-text-base);
 }
 
-/* ---- Copy audit additions ---- */
+.legalNav a { color: var(--ui-text-muted); text-decoration: none; }
+.legalNav a:hover { color: var(--ui-ink); text-decoration: underline; }
 
-/* Eyebrow label above a summarised profile field. */
-.summaryLabel {
-  font-size: 10px;
-  text-transform: none;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  font-weight: 700;
+.legalNav a:focus-visible {
+  outline: none;
+  border-radius: var(--ui-radius-sm);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
 }
 
-.summaryValue {
-  font-size: 12px;
-  color: var(--text-primary);
-  margin-top: 2px;
-  white-space: pre-line;
-}
+/* ---------- Narrow -------------------------------------------------------- */
 
-.formHint {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-top: 4px;
-  display: block;
+@media (max-width: 767px) {
+  .identity { flex-wrap: wrap; row-gap: var(--ui-space-3); }
+  .identityRight { flex-basis: 100%; justify-content: space-between; }
+
+  .miniGrid { grid-template-columns: minmax(0, 1fr); }
+
+  /* Avatar + username + badge + button cannot share 343px. */
+  .accountRow { flex-wrap: wrap; row-gap: var(--ui-space-2); }
+  .accountName { flex-basis: calc(100% - 44px); }
+
+  .danger { flex-direction: column; align-items: stretch; }
+  .danger > button { width: 100%; }
+
+  .formActions { justify-content: stretch; }
+  .formActions > button { flex: 1; }
 }

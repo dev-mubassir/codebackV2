@@ -1,535 +1,379 @@
-/* ============================================
- * Settings Page — Cloudflare SaaS Theme
- * ============================================ */
+/* ==========================================================================
+   Settings — three tabs, one save button, one column of fields.
+   ========================================================================== */
 
-.pageHeader {
-  margin-bottom: 24px;
-}
+.pageHead { margin-bottom: var(--ui-space-5); }
 
 .pageTitle {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-  letter-spacing: -0.02em;
-}
-
-.pageSubtitle {
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-}
-
-.tabNav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
-  border-bottom: 1px solid var(--border-default);
-  padding-bottom: 8px;
-  overflow-x: auto;
-  white-space: nowrap;
-  -webkit-overflow-scrolling: touch;
-}
-
-.tabNav::-webkit-scrollbar {
-  display: none;
-}
-
-.tabBtn {
-  padding: 8px 14px;
-  font-size: var(--text-xs);
+  margin: 0 0 var(--ui-space-1);
+  font-size: var(--ui-text-xl);
   font-weight: 600;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
 }
 
-.tabBtn:hover {
-  color: var(--text-primary);
-  background: var(--bg-surface-secondary);
+.pageSub {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
 }
 
-.tabBtnActive {
-  color: var(--color-primary) !important;
-  background: var(--color-primary-subtle) !important;
-  border-color: rgba(124, 58, 237, 0.2) !important;
-}
-
-.loadingContainer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 0;
-}
-
-.settingsGrid {
+.tabBody {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  max-width: 800px;
+  gap: var(--ui-space-4);
+  margin-top: var(--ui-space-5);
 }
 
-.card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-}
+.loading { margin-top: var(--ui-space-5); }
 
-.cardHeader {
-  margin-bottom: 20px;
-}
-
-.cardTitle {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-}
-
-.cardDesc {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-}
-
-.prefList {
+/* One column at every width. Two would put a 4,000-character FAQ box beside a
+   1,000-character one and make both the wrong size. */
+.fieldStack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--ui-space-5);
 }
 
-.prefRow {
+.fieldLabel {
+  display: block;
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
+}
+
+.fieldHint {
+  margin: 2px 0 0;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+/* ---------- Business types ---------------------------------------------- */
+
+.typesBlock { display: flex; flex-direction: column; }
+
+.typesHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  gap: 16px;
+  gap: var(--ui-space-2);
 }
 
-.prefRow:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.prefRowVertical {
-  display: flex;
-  flex-direction: column;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.prefLabelGroup {
-  display: flex;
-  flex-direction: column;
-}
-
-.prefLabel {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.prefSublabel {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  margin-top: 1px;
-}
-
-.saveBar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-  margin-top: 8px;
-}
-
-.savedMessage {
-  font-size: var(--text-sm);
-  color: var(--color-success);
-  font-weight: 500;
-}
-
-/* ============================================
- * Specific Chat Auto-Replies Section
- * ============================================ */
-.chatHeaderRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.chatCountBadge {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 3px 8px;
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--color-success);
-  border-radius: var(--radius-full);
-  border: 1px solid rgba(16, 185, 129, 0.25);
-}
-
-.chatSearchInput {
-  width: 100%;
-  padding: 8px 12px;
-  font-size: var(--form-text);
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  margin-bottom: 12px;
-}
-
-.chatList {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 380px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.chatItem {
-  display: flex;
-  flex-direction: column;
-  padding: 10px 14px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-}
-
-.chatItem:hover {
-  border-color: var(--border-strong);
-}
-
-.chatItemActive {
-  background: rgba(16, 185, 129, 0.04);
-  border-color: rgba(16, 185, 129, 0.3);
-}
-
-.chatItemMain {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.chatItemLeft {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.chatAvatar {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-full);
-  object-fit: cover;
+.count {
   flex-shrink: 0;
-}
-
-.chatAvatarFallback {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-full);
-  background: var(--color-primary-subtle);
-  color: var(--color-primary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-size: var(--ui-text-xs);
   font-weight: 600;
-  font-size: var(--text-xs);
-  flex-shrink: 0;
-}
-
-.chatMeta {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.chatNameRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.chatUsername {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.chatPreview {
-  font-size: 11px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 300px;
-}
-
-.chatActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.autoReplyToggleBtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border-default);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.autoReplyToggleBtn:hover {
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.autoReplyToggleBtnActive {
-  background: rgba(16, 185, 129, 0.12) !important;
-  color: var(--color-success) !important;
-  border-color: rgba(16, 185, 129, 0.4) !important;
-  font-weight: 700;
-}
-
-.chatPromptEditor {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.chatPromptLabel {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.chatPromptActions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.emptyChats {
-  padding: 24px;
-  text-align: center;
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  background: var(--bg-surface-secondary);
-  border-radius: var(--radius-md);
+  color: var(--ui-accent-hover);
+  background: var(--ui-accent-tint);
+  padding: 3px var(--ui-space-2);
+  border-radius: var(--ui-radius-full);
+  font-variant-numeric: tabular-nums;
 }
 
 .categoryGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 10px;
-  margin-top: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ui-space-2);
+  margin-top: var(--ui-space-3);
 }
 
 .categoryCard {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 12px;
-  background: var(--bg-surface-secondary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--transition-fast);
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ui-transition), background-color var(--ui-transition);
 }
 
-.categoryCard:hover {
-  background: var(--bg-surface-hover);
-  border-color: var(--border-strong);
-  transform: translateY(-1px);
+.categoryCard:hover { border-color: var(--ui-border-strong); background: var(--ui-surface-subtle); }
+
+.categoryCard:focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
 }
 
-.categoryCardActive {
-  background: var(--color-primary-subtle) !important;
-  border-color: var(--color-primary) !important;
-  box-shadow: 0 0 0 1px var(--color-primary);
+/* Selection changes the CARD, never the tile: a tile's colour is reserved for
+   meaning, and "you picked this" is state. Same rule as onboarding. */
+.categoryCardOn { border-color: var(--ui-accent); background: var(--ui-accent-tint); }
+.categoryCardOn:hover { background: var(--ui-accent-tint); }
+
+.categoryText { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+
+.categoryLabel {
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
 }
 
-.categoryIcon {
-  font-size: 20px;
-  margin-bottom: 6px;
+.categorySummary {
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.categoryTitle {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-}
-
-.categoryDesc {
-  font-size: 10px;
-  color: var(--text-tertiary);
-  line-height: 1.3;
-}
-
-.categorySelectedBadge {
+.categoryCheck {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--color-primary);
-  background: rgba(124, 58, 237, 0.15);
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
+  top: var(--ui-space-2);
+  right: var(--ui-space-2);
+  display: inline-flex;
+  color: var(--ui-accent);
 }
 
-.templateActionBanner {
-  margin-top: 12px;
-  padding: 10px 14px;
-  background: rgba(124, 58, 237, 0.06);
-  border: 1px dashed rgba(124, 58, 237, 0.35);
-  border-radius: var(--radius-md);
+.templateBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  margin-top: var(--ui-space-3);
+  padding: var(--ui-space-3);
+  background: var(--ui-tile-accent-bg);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+}
+
+.templateText {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
+}
+
+/* ---------- Reply mode --------------------------------------------------- */
+
+.modeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ui-space-2);
+  margin-top: var(--ui-space-3);
+}
+
+.modeCard {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--ui-transition), background-color var(--ui-transition);
+}
+
+.modeCard:hover { border-color: var(--ui-border-strong); background: var(--ui-surface-subtle); }
+
+.modeCard:focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
+}
+
+.modeCardOn { border-color: var(--ui-accent); background: var(--ui-accent-tint); }
+.modeCardOn:hover { background: var(--ui-accent-tint); }
+
+.modeText { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-right: var(--ui-space-4); }
+
+.modeLabel { font-size: var(--ui-text-base); font-weight: 600; color: var(--ui-ink); }
+
+.modeDesc {
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.modeCheck {
+  position: absolute;
+  top: var(--ui-space-2);
+  right: var(--ui-space-2);
+  display: inline-flex;
+  color: var(--ui-accent);
+}
+
+/* ---------- Simple rows -------------------------------------------------- */
+
+.toggleRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ui-space-4);
   flex-wrap: wrap;
 }
 
-.templateActionText {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
+.priorityList { display: flex; flex-direction: column; }
 
-.templateActionBtn {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 5px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--color-primary);
-  color: white;
-  border: none;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.templateActionBtn:hover {
-  filter: brightness(1.1);
-}
-
-@media (max-width: 640px) {
-  .card {
-    padding: 16px;
-  }
-  .categoryGrid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
-  .prefRow {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  .chatItemRow {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  .chatItemRight {
-    width: 100%;
-    justify-content: space-between;
-  }
-}
-
-
-/* ---- Copy audit additions ---- */
-
-/* One three-way reply-mode control, replacing the ON/OFF pair that fought
-   with the select bound to the same field. */
-.modeOptions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.modeOption {
+.priorityRow {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  text-align: left;
-  padding: 12px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui-space-4);
+  padding: var(--ui-space-3) 0;
+  border-bottom: 1px solid var(--ui-border);
 }
 
-.modeOption:hover {
-  border-color: var(--color-primary);
+.priorityRow:last-child { border-bottom: none; }
+
+.priorityLabel { font-size: var(--ui-text-base); color: var(--ui-ink); }
+
+.prioritySelect { width: 170px; }
+
+/* ---------- Per-conversation -------------------------------------------- */
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  margin-bottom: var(--ui-space-4);
+  padding: var(--ui-space-3);
+  background: var(--ui-surface-sunken);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
 }
 
-.modeOptionActive {
-  border-color: var(--color-primary);
-  background: rgba(124, 58, 237, 0.06);
+.noticeText {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
 }
 
-.modeOptionTop {
+.searchRow { margin-bottom: var(--ui-space-3); }
+
+.chatList {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  overflow: hidden;
+}
+
+.chatItem { border-bottom: 1px solid var(--ui-border); }
+.chatItem:last-child { border-bottom: none; }
+
+.chatRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3);
+}
+
+.chatMeta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.chatName {
+  font-size: var(--ui-text-base);
+  font-weight: 600;
+  color: var(--ui-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatOn { font-weight: 400; font-size: var(--ui-text-sm); color: var(--ui-text-faint); }
+
+.chatPreview {
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chatActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-3);
+}
+
+.chatLink {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--text-primary);
+  gap: var(--ui-space-1);
+  font-size: var(--ui-text-base);
+  color: var(--ui-accent);
+  text-decoration: none;
+  white-space: nowrap;
 }
 
-.modeOptionLabel {
-  font-size: 13px;
-  font-weight: 600;
-  flex: 1;
+.chatLink:hover { text-decoration: underline; }
+
+.chatLink:focus-visible {
+  outline: none;
+  border-radius: var(--ui-radius-sm);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
 }
 
-.modeOptionDesc {
-  font-size: 11px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-/* Explains why a control on this screen will not do anything yet. */
-.inlineNotice {
+.promptEditor {
   display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  margin: 12px 0;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface-secondary);
-  font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.45;
+  flex-direction: column;
+  gap: var(--ui-space-3);
+  padding: 0 var(--ui-space-3) var(--ui-space-3) 60px;
+  background: var(--ui-surface-sunken);
+}
+
+.promptActions { display: flex; gap: var(--ui-space-2); }
+
+/* ---------- Save bar ----------------------------------------------------- */
+
+.saveBar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ui-space-3);
+  flex-wrap: wrap;
+  padding: var(--ui-space-3) var(--ui-space-4);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+}
+
+.savedNote {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-success);
+}
+
+.inlineError {
+  margin: 0;
+  font-size: var(--ui-text-base);
+  color: var(--ui-danger);
+}
+
+/* ---------- Narrow ------------------------------------------------------- */
+
+@media (max-width: 1023px) {
+  .categoryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .modeGrid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+  .categoryGrid { grid-template-columns: minmax(0, 1fr); }
+
+  /* Avatar + name + a switch + two buttons cannot share 343px. */
+  .chatRow { flex-wrap: wrap; row-gap: var(--ui-space-3); }
+  .chatActions { flex-basis: 100%; justify-content: space-between; }
+
+  .promptEditor { padding-left: var(--ui-space-3); }
+
+  .priorityRow { align-items: flex-start; flex-direction: column; gap: var(--ui-space-2); }
+  .prioritySelect { width: 100%; }
+
+  .saveBar { justify-content: stretch; }
+  .saveBar > button { flex: 1; }
 }

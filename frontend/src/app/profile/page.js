@@ -1,26 +1,73 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+/**
+ * Account — your name and password, a read-only summary of the business
+ * profile, the connected Instagram accounts, and deletion.
+ *
+ * The DATA LAYER is master's: the same three endpoints, the same payload shape
+ * on save, the same typed-DELETE confirmation before anything is destroyed.
+ *
+ * WHAT CHANGED, AND WHY — the same audit that found `locationDelivery` in
+ * Settings found three more of that shape here.
+ *
+ *   1. A NAME UNDER TWO CHARACTERS SAVED SILENTLY AND DID NOTHING.
+ *      auth.js:1437 only applies the name when `name.trim().length >= 2`; it
+ *      does not error otherwise. So typing "A" and pressing save showed
+ *      "Account saved" while the name stayed as it was. The rule is now
+ *      enforced here, with `validation.nameTooShort` — a string that already
+ *      existed in copy.js and had never been used.
+ *   2. The same for a short password: the server refuses under 6 characters
+ *      with a 400, and the form checked only that the two fields matched, so
+ *      the first feedback was a server error. `validation.passwordTooShort`
+ *      also already existed, unused.
+ *   3. The connected-account pictures were bare <img src={igProfilePic}>.
+ *      Those are signed CDN URLs that expire in about four days — exactly what
+ *      <Avatar> exists to survive.
+ *
+ * Also: the delete modal had its warning sentence hard-coded in JSX while
+ * `confirm.deleteAccount.body` sat unused in copy.js, and it was hand-rolled
+ * with no focus trap and no Escape. It uses the shared Modal now.
+ */
+
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import AppShell from '@/app/components/AppShell';
-import { getMe, updateProfile, deleteAccount, getInstagramAuthUrl, getBusinessProfile } from '@/lib/api';
-import { getCategoryMetadata, parseBusinessTypes } from '@/lib/businessTemplates';
+import {
+  getMe, updateProfile, deleteAccount, getInstagramAuthUrl, getBusinessProfile,
+} from '@/lib/api';
+import { parseBusinessTypes, getCategoryMetadata } from '@/lib/businessTemplates';
+import { rememberDestination } from '@/lib/pendingDestination';
+import AppShell from '@/app/components/ui/AppShell';
 import Icon from '@/app/components/Icon';
 import PasswordInput from '@/app/components/PasswordInput';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
-import { account as t, common, errors, empty, confirm as confirmCopy, toast, validation, legal } from '@/content/copy';
-import { replyModeLabel, roleLabel, connectionStatusLabel, tokenStatusLabel, toneLabel } from '@/content/labels';
+import {
+  Avatar, Badge, Button, Card, EmptyState, IconTile, Input, Modal, Skeleton,
+} from '@/app/components/ui';
+import BusinessProfileFields, { ACCOUNT_SUMMARY_FIELDS } from '@/app/components/ui/BusinessProfileFields';
+import {
+  account as t, common, errors, confirm as confirmCopy, toast, validation, legal,
+} from '@/content/copy';
+import {
+  replyModeLabel, roleLabel, connectionStatusLabel, tokenStatusLabel, toneLabel,
+} from '@/content/labels';
 import { formatDate } from '@/content/format';
 import styles from './profile.module.css';
 
+/** Mirrors auth.js:1437. Below this the server silently ignores the name. */
+const MIN_NAME_LENGTH = 2;
+/** Mirrors auth.js — the server 400s below this. */
+const MIN_PASSWORD_LENGTH = 6;
+/** No server cap exists on `name`; this is a UI guard, not a mirrored rule. */
+const MAX_NAME_LENGTH = 100;
+
 export default function ProfilePage() {
   const router = useRouter();
+
   const [user, setUser] = useState(null);
   const [businessProfile, setBusinessProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Form states
   const [name, setName] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -29,47 +76,67 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
-  // Delete modal states
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
-    async function loadUser() {
+    let cancelled = false;
+    async function load() {
       try {
-        const [userData, profileData] = await Promise.all([
-          getMe(),
-          getBusinessProfile().catch(() => null),
-        ]);
+        const userData = await getMe();
+        if (cancelled) return;
+        if (!userData?.onboardingCompleted) {
+          rememberDestination();
+          router.replace('/onboarding');
+          return;
+        }
         setUser(userData);
         setName(userData.name || '');
-        setBusinessProfile(profileData);
-      } catch (err) {
-        console.error('Failed to load profile:', err);
-        router.push('/login');
+        setBusinessProfile(await getBusinessProfile().catch(() => null));
+      } catch {
+        if (!cancelled) router.push('/login');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
-    loadUser();
+    load();
+    return () => { cancelled = true; };
   }, [router]);
 
-  async function handleProfileSave(e) {
+  async function handleSave(e) {
     e.preventDefault();
-    setSaving(true);
+    if (saving) return;
+
     setSaveSuccess('');
     setSaveError('');
+    setNameError('');
+    setPasswordError('');
 
-    if (newPassword && newPassword !== confirmPassword) {
-      setSaveError(validation.passwordMismatch);
-      setSaving(false);
+    // Checked HERE because the server does not complain — it just declines to
+    // apply the name, and the response still reads as success.
+    if (name.trim().length < MIN_NAME_LENGTH) {
+      setNameError(validation.nameTooShort);
       return;
     }
+    if (newPassword) {
+      if (newPassword.length < MIN_PASSWORD_LENGTH) {
+        setPasswordError(validation.passwordTooShort);
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setPasswordError(validation.passwordMismatch);
+        return;
+      }
+    }
 
+    setSaving(true);
     try {
-      const payload = { name };
+      const payload = { name: name.trim() };
       if (newPassword) {
         payload.currentPassword = currentPassword;
         payload.newPassword = newPassword;
@@ -79,9 +146,7 @@ export default function ProfilePage() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      if (res.user) {
-        setUser((prev) => ({ ...prev, ...res.user }));
-      }
+      if (res.user) setUser((prev) => ({ ...prev, ...res.user }));
     } catch (err) {
       setSaveError(err.response?.data?.error || errors.saveProfile);
     } finally {
@@ -89,18 +154,15 @@ export default function ProfilePage() {
     }
   }
 
-  async function handleDeleteAccount() {
+  async function handleDelete() {
     if (deleteConfirmText.trim() !== confirmCopy.deleteAccount.confirmWord) {
       setDeleteError(confirmCopy.deleteAccount.confirmMismatch);
       return;
     }
-
     setDeleting(true);
     setDeleteError('');
-
     try {
       await deleteAccount();
-      // Redirect to landing page on successful deletion
       router.push('/?deleted=true');
     } catch (err) {
       setDeleteError(err.response?.data?.error || errors.deleteAccount);
@@ -108,451 +170,285 @@ export default function ProfilePage() {
     }
   }
 
-  if (loading) {
-    return (
-      <AppShell activeRoute="/profile">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }} aria-busy="true" aria-label={common.loading}>
-          <div className="spinner spinner-lg" />
-        </div>
-      </AppShell>
-    );
-  }
+  const accounts = user?.instagramAccounts || [];
+  const typeIds = businessProfile
+    ? parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory)
+    : [];
+  const canDelete = deleteConfirmText.trim() === confirmCopy.deleteAccount.confirmWord;
 
   return (
-    <AppShell activeRoute="/profile">
-      <div className={styles.container}>
-        {/* Renders the ?error= the backend redirected with. email_unverified
-            additionally offers a resend, since knowing the problem is not the
-            same as being able to fix it. */}
-        <AuthErrorBanner />
-        {/* Page Header */}
-        <div className={styles.pageHeader}>
-          <div>
-            <h1 className={styles.pageTitle}>{t.title}</h1>
-            <p className={styles.pageSubtitle}>{t.subtitle}</p>
-          </div>
-        </div>
+    <AppShell user={user} title={t.title} activeRoute="/profile">
+      <AuthErrorBanner />
 
-        {/* Hero User Banner */}
-        <div className={styles.profileHero}>
-          <div className={styles.profileHeroLeft}>
-            <div className={styles.heroAvatar}>
-              {(user?.name || user?.email || 'U')[0].toUpperCase()}
-            </div>
-            <div className={styles.heroMeta}>
-              <div className={styles.heroName}>{user?.name || common.notSet}</div>
-              <div className={styles.heroEmail}>{user?.email}</div>
-              <div className={styles.heroBadges}>
-                {/* TEMP (pre-Meta-review): role badge hidden for non-admin users — "Standard account"
-                    reads as a plan tier on a product with no tiers. Restore before launch. */}
-                {user?.role === 'ADMIN' && (
-                  <span className={styles.roleBadge}>
-                    <Icon name="zap" size={12} /> {roleLabel(user?.role).label}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          {user?.createdAt && (
-            <div className={styles.heroDate}>
-              {t.memberSince} {formatDate(user.createdAt)}
-            </div>
-          )}
-        </div>
+      {/* No <h1> here: the AppShell topbar already renders one carrying the
+          page name, and two headings saying "Account" is a duplicate for a
+          reader and a second top-level heading for a screen reader. */}
+      <header className={styles.pageHead}>
+        <p className={styles.pageSub}>{t.subtitle}</p>
+      </header>
 
-        {/* Alert Messages */}
-        {saveSuccess && (
-          <div className={styles.successBanner} role="status">
-            <Icon name="check" size={14} /> {saveSuccess}
-          </div>
-        )}
-        {saveError && (
-          <div className={styles.errorBanner} role="alert">
-            <Icon name="alertTriangle" size={14} /> {saveError}
-          </div>
-        )}
-
-        {/* Personal Details & Credentials */}
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div>
-              <h2 className={styles.cardTitle}>{t.details.title}</h2>
-              <p className={styles.cardDescription}>{t.details.description}</p>
+      {loading ? (
+        <Skeleton lines={6} height={44} />
+      ) : (
+        <div className={styles.stack}>
+          {/* ---------- Who you are ---------- */}
+          <div className={styles.identity}>
+            <Avatar name={user?.name || user?.email} size={48} decorative />
+            <div className={styles.identityMeta}>
+              <span className={styles.identityName}>{user?.name || common.notSet}</span>
+              <span className={styles.identityEmail}>{user?.email}</span>
+            </div>
+            <div className={styles.identityRight}>
+              {/* Hidden for non-admins until launch: "Standard account" reads
+                  as a plan tier on a product that has no tiers. */}
+              {user?.role === 'ADMIN' && <Badge tone="accent">{roleLabel(user.role).label}</Badge>}
+              {user?.createdAt && (
+                <span className={styles.identityDate}>
+                  {t.memberSince} {formatDate(user.createdAt)}
+                </span>
+              )}
             </div>
           </div>
 
-          <form onSubmit={handleProfileSave}>
-            <div className={styles.formGrid}>
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>{t.details.nameLabel}</label>
-                <input
-                  type="text"
-                  className={styles.formInput}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+          {/* ---------- Details and password ---------- */}
+          <Card title={t.details.title} description={t.details.description}>
+            <form onSubmit={handleSave} noValidate>
+              <div className={styles.fieldStack}>
+                <Input
+                  label={t.details.nameLabel}
                   placeholder={t.details.namePlaceholder}
-                  required
+                  value={name}
+                  error={nameError}
+                  maxLength={MAX_NAME_LENGTH}
+                  minLength={MIN_NAME_LENGTH}
+                  disabled={saving}
+                  onChange={(e) => { setName(e.target.value); setNameError(''); }}
                 />
-              </div>
 
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>{t.details.emailLabel}</label>
-                <input
+                <Input
+                  label={t.details.emailLabel}
+                  hint={t.details.emailHint}
                   type="email"
-                  className={styles.formInput}
                   value={user?.email || ''}
                   disabled
+                  readOnly
                 />
-                <span className={styles.formHint}>{t.details.emailHint}</span>
+
+                <div className={styles.sectionDivide}>
+                  <IconTile name="lock" tone="neutral" />
+                  <span className={styles.sectionLabel}>{t.details.passwordSection}</span>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="current-password">
+                    {t.details.currentPasswordLabel}
+                  </label>
+                  <PasswordInput
+                    id="current-password"
+                    className={styles.control}
+                    value={currentPassword}
+                    disabled={saving}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                  />
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="new-password">
+                    {t.details.newPasswordLabel}
+                  </label>
+                  <PasswordInput
+                    id="new-password"
+                    className={styles.control}
+                    value={newPassword}
+                    placeholder={t.details.newPasswordPlaceholder}
+                    minLength={MIN_PASSWORD_LENGTH}
+                    disabled={saving}
+                    onChange={(e) => { setNewPassword(e.target.value); setPasswordError(''); }}
+                  />
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="confirm-password">
+                    {t.details.confirmPasswordLabel}
+                  </label>
+                  <PasswordInput
+                    id="confirm-password"
+                    className={styles.control}
+                    value={confirmPassword}
+                    disabled={saving}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setPasswordError(''); }}
+                  />
+                  {passwordError && <span className={styles.fieldError} role="alert">{passwordError}</span>}
+                </div>
               </div>
-            </div>
 
-            <div style={{ margin: '20px 0 12px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <Icon name="lock" size={13} /> {t.details.passwordSection}
-              </span>
-            </div>
-
-            <div className={styles.formGrid}>
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>{t.details.currentPasswordLabel}</label>
-                <PasswordInput
-                  className={styles.formInput}
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>{t.details.newPasswordLabel}</label>
-                <PasswordInput
-                  className={styles.formInput}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder={t.details.newPasswordPlaceholder}
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.formLabel}>{t.details.confirmPasswordLabel}</label>
-                <PasswordInput
-                  className={styles.formInput}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className={styles.formActions}>
-              <button
-                type="submit"
-                className="btn btn-primary btn-md"
-                disabled={saving}
-                id="save-profile-btn"
-              >
-                {saving ? common.saving : common.save}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Business profile */}
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div>
-              <h2 className={styles.cardTitle}>{t.businessProfile.title}</h2>
-              <p className={styles.cardDescription}>{t.businessProfile.description}</p>
-            </div>
-            <Link
-              href="/settings?tab=profile"
-              className="btn btn-secondary btn-sm"
-              id="profile-edit-business-btn"
-            >
-              <Icon name="settings" size={13} /> {t.businessProfile.editAction}
-            </Link>
-          </div>
-
-          {businessProfile ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                {parseBusinessTypes(businessProfile.businessTypes, businessProfile.primaryCategory).map((catId) => (
-                  <span
-                    key={catId}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '4px 12px',
-                      borderRadius: 'var(--radius-full)',
-                      background: 'rgba(124, 58, 237, 0.1)',
-                      color: 'var(--color-primary)',
-                      fontWeight: 700,
-                      fontSize: '12px',
-                    }}
-                  >
-                    <Icon name={getCategoryMetadata(catId).icon} size={12} />
-                    <span>{getCategoryMetadata(catId).label}</span>
-                  </span>
-                ))}
-                {businessProfile.businessName && (
-                  <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    • {businessProfile.businessName}
-                  </span>
+              <div className={styles.formActions}>
+                {saveError && <p className={styles.inlineError} role="alert">{saveError}</p>}
+                {saveSuccess && !saveError && (
+                  <p className={styles.savedNote} role="status">
+                    <Icon name="check" size={14} /> {saveSuccess}
+                  </p>
                 )}
+                <Button type="submit" variant="primary" loading={saving}>
+                  {saving ? common.saving : common.save}
+                </Button>
               </div>
+            </form>
+          </Card>
 
-              {businessProfile.description && (
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                  {businessProfile.description}
-                </p>
-              )}
-
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                  gap: '10px',
-                  padding: '12px',
-                  background: 'var(--bg-surface-secondary)',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              >
-                <div>
-                  <span className={styles.summaryLabel}>{t.businessProfile.servicesLabel}</span>
-                  <div className={styles.summaryValue}>
-                    {businessProfile.productsServices
-                      ? businessProfile.productsServices.slice(0, 150) + (businessProfile.productsServices.length > 150 ? '…' : '')
-                      : common.notConfigured}
-                  </div>
-                </div>
-
-                <div>
-                  <span className={styles.summaryLabel}>{t.businessProfile.pricingLabel}</span>
-                  <div className={styles.summaryValue}>
-                    {businessProfile.pricingInfo
-                      ? businessProfile.pricingInfo.slice(0, 150) + (businessProfile.pricingInfo.length > 150 ? '…' : '')
-                      : common.notConfigured}
-                  </div>
-                </div>
-
-                {/* Reply mode and tone moved here from the separate "AI Business
-                    Context" card below, which repeated this same profile under a
-                    second name. */}
-                <div>
-                  <span className={styles.summaryLabel}>{t.businessProfile.replyModeLabel}</span>
-                  <div className={styles.summaryValue}>
-                    {replyModeLabel(businessProfile.autoReplyMode).label}
-                  </div>
-                </div>
-
-                <div>
-                  <span className={styles.summaryLabel}>{t.businessProfile.toneLabel}</span>
-                  <div className={styles.summaryValue}>{toneLabel(businessProfile.tone).label}</div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{t.businessProfile.empty}</p>
-          )}
-        </div>
-
-        {/* Connected Instagram Accounts */}
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div>
-              <h2 className={styles.cardTitle}>{t.connectedAccounts.title}</h2>
-              <p className={styles.cardDescription}>{t.connectedAccounts.description}</p>
-            </div>
-            <a
-              href={getInstagramAuthUrl()}
-              className="btn btn-secondary btn-sm"
-              id="profile-connect-ig-btn"
-            >
-              <Icon name="plus" size={13} /> {t.connectedAccounts.connect}
-            </a>
-          </div>
-
-          <div className={styles.accountList}>
-            {(!user?.instagramAccounts || user.instagramAccounts.length === 0) ? (
-              <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', padding: '8px 0' }}>
-                {t.connectedAccounts.empty}
-              </p>
-            ) : (
-              user.instagramAccounts.map((acc) => (
-                <div key={acc.id} className={styles.accountCard}>
-                  <div className={styles.accountLeft}>
-                    <div className={styles.accountAvatar}>
-                      {acc.igProfilePic ? (
-                        <img src={acc.igProfilePic} alt="" />
-                      ) : (
-                        (acc.igUsername || 'IG')[0].toUpperCase()
-                      )}
-                    </div>
-                    <div className={styles.accountMeta}>
-                      <span className={styles.accountUsername}>@{acc.igUsername || 'account'}</span>
-                      <span className={styles.accountStatus}>
-                        <span
-                          style={{
-                            width: '6px',
-                            height: '6px',
-                            borderRadius: '50%',
-                            background:
-                              acc.connectionStatus === 'DISCONNECTED' || acc.tokenStatus === 'NEEDS_RECONNECT'
-                                ? 'var(--color-warning)'
-                                : 'var(--color-success)',
-                            display: 'inline-block',
-                          }}
-                        />
-                        {acc.connectionStatus === 'DISCONNECTED'
-                          ? connectionStatusLabel(acc.connectionStatus).label
-                          : tokenStatusLabel(acc.tokenStatus).label}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => router.push('/inbox')}
-                  >
-                    {t.connectedAccounts.openInbox}
-                    <Icon name="arrowRight" size={13} />
-                  </button>
-                </div>
-              ))
+          {/* ---------- Business profile, read only ---------- */}
+          <Card
+            title={t.businessProfile.title}
+            description={t.businessProfile.description}
+            actions={(
+              <Link href="/settings?tab=profile" className={styles.cardLink}>
+                <Icon name="settings" size={13} />
+                {t.businessProfile.editAction}
+              </Link>
             )}
-          </div>
-        </div>
+          >
+            {businessProfile ? (
+              <div className={styles.fieldStack}>
+                {typeIds.length > 0 && (
+                  <div className={styles.typeRow}>
+                    {typeIds.map((id) => (
+                      <Badge key={id} tone="neutral">{getCategoryMetadata(id).label}</Badge>
+                    ))}
+                  </div>
+                )}
 
-        {/* REMOVED-BY-COPY-AUDIT: duplicated card. "AI Business Context"
-            restated the business profile card directly above it under a second
-            name, and two of its four rows were wrong: "Primary Category"
-            printed the raw stored value (`video_editor`), and "Auto-Reply Mode"
-            printed the raw enum with a hardcoded `|| 'Smart'` fallback — so a
-            brand-new account, whose stored mode is `human_only`, was told on
-            its own account page that automatic sending was on. The two rows
-            worth keeping (reply mode, reply tone) are now in the business
-            profile card above, rendered through content/labels.js. Restore by
-            re-adding this block — but reconcile it with that card first, and do
-            not reintroduce the 'Smart' default.
+                {/* The same definitions Settings and onboarding edit, rendered
+                    read-only. A fourth hand-written copy of these labels is how
+                    the first three drifted apart. */}
+                <BusinessProfileFields
+                  values={businessProfile}
+                  fields={ACCOUNT_SUMMARY_FIELDS}
+                  readOnly
+                />
 
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div>
-              <h2 className={styles.cardTitle}>AI Business Context</h2>
-              <p className={styles.cardDescription}>Grounding profile used by AI to accurately answer customer inquiries.</p>
-            </div>
-            <button className="btn btn-secondary btn-sm" onClick={() => router.push('/settings')}>
-              Manage Knowledge Base
-            </button>
-          </div>
-          <div className={styles.businessGrid}>
-            <div className={styles.businessItem}>
-              <span className={styles.businessItemLabel}>Business Name</span>
-              <span className={styles.businessItemValue}>{user?.businessProfile?.businessName || user?.name || 'Not set'}</span>
-            </div>
-            <div className={styles.businessItem}>
-              <span className={styles.businessItemLabel}>Primary Category</span>
-              <span className={styles.businessItemValue}>{user?.businessProfile?.primaryCategory}</span>
-            </div>
-            <div className={styles.businessItem}>
-              <span className={styles.businessItemLabel}>Conversation Tone</span>
-              <span className={styles.businessItemValue}>{user?.businessProfile?.tone || 'Friendly'}</span>
-            </div>
-            <div className={styles.businessItem}>
-              <span className={styles.businessItemLabel}>Auto-Reply Mode</span>
-              <span className={styles.businessItemValue}>{user?.businessProfile?.autoReplyMode || 'Smart'}</span>
-            </div>
-          </div>
-        </div>
-        */}
+                <div className={styles.miniGrid}>
+                  <div className={styles.readField}>
+                    <span className={styles.readLabel}>{t.businessProfile.replyModeLabel}</span>
+                    <p className={styles.readValue}>{replyModeLabel(businessProfile.autoReplyMode).label}</p>
+                  </div>
+                  <div className={styles.readField}>
+                    <span className={styles.readLabel}>{t.businessProfile.toneLabel}</span>
+                    <p className={styles.readValue}>{toneLabel(businessProfile.tone).label}</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className={styles.emptyText}>{t.businessProfile.empty}</p>
+            )}
+          </Card>
 
-        {/* Danger Zone — Delete Account */}
-        <div className={styles.dangerCard}>
-          <div className={styles.dangerHeader}>
-            <div>
-              <h2 className={styles.dangerTitle}>{t.danger.title}</h2>
-              <p className={styles.dangerText}>{t.danger.body}</p>
+          {/* ---------- Connected accounts ---------- */}
+          <Card
+            title={t.connectedAccounts.title}
+            description={t.connectedAccounts.description}
+            actions={(
+              <Button size="sm" onClick={() => { window.location.href = getInstagramAuthUrl(); }}>
+                <Icon name="plus" size={13} />
+                {t.connectedAccounts.connect}
+              </Button>
+            )}
+            flush={accounts.length > 0}
+          >
+            {accounts.length === 0 ? (
+              <EmptyState icon="instagram" title={t.connectedAccounts.title} body={t.connectedAccounts.empty} />
+            ) : (
+              <div className={styles.accountList}>
+                {accounts.map((acc) => {
+                  const disconnected = acc.connectionStatus === 'DISCONNECTED';
+                  const status = disconnected
+                    ? connectionStatusLabel(acc.connectionStatus)
+                    : tokenStatusLabel(acc.tokenStatus);
+                  return (
+                    <div key={acc.id} className={styles.accountRow}>
+                      {/* <Avatar>, not a bare <img>: igProfilePic is a signed
+                          CDN URL that expires in about four days. */}
+                      <Avatar src={acc.igProfilePic} name={acc.igUsername} size={32} decorative />
+                      <span className={styles.accountName}>@{acc.igUsername || 'account'}</span>
+                      <Badge tone={status.tone === 'positive' ? 'positive' : 'warning'}>
+                        {status.label}
+                      </Badge>
+                      {/* master pushed a bare /inbox here, dropping the account
+                          the row is about. */}
+                      <Button size="sm" onClick={() => router.push(`/inbox?accountId=${acc.id}`)}>
+                        {t.connectedAccounts.openInbox}
+                        <Icon name="arrowRight" size={13} />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* ---------- Danger zone ---------- */}
+          <section className={styles.danger} aria-labelledby="danger-heading">
+            <div className={styles.dangerHead}>
+              <IconTile name="alertTriangle" tone="danger" />
+              <div>
+                <h2 className={styles.dangerTitle} id="danger-heading">{t.danger.title}</h2>
+                <p className={styles.dangerBody}>{t.danger.body}</p>
+              </div>
             </div>
-          </div>
-          <div className={styles.dangerActions}>
-            <button
-              className={`btn ${styles.btnDanger}`}
+            <Button
+              variant="danger"
               onClick={() => {
                 setDeleteConfirmText('');
                 setDeleteError('');
                 setShowDeleteModal(true);
               }}
-              id="delete-account-btn"
             >
-              <Icon name="trash" size={14} /> {t.danger.action}
-            </button>
-          </div>
-          <nav
-            aria-label="Legal"
-            style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 12, fontSize: 13 }}
-          >
+              <Icon name="trash" size={14} />
+              {t.danger.action}
+            </Button>
+          </section>
+
+          <nav className={styles.legalNav} aria-label={legal.footerLabel}>
             <Link href="/privacy">{legal.footerLinks.privacy}</Link>
             <Link href="/data-deletion">{legal.footerLinks.dataDeletion}</Link>
             <Link href="/support">{legal.footerLinks.support}</Link>
           </nav>
         </div>
-      </div>
+      )}
 
-      {/* Delete Account Modal */}
       {showDeleteModal && (
-        <div className={styles.modalOverlay} onClick={() => !deleting && setShowDeleteModal(false)}>
-          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <span className={styles.modalIcon}><Icon name="alertTriangle" size={20} /></span>
-              <h3 className={styles.modalTitle}>{confirmCopy.deleteAccount.title}</h3>
-            </div>
-            <p className={styles.modalBody}>
-              This erases <strong>{user?.email}</strong> and everything below. It cannot be undone.
-            </p>
-            <ul style={{ fontSize: '11px', color: 'var(--text-secondary)', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {confirmCopy.deleteAccount.items.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-            <div style={{ marginTop: '8px' }}>
-              <label
-                htmlFor="delete-confirm-input"
-                style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-error)', display: 'block', marginBottom: '6px' }}
-              >
-                {confirmCopy.deleteAccount.confirmLabel}
-              </label>
-              <input
-                id="delete-confirm-input"
-                type="text"
-                className={styles.formInput}
-                value={deleteConfirmText}
-                onChange={(e) => setDeleteConfirmText(e.target.value)}
-                placeholder={confirmCopy.deleteAccount.confirmPlaceholder}
-                autoFocus
-              />
-            </div>
-            {deleteError && <div className={styles.errorBanner}>{deleteError}</div>}
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className="btn btn-secondary btn-md"
-                onClick={() => setShowDeleteModal(false)}
-                disabled={deleting}
-              >
+        <Modal
+          title={confirmCopy.deleteAccount.title}
+          onClose={() => { if (!deleting) setShowDeleteModal(false); }}
+          actions={(
+            <>
+              <Button onClick={() => setShowDeleteModal(false)} disabled={deleting}>
                 {common.cancel}
-              </button>
-              <button
-                type="button"
-                className={`btn ${styles.btnDanger} btn-md`}
-                onClick={handleDeleteAccount}
-                disabled={deleteConfirmText.trim() !== confirmCopy.deleteAccount.confirmWord || deleting}
-                id="confirm-delete-account-btn"
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleDelete}
+                disabled={!canDelete}
+                loading={deleting}
               >
                 {deleting ? common.deleting : confirmCopy.deleteAccount.action}
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </>
+          )}
+        >
+          <p className={styles.modalBody}>{confirmCopy.deleteAccount.body}</p>
+          <ul className={styles.modalList}>
+            {confirmCopy.deleteAccount.items.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+          <Input
+            label={confirmCopy.deleteAccount.confirmLabel}
+            placeholder={confirmCopy.deleteAccount.confirmPlaceholder}
+            value={deleteConfirmText}
+            error={deleteError}
+            disabled={deleting}
+            autoFocus
+            onChange={(e) => { setDeleteConfirmText(e.target.value); setDeleteError(''); }}
+          />
+        </Modal>
       )}
     </AppShell>
   );

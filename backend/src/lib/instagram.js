@@ -148,6 +148,44 @@ async function fetchUserProfile(igsid, accessToken) {
 }
 
 /**
+ * How long is left on a signed Instagram CDN URL, in milliseconds.
+ *
+ * Profile picture URLs look like
+ *   https://scontent.cdninstagram.com/v/...&oe=6AAE70CA&...
+ * where `oe` is the expiry as a HEX unix timestamp. Past it, the CDN answers
+ * HTTP 403 and the avatar renders broken — which is why a stored URL cannot be
+ * treated as permanent.
+ *
+ * Returns null when there is no URL or no readable `oe` (a URL shape we do not
+ * recognise is not evidence that it expired, so callers must not treat null as
+ * "expired"). Returns a negative number for a URL that has already expired.
+ */
+function signedUrlTimeRemaining(url) {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/[?&]oe=([0-9A-Fa-f]+)/);
+  if (!match) return null;
+
+  const expirySeconds = parseInt(match[1], 16);
+  if (!Number.isFinite(expirySeconds) || expirySeconds <= 0) return null;
+
+  return expirySeconds * 1000 - Date.now();
+}
+
+/**
+ * True when a stored profile picture URL is expired, or close enough that it
+ * will be by the time anyone looks at it.
+ *
+ * A URL we cannot parse returns false: refreshing on every webhook because of
+ * an unfamiliar URL shape would be a quota leak, and the 24-hour lastFetchedAt
+ * rule in the webhook handler still covers that case.
+ */
+function isProfilePicExpiring(url, withinMs = 24 * 60 * 60 * 1000) {
+  const remaining = signedUrlTimeRemaining(url);
+  if (remaining === null) return false;
+  return remaining <= withinMs;
+}
+
+/**
  * Subscribe an Instagram account to webhook events.
  * POST https://graph.instagram.com/v22.0/{IG_ID}/subscribed_apps
  * 
@@ -218,6 +256,8 @@ module.exports = {
   refreshLongLivedToken,
   fetchMyProfile,
   fetchUserProfile,
+  signedUrlTimeRemaining,
+  isProfilePicExpiring,
   subscribeToWebhooks,
   sendMessage,
 };

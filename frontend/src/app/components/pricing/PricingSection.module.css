@@ -7,6 +7,10 @@
   padding: 80px 24px;
 }
 
+.header {
+  /* layout-neutral wrapper — only exists as a data-reveal target */
+}
+
 .title {
   margin: 0 0 8px;
   font-size: 32px;
@@ -30,7 +34,7 @@
   padding: 4px;
   background: var(--bg-surface-secondary);
   border: 1px solid var(--border-default);
-  border-radius: 999px;
+  border-radius: 0;
   width: fit-content;
 }
 
@@ -41,8 +45,13 @@
   font-size: 14px;
   font-weight: 600;
   padding: 8px 18px;
-  border-radius: 999px;
+  border-radius: 0;
   cursor: pointer;
+  transition: color 150ms ease;
+}
+
+.toggleButton:hover {
+  color: var(--text-primary);
 }
 
 .toggleActive {
@@ -58,6 +67,24 @@
   align-items: stretch;
 }
 
+/* Hover lift lives on this wrapper, not on PlanCard itself — PlanCard is a
+   shared contract with the in-app billing page and is not styled per
+   surface. The wrapper adds motion around the card without touching it. */
+.planCardWrap {
+  display: flex;
+  transition: outline-color 190ms ease;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.planCardWrap > * {
+  flex: 1;
+}
+
+.planCardWrap:hover {
+  outline-color: #111111;
+}
+
 /* The anti-autopay promise. Deliberately NOT styled as fine print: with no
    autopay doing the work, this is the strongest thing the page says, and in
    the Indian market it is a selling point rather than a disclaimer. */
@@ -68,7 +95,7 @@
   padding: 24px;
   background: var(--color-success-subtle);
   border: 1px solid var(--color-success);
-  border-radius: 12px;
+  border-radius: 0;
 }
 
 .noMandateTitle {

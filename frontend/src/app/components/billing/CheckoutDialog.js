@@ -82,7 +82,7 @@ export default function CheckoutDialog({
           <h2 className={styles.dialogTitle}>{blocked.title}</h2>
           <p className={styles.fieldHelp}>{blocked.body}</p>
           <div className={styles.dialogActions}>
-            <button type="button" className="btn btn-primary" onClick={onClose}>
+            <button type="button" className={styles.btnPrimary} onClick={onClose}>
               {billing.planChange.closeButton}
             </button>
           </div>
@@ -132,7 +132,7 @@ export default function CheckoutDialog({
             <input
               id="billing-checkout-phone"
               ref={inputRef}
-              className="input"
+              className={styles.input}
               type="tel"
               inputMode="numeric"
               autoComplete="tel-national"
@@ -151,10 +151,10 @@ export default function CheckoutDialog({
           <p className={styles.fieldHelp}>{billing.checkout.hostedNote}</p>
 
           <div className={styles.dialogActions}>
-            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={pending}>
+            <button type="button" className={styles.btnSecondary} onClick={onClose} disabled={pending}>
               {billing.checkout.cancelButton}
             </button>
-            <button type="submit" className="btn btn-primary" disabled={pending}>
+            <button type="submit" className={styles.btnPrimary} disabled={pending}>
               {pending ? billing.checkout.payingButton : billing.checkout.payButton}
             </button>
           </div>

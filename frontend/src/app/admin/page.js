@@ -1,13 +1,27 @@
 'use client';
 
+/**
+ * Admin overview — alerts, headline counts, message processing, backlog and
+ * recent sign-ups.
+ *
+ * Data layer is master's: one GET /api/admin/stats, rendered as it arrives.
+ * Changed: ~20 inline styles became classes, the three "red when above zero"
+ * inline ternaries became one `.valueDanger` class with the same condition,
+ * and the loading spinner is the shared skeleton.
+ */
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getAdminStats } from '@/lib/api';
 import Icon from '@/app/components/Icon';
-import { admin as t, common, errors, empty } from '@/content/copy';
+import { Badge, Skeleton, srOnly } from '@/app/components/ui';
+import { admin as t, common, errors } from '@/content/copy';
 import { alertLevelLabel } from '@/content/labels';
 import { formatCount, formatDate } from '@/content/format';
 import styles from './admin.module.css';
+
+/** Adds the danger colour to a count only when it is actually above zero. */
+const dangerIf = (n) => ((n || 0) > 0 ? styles.valueDanger : '');
 
 export default function AdminDashboardHome() {
   const [stats, setStats] = useState(null);
@@ -17,9 +31,8 @@ export default function AdminDashboardHome() {
   useEffect(() => {
     async function loadStats() {
       try {
-        const data = await getAdminStats();
-        setStats(data);
-      } catch (err) {
+        setStats(await getAdminStats());
+      } catch {
         setError(errors.admin.stats);
       } finally {
         setLoading(false);
@@ -28,18 +41,12 @@ export default function AdminDashboardHome() {
     loadStats();
   }, []);
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }} aria-busy="true" aria-label={common.loading}>
-        <div className="spinner spinner-lg" />
-      </div>
-    );
-  }
+  if (loading) return <div className={styles.loading}><Skeleton lines={5} height={48} /></div>;
 
   if (error) {
     return (
-      <div className={`${styles.alertBox} ${styles.alertBoxWarning}`} role="alert">
-        <span className={styles.alertText}>{error}</span>
+      <div className={`${styles.notice} ${styles.noticeError}`} role="alert">
+        <span className={styles.noticeText}>{error}</span>
       </div>
     );
   }
@@ -47,56 +54,49 @@ export default function AdminDashboardHome() {
   const ai = stats?.aiStats || {};
 
   return (
-    <div>
-      {stats?.alerts?.length > 0 && (
-        <div style={{ marginBottom: '24px' }}>
-          {stats.alerts.map((alert, idx) => (
-            <div key={idx} className={`${styles.alertBox} ${styles.alertBoxWarning}`}>
-              <div>
-                <span className={styles.alertTitle}>{alertLevelLabel(alert.level).label} — {alert.title}: </span>
-                <span className={styles.alertText}>{alert.message}</span>
-              </div>
-              {/* Both levels route to the accounts view; /admin/logs has no page
-                  and would 404. */}
-              <Link href="/admin/accounts" className="btn btn-secondary btn-sm">
-                {t.dashboard.investigate}
-                <Icon name="arrowRight" size={13} />
-              </Link>
-            </div>
-          ))}
+    <div className={styles.stack}>
+      {stats?.alerts?.length > 0 && stats.alerts.map((alert, idx) => (
+        <div key={idx} className={`${styles.notice} ${styles.noticeWarning}`} role="alert">
+          <div className={styles.noticeBody}>
+            <span className={styles.noticeTitle}>{alertLevelLabel(alert.level).label} — {alert.title}: </span>
+            <span className={styles.noticeText}>{alert.message}</span>
+          </div>
+          {/* Both levels route to the accounts view; /admin/logs has no page
+              and would 404. */}
+          <Link href="/admin/accounts" className={styles.linkBtn}>
+            {t.dashboard.investigate}
+            <Icon name="arrowRight" size={13} />
+          </Link>
         </div>
-      )}
+      ))}
 
-      <div className={styles.metricsGrid}>
+      <div className={styles.metricGrid}>
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.users.label}</div>
-          <div className={styles.metricValue}>{formatCount(stats?.totalUsers)}</div>
-          <div className={styles.metricSub}>{t.dashboard.metrics.users.hint}</div>
+          <span className={styles.metricLabel}>{t.dashboard.metrics.users.label}</span>
+          <span className={styles.metricValue}>{formatCount(stats?.totalUsers)}</span>
+          <span className={styles.metricHint}>{t.dashboard.metrics.users.hint}</span>
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.accounts.label}</div>
-          <div className={styles.metricValue}>{formatCount(stats?.totalAccounts)}</div>
-          <div className={styles.metricSub}>
+          <span className={styles.metricLabel}>{t.dashboard.metrics.accounts.label}</span>
+          <span className={styles.metricValue}>{formatCount(stats?.totalAccounts)}</span>
+          <span className={styles.metricHint}>
             {formatCount(stats?.activeAccounts)} active, {formatCount(stats?.expiredAccounts)} need reconnecting
-          </div>
+          </span>
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.messages.label}</div>
-          <div className={styles.metricValue}>{formatCount(stats?.messagesToday)}</div>
-          <div className={styles.metricSub}>{formatCount(stats?.messagesThisWeek)} in the last 7 days</div>
+          <span className={styles.metricLabel}>{t.dashboard.metrics.messages.label}</span>
+          <span className={styles.metricValue}>{formatCount(stats?.messagesToday)}</span>
+          <span className={styles.metricHint}>{formatCount(stats?.messagesThisWeek)} in the last 7 days</span>
         </div>
 
         <div className={styles.metricCard}>
-          <div className={styles.metricTitle}>{t.dashboard.metrics.failedWebhooks.label}</div>
-          <div
-            className={styles.metricValue}
-            style={{ color: (stats?.failedWebhooks24h || 0) > 0 ? 'var(--color-error)' : 'var(--text-primary)' }}
-          >
+          <span className={styles.metricLabel}>{t.dashboard.metrics.failedWebhooks.label}</span>
+          <span className={`${styles.metricValue} ${dangerIf(stats?.failedWebhooks24h)}`}>
             {formatCount(stats?.failedWebhooks24h)}
-          </div>
-          <div className={styles.metricSub}>{t.dashboard.metrics.failedWebhooks.hint}</div>
+          </span>
+          <span className={styles.metricHint}>{t.dashboard.metrics.failedWebhooks.hint}</span>
         </div>
       </div>
 
@@ -104,7 +104,7 @@ export default function AdminDashboardHome() {
           memory, so they reset to zero on every restart and count only the
           process serving this request. The subtitle says so — without it the
           numbers look like all-time totals and lead to wrong conclusions. */}
-      <div className={styles.tableContainer} style={{ marginBottom: '24px' }}>
+      <section className={styles.panel}>
         <div className={styles.panelHeader}>
           <div>
             <h2 className={styles.panelTitle}>{t.dashboard.processing.title}</h2>
@@ -114,138 +114,115 @@ export default function AdminDashboardHome() {
             {t.dashboard.processing.provider}: {ai.lastSuccessfulProvider || t.dashboard.processing.providerNone}
           </span>
         </div>
-
         <div className={styles.statStrip}>
           <div className={styles.statTile}>
-            <div className={styles.statTileLabel}>{t.dashboard.processing.keywordMatches.label}</div>
-            <div className={styles.statTileValue}>{formatCount(ai.keywordMatches)}</div>
-            <div className={styles.statTileHint}>{t.dashboard.processing.keywordMatches.hint}</div>
+            <span className={styles.statTileLabel}>{t.dashboard.processing.keywordMatches.label}</span>
+            <span className={styles.statTileValue}>{formatCount(ai.keywordMatches)}</span>
+            <span className={styles.statTileHint}>{t.dashboard.processing.keywordMatches.hint}</span>
           </div>
-
           <div className={styles.statTile}>
-            <div className={styles.statTileLabel}>{t.dashboard.processing.totalCalls.label}</div>
-            <div className={styles.statTileValue}>{formatCount(ai.totalCalls)}</div>
-            <div className={styles.statTileHint}>
+            <span className={styles.statTileLabel}>{t.dashboard.processing.totalCalls.label}</span>
+            <span className={styles.statTileValue}>{formatCount(ai.totalCalls)}</span>
+            <span className={styles.statTileHint}>
               {formatCount(ai.aiSuccess)} {t.dashboard.processing.totalCalls.hint}
-            </div>
+            </span>
           </div>
-
           <div className={styles.statTile}>
-            <div className={styles.statTileLabel}>{t.dashboard.processing.failures.label}</div>
-            <div
-              className={styles.statTileValue}
-              style={{ color: (ai.aiFailures || 0) > 0 ? 'var(--color-error)' : 'var(--text-primary)' }}
-            >
-              {formatCount(ai.aiFailures)}
-            </div>
-            <div className={styles.statTileHint}>{t.dashboard.processing.failures.hint}</div>
+            <span className={styles.statTileLabel}>{t.dashboard.processing.failures.label}</span>
+            <span className={`${styles.statTileValue} ${dangerIf(ai.aiFailures)}`}>{formatCount(ai.aiFailures)}</span>
+            <span className={styles.statTileHint}>{t.dashboard.processing.failures.hint}</span>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Backlog. The stats endpoint already returned these three, and nothing
           rendered them — they are the numbers that actually tell an operator
           whether anything is stuck. */}
-      <div className={styles.tableContainer} style={{ marginBottom: '24px' }}>
+      <section className={styles.panel}>
         <div className={styles.panelHeader}>
           <div>
             <h2 className={styles.panelTitle}>{t.dashboard.backlog.title}</h2>
             <p className={styles.panelSubtitle}>{t.dashboard.backlog.subtitle}</p>
           </div>
         </div>
-
         <div className={styles.statStrip}>
           <div className={styles.statTile}>
-            <div className={styles.statTileLabel}>{t.dashboard.backlog.pending.label}</div>
-            <div className={styles.statTileValue}>{formatCount(stats?.pendingAiMessages)}</div>
-            <div className={styles.statTileHint}>{t.dashboard.backlog.pending.hint}</div>
+            <span className={styles.statTileLabel}>{t.dashboard.backlog.pending.label}</span>
+            <span className={styles.statTileValue}>{formatCount(stats?.pendingAiMessages)}</span>
+            <span className={styles.statTileHint}>{t.dashboard.backlog.pending.hint}</span>
           </div>
-
           <div className={styles.statTile}>
-            <div className={styles.statTileLabel}>{t.dashboard.backlog.failed.label}</div>
-            <div
-              className={styles.statTileValue}
-              style={{ color: (stats?.failedAiMessages || 0) > 0 ? 'var(--color-error)' : 'var(--text-primary)' }}
-            >
+            <span className={styles.statTileLabel}>{t.dashboard.backlog.failed.label}</span>
+            <span className={`${styles.statTileValue} ${dangerIf(stats?.failedAiMessages)}`}>
               {formatCount(stats?.failedAiMessages)}
-            </div>
-            <div className={styles.statTileHint}>{t.dashboard.backlog.failed.hint}</div>
+            </span>
+            <span className={styles.statTileHint}>{t.dashboard.backlog.failed.hint}</span>
           </div>
-
           <div className={styles.statTile}>
-            <div className={styles.statTileLabel}>{t.dashboard.backlog.queueMode.label}</div>
-            <div className={styles.statTileValue} style={{ fontSize: 'var(--text-md)' }}>
+            <span className={styles.statTileLabel}>{t.dashboard.backlog.queueMode.label}</span>
+            <span className={`${styles.statTileValue} ${styles.statTileValueText}`}>
               {stats?.queueMode || common.unknown}
-            </div>
-            <div className={styles.statTileHint}>{t.dashboard.backlog.queueMode.hint}</div>
+            </span>
+            <span className={styles.statTileHint}>{t.dashboard.backlog.queueMode.hint}</span>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className={styles.tableContainer}>
+      <section className={styles.panel}>
         <div className={styles.panelHeader}>
           <h2 className={styles.panelTitle}>{t.dashboard.recentSignups.title}</h2>
-          <Link href="/admin/users" className="btn btn-secondary btn-sm">
+          <Link href="/admin/users" className={styles.linkBtn}>
             {t.dashboard.recentSignups.viewAll}
             <Icon name="arrowRight" size={13} />
           </Link>
         </div>
-
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>{t.dashboard.recentSignups.columns.user}</th>
-              <th>{t.dashboard.recentSignups.columns.accounts}</th>
-              <th>{t.dashboard.recentSignups.columns.joined}</th>
-              <th>
-                <span className="sr-only">{t.dashboard.recentSignups.inspect}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {!stats?.recentSignups || stats.recentSignups.length === 0 ? (
+        <div className={styles.tableScroll}>
+          <table className={styles.table}>
+            <thead>
               <tr>
-                <td colSpan="4" style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '24px' }}>
-                  {t.dashboard.recentSignups.empty}
-                </td>
+                <th>{t.dashboard.recentSignups.columns.user}</th>
+                <th>{t.dashboard.recentSignups.columns.accounts}</th>
+                <th>{t.dashboard.recentSignups.columns.joined}</th>
+                <th className={styles.alignRight}>
+                  <span className={srOnly}>{t.dashboard.recentSignups.inspect}</span>
+                </th>
               </tr>
-            ) : (
-              stats.recentSignups.map((user) => (
+            </thead>
+            <tbody>
+              {!stats?.recentSignups?.length ? (
+                <tr><td colSpan="4" className={styles.cellEmpty}>{t.dashboard.recentSignups.empty}</td></tr>
+              ) : stats.recentSignups.map((user) => (
                 <tr key={user.id}>
                   <td>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{user.name || t.users.unnamed}</div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>
-                      {user.email || t.users.noEmail}
-                    </div>
+                    <div className={styles.cellPrimary}>{user.name || t.users.unnamed}</div>
+                    <div className={styles.cellSub}>{user.email || t.users.noEmail}</div>
                   </td>
                   <td>
                     {user.instagramAccounts?.length === 0 ? (
-                      <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)' }}>
-                        {t.users.noAccounts}
-                      </span>
+                      <span className={styles.cellMuted}>{t.users.noAccounts}</span>
                     ) : (
-                      user.instagramAccounts.map((acc) => (
-                        <span key={acc.id} className={styles.badgeValid} style={{ marginRight: '6px' }}>
-                          @{acc.igUsername || 'account'}
-                        </span>
-                      ))
+                      <div className={styles.badgeRow}>
+                        {user.instagramAccounts.map((acc) => (
+                          <Badge key={acc.id} tone="neutral">@{acc.igUsername || 'account'}</Badge>
+                        ))}
+                      </div>
                     )}
                   </td>
                   <td>{formatDate(user.createdAt)}</td>
-                  <td>
+                  <td className={styles.alignRight}>
                     <Link
                       href={`/admin/users?search=${encodeURIComponent(user.email || user.name || user.id)}`}
-                      className="btn btn-secondary btn-sm"
+                      className={styles.linkBtn}
                     >
                       {t.dashboard.recentSignups.inspect}
                     </Link>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

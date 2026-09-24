@@ -1,544 +1,427 @@
-/* ============================================
- * Codeback Admin Panel — Cloudflare SaaS Theme
- * High contrast professional dashboard for admin tables,
- * metrics grids, log viewers, and action bars.
- * ============================================ */
+/* ==========================================================================
+   Admin — staff pages.
 
-.adminLayout {
-  display: flex;
-  min-height: 100vh;
-  background: var(--bg-page);
-  color: var(--text-primary);
-}
+   The frame (sidebar, nav, topbar, mobile drawer) is NOT styled here: the
+   admin layout renders the same classes from components/ui/AppShell.module.css
+   that every customer page renders, so the two cannot drift into looking like
+   different products. What lives here is only what admin has and the customer
+   app does not: data tables, stat tiles, the impersonation banner, and the
+   admin sign-in card.
 
-/* Impersonation Banner */
-.impersonationBanner {
-  background: var(--color-warning-text);
-  color: white;
-  padding: 8px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--text-xs);
+   Master's version of this file had a dark #1a1a2e sidebar, a hand-rolled
+   modal, a `.codeViewer` with two raw hex colours that nothing used, and ~90
+   inline styles in the pages that read from it. All gone.
+   ========================================================================== */
+
+/* ---------- Controls ------------------------------------------------------
+   Links that look like buttons. Composed from the shared primitives rather
+   than restyled here, so an admin button IS a product button. */
+
+.openApp { composes: btn btnSm btnSecondary from '../components/ui/ui.module.css'; text-decoration: none; }
+.linkBtn { composes: btn btnSm btnSecondary from '../components/ui/ui.module.css'; text-decoration: none; }
+
+/* ---------- Page scaffolding -------------------------------------------- */
+
+.stack { display: flex; flex-direction: column; gap: var(--ui-space-5); }
+
+.loading { padding: var(--ui-space-2) 0; }
+
+.pageLead { margin-bottom: var(--ui-space-5); }
+
+.pageLeadTitle {
+  margin: 0 0 var(--ui-space-1);
+  font-size: var(--ui-text-lg);
   font-weight: 600;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
 }
 
-.impersonationBanner button {
-  background: white;
-  color: var(--color-warning-text);
-  padding: 4px 10px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--transition-fast);
-}
+.pageLeadText { margin: 0; font-size: var(--ui-text-base); color: var(--ui-text-muted); }
 
-.impersonationBanner button:hover {
-  background: var(--color-warning-subtle);
-}
+/* ---------- Notices -------------------------------------------------------
+   One per tone. Master used the WARNING style for every notice, so "token
+   refreshed" arrived in the same amber as "couldn't refresh" — the colour
+   said nothing. */
 
-/* Sidebar Navigation */
-.sidebar {
-  width: var(--sidebar-width);
-  background: var(--bg-sidebar);
+.notice {
   display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  position: fixed;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  z-index: 100;
+  align-items: flex-start;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
 }
 
-.sidebarHeader {
-  padding: 16px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+.noticeBody { flex: 1; min-width: 0; }
+
+.noticeTitle { font-size: var(--ui-text-base); font-weight: 600; color: var(--ui-ink); }
+
+.noticeText {
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
+  line-height: var(--ui-leading-normal);
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-decoration: none;
-}
+.noticeSuccess { border-color: var(--ui-success); background: var(--ui-success-bg); }
+.noticeError { border-color: var(--ui-danger); background: var(--ui-danger-bg); }
+.noticeWarning { border-color: var(--ui-warning); background: var(--ui-warning-bg); }
 
-.brandBadge {
-  background: var(--color-primary);
-  color: white;
-  font-weight: 700;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  letter-spacing: 0.05em;
-}
+/* ---------- Metric cards (overview) ------------------------------------- */
 
-.brandTitle {
-  font-size: var(--text-md);
-  font-weight: 700;
-  color: white;
-  letter-spacing: -0.01em;
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  padding: 12px 8px;
-  gap: 4px;
-}
-
-.navItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  color: var(--text-sidebar);
-  text-decoration: none;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-}
-
-.navItem:hover {
-  background: var(--bg-sidebar-hover);
-  color: white;
-}
-
-.navItemActive {
-  background: var(--bg-sidebar-active) !important;
-  color: white !important;
-  font-weight: 600;
-}
-
-.sidebarFooter {
-  margin-top: auto;
-  padding: 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: var(--text-xs);
-  color: rgba(255, 255, 255, 0.5);
-}
-
-/* Main Content Wrapper */
-.main {
-  flex: 1;
-  margin-left: var(--sidebar-width);
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--bg-page);
-}
-
-.header {
-  height: var(--header-height);
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border-default);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--bg-surface);
-  position: sticky;
-  top: 0;
-  z-index: 50;
-}
-
-.headerTitle {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.content {
-  padding: 24px;
-  flex: 1;
-  overflow-y: auto;
-  max-width: 1200px;
-  width: 100%;
-}
-
-/* Dashboard Cards & Grid */
-.metricsGrid {
+.metricGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ui-space-3);
 }
 
 .metricCard {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-1);
+  padding: var(--ui-space-4);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
 }
 
-.metricTitle {
-  font-size: var(--text-xs);
+.metricLabel {
+  font-size: var(--ui-text-xs);
   font-weight: 600;
-  color: var(--text-secondary);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 8px;
+  color: var(--ui-text-faint);
 }
 
 .metricValue {
-  font-size: var(--text-2xl);
-  font-weight: 700;
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-}
-
-.metricSub {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  margin-top: 4px;
-}
-
-/* System Alerts Container */
-.alertBox {
-  background: var(--color-warning-subtle);
-  border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
-  margin-bottom: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.alertBoxWarning {
-  border-color: rgba(245, 158, 11, 0.3);
-}
-
-.alertTitle {
+  font-size: var(--ui-text-2xl);
   font-weight: 600;
-  font-size: var(--text-sm);
-  color: var(--color-warning-text);
+  line-height: var(--ui-leading-tight);
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
 }
 
-.alertText {
-  font-size: var(--text-sm);
-  color: var(--color-warning-text);
-  opacity: 0.8;
+.metricHint { font-size: var(--ui-text-sm); color: var(--ui-text-muted); }
+
+/* A failure count above zero is the one number on these pages that means
+   "something is broken". It was an inline ternary in three places. */
+.valueDanger { color: var(--ui-danger); }
+
+/* ---------- Panels ------------------------------------------------------- */
+
+.panel {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
+  overflow: hidden;
 }
 
-/* Toolbar & Search */
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ui-space-3);
+  flex-wrap: wrap;
+  padding: var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: var(--ui-text-lg);
+  font-weight: 600;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
+}
+
+.panelSubtitle {
+  margin: var(--ui-space-1) 0 0;
+  font-size: var(--ui-text-sm);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.panelMeta { font-size: var(--ui-text-sm); color: var(--ui-text-muted); }
+
+.statStrip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.statTile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-1);
+  padding: var(--ui-space-4);
+  border-right: 1px solid var(--ui-border);
+}
+
+.statTile:last-child { border-right: none; }
+
+.statTileLabel {
+  font-size: var(--ui-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ui-text-faint);
+}
+
+.statTileValue {
+  font-size: var(--ui-text-xl);
+  font-weight: 600;
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.statTileValueText { font-size: var(--ui-text-md); }
+
+.statTileHint { font-size: var(--ui-text-sm); color: var(--ui-text-muted); line-height: var(--ui-leading-normal); }
+
+/* ---------- Toolbar ------------------------------------------------------- */
+
 .toolbar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--ui-space-3);
   flex-wrap: wrap;
 }
 
-.searchInput {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  padding: 8px 12px;
-  font-size: var(--form-text);
-  min-width: 260px;
+.filters {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--ui-space-2);
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 
-.searchInput:focus {
-  border-color: var(--border-focus);
-}
+.filterField { width: 260px; max-width: 100%; }
+.filterSelect { width: 200px; max-width: 100%; }
 
-.selectInput {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  padding: 8px 12px;
-  font-size: var(--form-text);
-}
+.searchWide { flex: 1; min-width: 0; }
 
-/* Data Tables */
-/* overflow-x must be `auto`, not `hidden`: admin tables run 6-7 columns wide and
-   `hidden` silently clipped the trailing columns with no way to reach them. */
-.tableContainer {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  overflow-x: auto;
-  box-shadow: var(--shadow-xs);
-}
+/* ---------- Tables --------------------------------------------------------
+   Horizontal scroll at EVERY width, never a card layout — an admin compares
+   rows, and stacking them into cards destroys the comparison. */
+
+/* position: relative keeps absolutely-positioned descendants (the sr-only
+   column heading) inside the scroll box; without it they escape and widen the
+   whole page at 375px. */
+.tableScroll { position: relative; overflow-x: auto; }
 
 .table {
   width: 100%;
   min-width: 720px;
   border-collapse: collapse;
-  text-align: left;
-  font-size: var(--text-sm);
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-body);
 }
 
+.tableCompact { min-width: 0; }
+
 .table th {
-  background: var(--bg-surface-secondary);
-  padding: 12px 16px;
+  padding: var(--ui-space-2) var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border);
+  background: var(--ui-surface-sunken);
+  font-size: var(--ui-text-xs);
   font-weight: 600;
-  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-default);
+  text-align: left;
+  color: var(--ui-text-faint);
+  white-space: nowrap;
 }
 
 .table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  border-bottom: 1px solid var(--ui-border);
   vertical-align: middle;
+  /* Scroll, don't wrap: a date broken over three lines or an email split at
+     its hyphen is harder to compare down a column than a sideways scroll. */
+  white-space: nowrap;
 }
 
-.table tr:hover td {
-  background: var(--bg-surface-secondary);
+.table tr:last-child td { border-bottom: none; }
+.table tbody tr:hover td { background: var(--ui-surface-sunken); }
+
+.alignRight { text-align: right; }
+
+.cellPrimary { font-weight: 600; color: var(--ui-ink); }
+.cellSub { font-size: var(--ui-text-sm); color: var(--ui-text-muted); }
+.cellMuted { font-size: var(--ui-text-sm); color: var(--ui-text-faint); }
+.cellMono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--ui-text-sm); white-space: normal; overflow-wrap: anywhere; }
+.cellKey { width: 220px; font-weight: 600; color: var(--ui-ink); }
+
+.cellIdentity { display: flex; align-items: center; gap: var(--ui-space-3); }
+
+.cellEmpty {
+  padding: var(--ui-space-8) var(--ui-space-4);
+  text-align: center;
+  color: var(--ui-text-muted);
 }
 
-.table tr:last-child td {
-  border-bottom: none;
-}
+.badgeRow { display: flex; flex-wrap: wrap; gap: var(--ui-space-1); }
 
-/* Badges */
-.badgeValid {
-  background: var(--color-success-subtle);
-  color: var(--color-success-text);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-}
+.rowActions { display: flex; gap: var(--ui-space-2); justify-content: flex-end; white-space: nowrap; }
 
-.badgeExpired {
-  background: var(--color-error-subtle);
-  color: var(--color-error-text);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-}
+/* ---------- Pagination --------------------------------------------------- */
 
-.badgeSuspended {
-  background: var(--color-warning-subtle);
-  color: var(--color-warning-text);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-}
-
-/* Pagination */
 .pagination {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-top: none;
-  border-bottom-left-radius: var(--radius-lg);
-  border-bottom-right-radius: var(--radius-lg);
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
+  gap: var(--ui-space-3);
+  flex-wrap: wrap;
+  font-size: var(--ui-text-base);
+  color: var(--ui-text-muted);
 }
 
-/* Code Viewer */
-.codeViewer {
-  background: #1e1e1e;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 16px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: #4ec9b0;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 400px;
+.paginationButtons { display: flex; gap: var(--ui-space-2); }
+
+/* ---------- Support ------------------------------------------------------ */
+
+.resultsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-space-4); }
+
+/* The conversation inspector. Same bubble rule as the inbox: outbound is the
+   accent, inbound is a white bubble with a border. */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-space-2);
+  max-height: 360px;
   overflow-y: auto;
+  padding: var(--ui-space-3);
+  background: var(--ui-surface-sunken);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
 }
 
-/* Modal Dialog */
-.modalOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
+.bubble {
+  max-width: 75%;
+  padding: var(--ui-space-2) var(--ui-space-3);
+  border-radius: var(--ui-radius-lg);
+  font-size: var(--ui-text-base);
+  line-height: var(--ui-leading-normal);
+  overflow-wrap: anywhere;
 }
 
-.modalContent {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  max-width: 500px;
-  width: 90%;
-  box-shadow: var(--shadow-overlay);
-}
+.bubbleIn { align-self: flex-start; background: var(--ui-surface); border: 1px solid var(--ui-border); color: var(--ui-ink); }
+.bubbleOut { align-self: flex-end; background: var(--ui-accent); color: var(--ui-text-inverse); }
 
-.modalTitle {
-  font-size: var(--text-md);
-  font-weight: 600;
-  margin-bottom: 12px;
-}
+.bubbleMeta { margin-top: var(--ui-space-1); font-size: var(--ui-text-xs); opacity: 0.75; text-align: right; }
 
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
-}
+/* ---------- Confirm-dialog body ------------------------------------------ */
 
-/* ============================================
- * Responsive — the admin panel previously had no media queries at all, so the
- * fixed 240px sidebar left ~135px of content on a phone. Below 900px the
- * sidebar becomes a static horizontal bar above the content.
- * ============================================ */
-@media (max-width: 900px) {
-  .adminLayout {
-    flex-direction: column;
-  }
+.dialogWho { margin: 0 0 var(--ui-space-2); font-weight: 600; color: var(--ui-ink); overflow-wrap: anywhere; }
+.dialogBody { margin: 0; color: var(--ui-text-body); line-height: var(--ui-leading-normal); }
+.dialogError { margin: var(--ui-space-3) 0 0; font-size: var(--ui-text-base); color: var(--ui-ink); }
 
-  .sidebar {
-    position: static;
-    width: 100%;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    overflow-x: auto;
-  }
+/* ---------- Impersonation banner ------------------------------------------
+   Present but never shown: GET /api/admin/me does not return an
+   impersonation flag, so `impersonating` is never true (see layout.js). */
 
-  .sidebarHeader {
-    padding: 0 12px 0 0;
-    border-bottom: none;
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
-    flex-shrink: 0;
-  }
-
-  .nav {
-    flex-direction: row;
-    padding: 0;
-    flex: 1;
-  }
-
-  .navItem {
-    white-space: nowrap;
-  }
-
-  .sidebarFooter {
-    margin-top: 0;
-    padding: 0 0 0 12px;
-    border-top: none;
-    border-left: 1px solid rgba(255, 255, 255, 0.08);
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .main {
-    margin-left: 0;
-  }
-
-  .header {
-    padding: 0 16px;
-  }
-
-  .content {
-    padding: 16px;
-  }
-}
-
-@media (max-width: 480px) {
-  .content {
-    padding: 12px;
-  }
-
-  .metricsGrid {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .modal {
-    width: 94%;
-    padding: 16px;
-  }
-}
-
-/* ---- Copy audit additions ---- */
-
-/* Panel header, replacing the inline-styled header blocks that each declared
-   their own padding, background, and type scale. */
-.panelHeader {
+.impersonation {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ui-space-3);
   flex-wrap: wrap;
-  padding: 14px 20px;
-  background: var(--bg-surface-secondary);
-  border-bottom: 1px solid var(--border-default);
-}
-
-.panelTitle {
-  font-size: var(--text-sm);
+  margin-bottom: var(--ui-space-4);
+  padding: var(--ui-space-3) var(--ui-space-4);
+  background: var(--ui-warning-bg);
+  border: 1px solid var(--ui-warning);
+  border-radius: var(--ui-radius-lg);
+  color: var(--ui-warning);
   font-weight: 600;
-  color: var(--text-primary);
 }
 
-.panelSubtitle {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  margin-top: 2px;
+/* ---------- Sign-in ------------------------------------------------------- */
+
+.loginPage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ui-space-6) var(--ui-space-4);
+  background: var(--ui-surface-sunken);
+  font-family: var(--ui-font);
 }
 
-.panelMeta {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
+/* Flat, like every other card. Master gave this one a drop shadow. */
+.loginCard {
+  width: 100%;
+  max-width: 400px;
+  padding: var(--ui-space-8) var(--ui-space-6);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg);
 }
 
-.statStrip {
-  padding: 16px 20px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
+.loginHead { text-align: center; margin-bottom: var(--ui-space-6); }
 
-.statTile {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 14px;
-}
+.loginMark { display: block; width: 36px; height: 36px; margin: 0 auto var(--ui-space-3); }
 
-/* Eyebrow label. Caps come from the copy module, not from CSS, so the string
-   in the file is the string on screen. */
-.statTileLabel {
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
+.loginTitle {
+  margin: var(--ui-space-2) 0 var(--ui-space-1);
+  font-size: var(--ui-text-xl);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--ui-tracking-tight);
+  color: var(--ui-ink);
 }
 
-.statTileValue {
-  font-size: var(--text-xl);
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-top: 4px;
+.loginSub { margin: 0; font-size: var(--ui-text-base); color: var(--ui-text-muted); }
+
+.loginForm { display: flex; flex-direction: column; gap: var(--ui-space-4); }
+
+.loginError {
+  margin: 0 0 var(--ui-space-4);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  background: var(--ui-danger-bg);
+  border: 1px solid var(--ui-danger);
+  border-radius: var(--ui-radius-md);
+  font-size: var(--ui-text-base);
+  color: var(--ui-danger);
+  text-align: center;
 }
 
-.statTileHint {
-  font-size: var(--text-xs);
-  color: var(--text-tertiary);
-  margin-top: 2px;
-  line-height: 1.35;
+/* PasswordInput renders its own <input>; this matches ui's .label and .control
+   so the two sign-in fields line up exactly. */
+.field { display: flex; flex-direction: column; gap: var(--ui-space-1); }
+
+.label { font-size: var(--ui-text-sm); font-weight: 600; color: var(--ui-text-body); }
+
+.control {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--ui-space-3);
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-md);
+  color: var(--ui-ink);
+  font-family: var(--ui-font);
+  font-size: var(--ui-text-md);
+}
+
+.control:focus,
+.control:focus-visible {
+  outline: none;
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px var(--ui-accent-ring);
+}
+
+/* ---------- Narrow -------------------------------------------------------- */
+
+@media (max-width: 1023px) {
+  .metricGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .resultsGrid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 767px) {
+  .statStrip { grid-template-columns: minmax(0, 1fr); }
+  .statTile { border-right: none; border-bottom: 1px solid var(--ui-border); }
+  .statTile:last-child { border-bottom: none; }
+  .filterField, .filterSelect { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .metricGrid { grid-template-columns: minmax(0, 1fr); }
 }

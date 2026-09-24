@@ -76,6 +76,13 @@ export const dashboard = {
     body: 'Siffty stops receiving new messages until you reconnect.',
   },
 
+  // The page has two halves and they measure different things. Saying so once,
+  // at the top of each, is what stops the same word meaning two numbers.
+  now: {
+    title: 'Right now',
+    hint: 'Your open queue, as it stands this moment.',
+  },
+
   metrics: {
     needsReply: { label: 'Needs your reply', hint: 'Conversations flagged for you personally' },
     hotLeads: { label: 'Hot leads', hint: 'Ready to buy or book now' },
@@ -85,11 +92,13 @@ export const dashboard = {
 
   away: {
     title: 'Since your last visit',
+    sincePrefix: 'since',
     reviewAction: 'Review these',
   },
 
   accounts: {
     title: 'Connected accounts',
+    goToProfile: 'Go to your profile',
     openInbox: 'Open inbox',
     reconnect: 'Reconnect',
     disconnect: 'Disconnect',
@@ -106,32 +115,36 @@ export const dashboard = {
       '30d': 'Last 30 days',
     },
     noData: 'Not enough data yet',
+    // Appended to every figure that IS scoped to the selected range, so a
+    // number can never sit under a range selector without saying whether the
+    // selector applies to it.
+    inRange: (range) => `In the ${range.toLowerCase().replace(/^last /, 'last ')}`,
+    allTimeNote: 'Across all your conversations, not just this period.',
 
     totalMessages: {
-      label: 'MESSAGES RECEIVED',
+      label: 'Messages received',
       hint: 'Messages people sent you in this period',
       unit: 'messages',
     },
+    // "New ...", not "...": the cards in "Right now" already carry these two
+    // words for the LIVE QUEUE. Same label, different basis, one screen — the
+    // reader has no way to tell two numbers apart if both just say "Hot leads".
     hotLeads: {
-      label: 'HOT LEADS',
+      label: 'New hot leads',
       hint: 'Conversations with strong buying intent',
       unit: 'hot leads',
     },
-    needsReply: {
-      label: 'NEEDS YOUR REPLY',
-      hint: 'Open conversations flagged for you, all time',
-    },
     brandDeals: {
-      label: 'BRAND DEALS',
+      label: 'New brand deals',
       hint: 'Sponsorship and collaboration offers in this period',
     },
     autoReplies: {
-      label: 'REPLIES SENT',
+      label: 'Replies sent',
       hintOn: 'Sent for you automatically in this period',
       hintOff: 'Automatic replies are off, so this stays at zero',
     },
     spamBlocked: {
-      label: 'SPAM FILTERED',
+      label: 'Spam filtered',
       hint: 'Spam and scams kept out of your inbox in this period',
     },
 
@@ -142,10 +155,38 @@ export const dashboard = {
 
     breakdown: {
       title: 'What people asked about',
-      subtitle: 'Conversation types in this period, matched to your business profile.',
+      // NOT "in this period": analytics.js counts these across every current
+      // conversation, while the cards above are scoped to the range. Saying
+      // "this period" made two different bases look like one.
+      subtitle: 'Across all your conversations, matched to your business profile.',
       distributionTitle: 'Share of conversations',
       sampleTooSmall: 'Percentages appear once you have at least 10 conversations in this period.',
     },
+  },
+};
+
+/**
+ * The notifications page. Its own block rather than borrowing
+ * `empty.notifications.body` as a subtitle, which master did — so on an empty
+ * list the same sentence appeared twice, once as the subtitle and once as the
+ * empty-state body directly beneath it.
+ */
+export const notificationsPage = {
+  subtitle: 'Brand deals, priority conversations and account problems.',
+  markAllRead: 'Mark all read',
+  markAllError: "Couldn't mark them read. Try again.",
+  // The API returns at most 30 and never says so, while the unread count
+  // covers everything. Without this line the badge can say 45 above a list of 30.
+  truncated: (shown) => `Showing your ${shown} most recent.`,
+  openConversation: 'Open conversation',
+  unread: 'Unread',
+  // Keyed by Notification.type. `ai_analysis_completed` is listed in the schema
+  // comment but no code path ever creates one, so it has no entry here.
+  types: {
+    instagram_connection_problem: 'Account problem',
+    high_priority_conversation: 'Needs your reply',
+    new_brand_deal: 'Brand deal',
+    important_customer: 'Customer',
   },
 };
 
@@ -159,13 +200,38 @@ export const inbox = {
     title: 'Pick a conversation',
     body: 'Choose someone on the left to read the history and reply.',
   },
-  windowOpen: 'You can reply for the next 24 hours',
+  /**
+   * How long is left in Instagram's 24-hour reply window.
+   *
+   * This used to be the flat sentence "You can reply for the next 24 hours",
+   * which was wrong from the moment it appeared: it said 24 hours four hours
+   * after the message arrived, and still said 24 hours at hour twenty-three.
+   * The remaining time was already being computed and thrown away.
+   *
+   * Whole hours above 1h, minutes below — "0.4 hours left" is not how anyone
+   * reads a deadline, and the last hour is exactly when the number matters.
+   */
+  windowOpen: (hoursRemaining) => {
+    if (typeof hoursRemaining !== 'number' || !Number.isFinite(hoursRemaining)) {
+      return 'You can reply while their message is recent';
+    }
+    if (hoursRemaining < 1) {
+      const mins = Math.max(1, Math.round(hoursRemaining * 60));
+      return `Reply window closes in ${mins} ${mins === 1 ? 'minute' : 'minutes'}`;
+    }
+    const hrs = Math.floor(hoursRemaining);
+    return `Reply window closes in ${hrs} ${hrs === 1 ? 'hour' : 'hours'}`;
+  },
   windowClosed: 'You can only reply within 24 hours of their last message. Ask them to message you again.',
+  moreActions: 'More actions',
   noMessages: 'No messages here yet',
   openInInstagram: 'Open in Instagram',
   clearChat: 'Clear messages',
   deleteConversation: 'Delete conversation',
   autoReplyOn: 'Automatic replies on',
+  // The third state of the per-conversation override: inherit the account
+  // setting rather than forcing this chat on or off.
+  autoReplyInherit: 'Account default',
   autoReplyOff: 'Automatic replies off',
 
   needsReplyBanner: {
@@ -189,6 +255,7 @@ export const inbox = {
     intent: 'What they want',
     leadQuality: 'Lead quality',
     purchaseIntent: 'Buying intent',
+    scores: 'Scores',
     suggestedAction: 'Suggested next step',
     summary: 'Summary',
     scoreHint: 'Scored from 0 to 100 by reading the conversation.',
@@ -241,6 +308,12 @@ export const settings = {
     pricingLabel: 'Pricing',
     pricingPlaceholder: 'Single reel: INR 1,000. Ten-reel pack: INR 7,500.',
     pricingHint: 'These exact rates are quoted to customers. Nothing else is.',
+    // Added for onboarding. `locationDelivery` was already collected by the
+    // starter templates and posted on save, but no screen ever showed it — the
+    // user was saving text they had not seen and could not correct.
+    locationLabel: 'Where you work',
+    locationPlaceholder: 'Remote, worldwide. Local pickup in Bengaluru.',
+    locationHint: 'Used to answer questions about delivery area and turnaround.',
     policiesLabel: 'Delivery and policies',
     policiesPlaceholder: 'Delivered in 48 hours. Two rounds of revisions included.',
     paymentLabel: 'Payment methods',
@@ -294,6 +367,7 @@ export const settings = {
     savePrompt: 'Save and turn on',
     editPrompt: 'Edit instructions',
     openConversation: 'Open conversation',
+    onAccount: 'on',
     noMessagesYet: 'No messages yet',
   },
 };
@@ -322,10 +396,10 @@ export const account = {
     description: 'What Siffty knows about your business.',
     editAction: 'Edit business profile',
     empty: 'No business profile yet. Add one so Siffty can answer questions about your business.',
-    servicesLabel: 'PRODUCTS AND SERVICES',
-    pricingLabel: 'PRICING',
-    replyModeLabel: 'REPLY MODE',
-    toneLabel: 'REPLY TONE',
+    servicesLabel: 'Products and services',
+    pricingLabel: 'Pricing',
+    replyModeLabel: 'Reply mode',
+    toneLabel: 'Reply tone',
   },
 
   connectedAccounts: {
@@ -540,7 +614,7 @@ export const admin = {
   logOut: 'Log out',
 
   login: {
-    eyebrow: 'ADMIN',
+    eyebrow: 'Admin',
     title: 'Siffty admin',
     subtitle: 'Staff sign-in.',
     usernameLabel: 'Username',
@@ -577,16 +651,16 @@ export const admin = {
       subtitle: 'Since the server last restarted. These counters reset on deploy.',
       provider: 'Active provider',
       providerNone: 'None used yet',
-      keywordMatches: { label: 'FILTERED WITHOUT A CALL', hint: 'Spam and greetings caught by the keyword filter' },
-      totalCalls: { label: 'CALLS MADE', hint: 'successful' },
-      failures: { label: 'CALLS FAILED', hint: 'Fell back to an unclassified conversation' },
+      keywordMatches: { label: 'Filtered without a call', hint: 'Spam and greetings caught by the keyword filter' },
+      totalCalls: { label: 'Calls made', hint: 'successful' },
+      failures: { label: 'Calls failed', hint: 'Fell back to an unclassified conversation' },
     },
     backlog: {
       title: 'Processing backlog',
       subtitle: 'All time, across every customer.',
-      pending: { label: 'WAITING', hint: 'Messages queued or being read' },
-      failed: { label: 'FAILED', hint: 'Messages that could not be read' },
-      queueMode: { label: 'QUEUE', hint: 'How background work is being run' },
+      pending: { label: 'Waiting', hint: 'Messages queued or being read' },
+      failed: { label: 'Failed', hint: 'Messages that could not be read' },
+      queueMode: { label: 'Queue', hint: 'How background work is being run' },
     },
     recentSignups: {
       title: 'Recent signups',
@@ -646,8 +720,8 @@ export const admin = {
     subtitle: 'Find a customer or connected account. Read-only.',
     searchPlaceholder: 'Email address or @username',
     submit: 'Search',
-    matchedUsers: 'MATCHED CUSTOMERS',
-    matchedAccounts: 'MATCHED ACCOUNTS',
+    matchedUsers: 'Matched customers',
+    matchedAccounts: 'Matched accounts',
     owner: 'Owner',
     empty: 'Nothing matched that search.',
     inspectorTitle: 'Conversation',
@@ -657,9 +731,9 @@ export const admin = {
   },
 
   settings: {
-    adminsTitle: 'ADMINISTRATORS',
+    adminsTitle: 'Administrators',
     adminsColumns: { name: 'Name', email: 'Email', role: 'Role', granted: 'Granted' },
-    environmentTitle: 'SERVER CONFIGURATION',
+    environmentTitle: 'Server configuration',
     rows: {
       port: 'Backend port',
       frontendUrl: 'App address',
@@ -698,7 +772,10 @@ export const errors = {
   messages: "Couldn't open that conversation. Try again.",
   sendReply: "Couldn't send your message. Try again.",
   sendWindowClosed: "You can only reply within 24 hours of their last message. Ask them to message you again.",
-  generateReply: "Couldn't draft a reply just now. Write your own below.",
+  // "below" was wrong: the composer sits ABOVE this line, so the instruction
+  // pointed at the footnote. The backend returns its own copy of this string —
+  // see the comment in inbox/page.js handleGenerateReply.
+  generateReply: "Couldn't draft a reply just now — write your own in the box above.",
   saveSettings: "Couldn't save your settings. Try again.",
   saveProfile: "Couldn't save your details. Try again.",
   passwordMismatch: 'Those passwords do not match.',
@@ -924,9 +1001,9 @@ export const validation = {
 
 export const meta = {
   root: {
-    title: 'Siffty — Instagram DMs, sorted and answered',
+    title: 'Siffty — Stop reading every Instagram DM manually',
     description:
-      'Siffty sorts every message sent to your Instagram business account, flags the ones worth your time, and drafts replies from your real prices and policies.',
+      'Siffty reads, understands and organizes your DMs so you can spend less time sorting messages and more time on the conversations that matter.',
   },
   dashboard: { title: 'Dashboard — Siffty', description: 'Your connected accounts and conversation activity.' },
   inbox: { title: 'Inbox — Siffty', description: 'Read and reply to Instagram conversations.' },
@@ -944,10 +1021,14 @@ export const meta = {
   contact: { title: 'Contact — Siffty', description: 'Email Siffty support or send us a message.' },
   contactEnterprise: { title: 'Enterprise enquiries — Siffty', description: 'Ask about Siffty Enterprise: several Instagram accounts and custom limits.' },
   refundPolicy: { title: 'Refund policy — Siffty', description: 'When a Siffty plan or top-up is refunded, and how to ask for one.' },
+  howToUse: { title: 'How to use Siffty — Step-by-Step Guide', description: 'Step-by-step guide to setting up your business profile, connecting Instagram, managing smart inbox folders, and using AI replies (default off).' },
 };
 
 export const legal = {
   backToHome: 'Back to Siffty',
+  // Names the legal link group for a screen reader, which otherwise announces
+  // an unlabelled <nav> with three links and no idea what they are.
+  footerLabel: 'Legal',
   lastUpdated: 'Last updated',
   privacyTitle: 'Privacy policy',
   termsTitle: 'Terms of service',

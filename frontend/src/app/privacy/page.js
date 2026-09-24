@@ -1,7 +1,8 @@
 import Link from 'next/link';
+import LegalLayout from '@/app/components/public/LegalLayout';
 import { meta, legal } from '@/content/copy';
 import { SUPPORT_EMAIL } from '@/content/contact';
-import styles from '../legal/legal.module.css';
+import styles from '@/app/components/public/public.module.css';
 
 export const metadata = {
   title: meta.privacy.title,
@@ -10,17 +11,41 @@ export const metadata = {
 
 const LAST_UPDATED = '11 September 2026';
 
+const TOC_ITEMS = [
+  { id: 'what-siffty-is', title: '1. What Siffty is' },
+  { id: 'data-customers', title: '2. Data collected about customers' },
+  { id: 'data-senders', title: '3. Data collected about message senders' },
+  { id: 'data-use', title: '4. How the data is used' },
+  { id: 'automated-gemini', title: '5. Automated processing & Gemini' },
+  { id: 'sharing', title: '6. Sharing' },
+  { id: 'storage', title: '7. Where data is stored' },
+  { id: 'retention', title: '8. Retention' },
+  { id: 'deletion-rights', title: '9. Deletion and your rights' },
+  { id: 'security', title: '10. Security' },
+  { id: 'children', title: '11. Children' },
+  { id: 'changes', title: '12. Changes' },
+];
+
 export default function PrivacyPolicyPage() {
   return (
-    <main className={styles.page}>
-      <div className={styles.container}>
-        <Link href="/" className={styles.backLink}>{legal.backToHome}</Link>
-
-        <h1 className={styles.title}>{legal.privacyTitle}</h1>
-        <p className={styles.updated}>{legal.lastUpdated}: {LAST_UPDATED}</p>
-
-        <section className={styles.section}>
-          <h2>1. What Siffty is</h2>
+    <LegalLayout
+      eyebrow="LEGAL & PRIVACY"
+      title={legal.privacyTitle}
+      subtitle="How Siffty collects, processes, protects, and permanently deletes customer and message data."
+      badgeText={`${legal.lastUpdated}: ${LAST_UPDATED}`}
+      breadcrumbCategory="Legal"
+      breadcrumbCurrent="Privacy Policy"
+      tocItems={TOC_ITEMS}
+    >
+      {/* 1. What Siffty is */}
+      <section id="what-siffty-is" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>1</span>
+            What Siffty is
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <p>
             Siffty is a tool for businesses and creators who receive direct messages on
             Instagram. With the account owner&apos;s authorisation, it reads incoming Instagram
@@ -29,7 +54,7 @@ export default function PrivacyPolicyPage() {
           </p>
           <p>
             Siffty is operated by Siffty (proprietor: Mubassir Shah), based in India. Contact:{' '}
-            {SUPPORT_EMAIL}.
+            <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>.
           </p>
           <p>
             Two different groups of people appear in this policy. A <strong>customer</strong> is
@@ -37,10 +62,18 @@ export default function PrivacyPolicyPage() {
             A <strong>message sender</strong> is anyone who sends a direct message to that
             Instagram account. Message senders do not have Siffty accounts.
           </p>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>2. Data collected about customers</h2>
+      {/* 2. Data collected about customers */}
+      <section id="data-customers" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>2</span>
+            Data collected about customers
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <ul>
             <li>
               If you sign up with email: your name, email address, and a password. The password
@@ -68,10 +101,18 @@ export default function PrivacyPolicyPage() {
               connect an Instagram account that is already in use elsewhere.
             </li>
           </ul>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>3. Data collected about message senders</h2>
+      {/* 3. Data collected about message senders */}
+      <section id="data-senders" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>3</span>
+            Data collected about message senders
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <p>
             When someone sends a direct message to a connected Instagram account, Meta delivers
             that message to Siffty and the following is stored on the account owner&apos;s
@@ -87,17 +128,25 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>Where a message appears to describe a commercial collaboration, the structured details of that proposal.</li>
           </ul>
-          <div className={styles.callout}>
+          <div className={styles.calloutBox}>
             <p>
               <strong>Message senders did not sign up for Siffty.</strong> Their data is
               processed on behalf of the business they messaged, which controls it. Requests
               about that data are described in section 9.
             </p>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>4. How the data is used</h2>
+      {/* 4. How the data is used */}
+      <section id="data-use" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>4</span>
+            How the data is used
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <ul>
             <li>To show the account owner their Instagram messages in one inbox.</li>
             <li>To sort and prioritise those messages, and to flag ones that appear to be spam, fraudulent, or to need urgent attention.</li>
@@ -109,15 +158,24 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>To operate, secure, and debug the service.</li>
           </ul>
-          <p>
-            Siffty does not sell personal data and does not use message content for
-            advertising.
-          </p>
-        </section>
+          <div className={styles.calloutBox}>
+            <p>
+              <strong>No Data Selling:</strong> Siffty does not sell personal data and does not use message content for advertising.
+            </p>
+          </div>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>5. Automated processing and Google Gemini</h2>
-          <div className={styles.callout}>
+      {/* 5. Automated processing and Google Gemini */}
+      <section id="automated-gemini" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>5</span>
+            Automated processing and Google Gemini
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
+          <div className={styles.calloutBox}>
             <p>
               To categorise a message and to draft replies, the text of that message, recent
               messages in the same conversation, and the business profile of the account owner
@@ -140,10 +198,18 @@ export default function PrivacyPolicyPage() {
             Siffty uses Google&apos;s paid Gemini API service, under which Google does not use
             the content sent to it to improve its products.
           </p>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>6. Sharing</h2>
+      {/* 6. Sharing */}
+      <section id="sharing" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>6</span>
+            Sharing
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <p>Data is shared only with:</p>
           <ul>
             <li>
@@ -154,20 +220,36 @@ export default function PrivacyPolicyPage() {
             <li><strong>Hosting and infrastructure providers</strong> — who store the data on Siffty&apos;s behalf.</li>
             <li><strong>Authorities</strong> — where required by law.</li>
           </ul>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>7. Where data is stored</h2>
+      {/* 7. Where data is stored */}
+      <section id="storage" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>7</span>
+            Where data is stored
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <p>
             Siffty&apos;s service and database are hosted in the United States. Gemini,
             described in section 5, may process content in other countries. If you use
             Siffty from outside the United States, your data is transferred to, and stored in,
             the United States.
           </p>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>8. Retention</h2>
+      {/* 8. Retention */}
+      <section id="retention" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>8</span>
+            Retention
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <ul>
             <li>
               <strong>Raw webhook delivery logs</strong>, which include the text of incoming
@@ -211,10 +293,18 @@ export default function PrivacyPolicyPage() {
             account&apos;s data is erased automatically, as described on the{' '}
             <Link href="/data-deletion">data deletion page</Link>.
           </p>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>9. Deletion and your rights</h2>
+      {/* 9. Deletion and your rights */}
+      <section id="deletion-rights" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>9</span>
+            Deletion and your rights
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <p>
             Customers can permanently delete their Siffty account and all associated data
             from the profile page in the app, or by following the instructions on the{' '}
@@ -242,10 +332,18 @@ export default function PrivacyPolicyPage() {
             Depending on where you live you may have rights to access, correct, export, or
             restrict the processing of your personal data. Contact us to exercise them.
           </p>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>10. Security</h2>
+      {/* 10. Security */}
+      <section id="security" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>10</span>
+            Security
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <ul>
             <li>Instagram access tokens are encrypted at rest with AES-256-GCM.</li>
             <li>Passwords are stored only as salted one-way hashes (Argon2id).</li>
@@ -254,37 +352,46 @@ export default function PrivacyPolicyPage() {
             <li>Each customer&apos;s data is scoped to their own account; requests for another account&apos;s data are refused.</li>
           </ul>
           <p>No service can promise perfect security, but these are the specific measures in place.</p>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>11. Children</h2>
+      {/* 11. Children */}
+      <section id="children" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>11</span>
+            Children
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <p>
             Siffty is intended for businesses and creators aged 18 or over. It is not directed
             at children, and we do not knowingly collect their data.
           </p>
-        </section>
+        </div>
+      </section>
 
-        <section className={styles.section}>
-          <h2>12. Changes</h2>
+      {/* 12. Changes */}
+      <section id="changes" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>12</span>
+            Changes
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
           <p>
             If this policy changes materially, the date at the top will be updated and
             customers will be notified in the app or by email.
           </p>
-        </section>
-
-        <p className={styles.contact}>
-          Questions about this policy or your data: <strong>{SUPPORT_EMAIL}</strong>
-        </p>
-
-        <nav className={styles.footerNav} aria-label="Legal">
-          <Link href="/privacy" className={styles.footerNavLink}>{legal.footerLinks.privacy}</Link>
-          <Link href="/terms" className={styles.footerNavLink}>{legal.footerLinks.terms}</Link>
-          <Link href="/data-deletion" className={styles.footerNavLink}>{legal.footerLinks.dataDeletion}</Link>
-          <Link href="/support" className={styles.footerNavLink}>{legal.footerLinks.support}</Link>
-          <Link href="/contact" className={styles.footerNavLink}>{legal.footerLinks.contact}</Link>
-          <Link href="/refund-policy" className={styles.footerNavLink}>{legal.footerLinks.refundPolicy}</Link>
-        </nav>
-      </div>
-    </main>
+          <div className={styles.calloutBox} style={{ marginTop: '16px' }}>
+            <p>
+              Questions about this policy or your data:{' '}
+              <a href={`mailto:${SUPPORT_EMAIL}`}><strong>{SUPPORT_EMAIL}</strong></a>
+            </p>
+          </div>
+        </div>
+      </section>
+    </LegalLayout>
   );
 }
