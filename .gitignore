@@ -90,3 +90,5 @@ LOCAL_DEV.md
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+# Local manual-test checklist (contains a local test password)
+MANUAL-TEST.md
