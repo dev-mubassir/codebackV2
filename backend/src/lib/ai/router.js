@@ -27,6 +27,7 @@ const prisma = require('../prisma');
 const { ADAPTERS } = require('./adapters');
 const { DEFAULT_ACTIVE, isAllowed, apiKeyFor } = require('./models');
 const { recordAiCall } = require('./callLog');
+const { isAiMock, mockComplete } = require('./mock');
 
 const CONFIG_TTL_MS = 30 * 1000;
 const FALLBACK_AFTER_FAILURES = 5;
@@ -137,6 +138,13 @@ function extractJSON(text) {
  * Resolves { text, json? } or throws the last error.
  */
 async function callTarget({ provider, model }, { prompt, isJson, validate, timeout, jobType, tenantId }) {
+  // AI_MOCK (local/load tests only): no network, no key, no cost, no call log.
+  if (isAiMock()) {
+    const out = await mockComplete({ prompt, isJson, jobType });
+    if (!isJson) return { text: out.text };
+    const json = JSON.parse(out.text);
+    return { text: out.text, json };
+  }
   const apiKey = apiKeyFor(provider);
   if (!apiKey) {
     throw Object.assign(new Error(`${provider} is not configured`), { code: 'NO_PROVIDERS_CONFIGURED' });

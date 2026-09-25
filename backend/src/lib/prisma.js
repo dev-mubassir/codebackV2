@@ -20,13 +20,14 @@ const globalForPrisma = globalThis;
  * instance and exhaust Postgres the moment the API scales out.
  *
  * Budget per API instance (see MIGRATION_LOG.md for the full math):
- *   Prisma 5 + user-session pg pool 3 + admin-session pg pool 2 + scheduler
- *   lock pool 2 = 12 connections at most.
+ *   Prisma 3 + user-session pg pool 2 + admin-session pg pool 1 + scheduler
+ *   lock pool 2 = 8 connections at most, so 6 instances fit a 100-connection
+ *   Postgres with room to spare.
  *
  * DB_POOL_SIZE overrides the Prisma share. Outside production nothing is
  * added, so tests and local dev keep Prisma's default.
  */
-const PRISMA_POOL_DEFAULT = 5;
+const PRISMA_POOL_DEFAULT = 3;
 const PRISMA_POOL_TIMEOUT_S = 20;
 
 function withPoolDefaults(url) {

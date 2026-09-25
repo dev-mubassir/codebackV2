@@ -272,7 +272,7 @@ if (isProduction) {
  *
  * The pool is capped — see the connection budget in lib/prisma.js.
  */
-const SESSION_DB_POOL_MAX = 3;
+const SESSION_DB_POOL_MAX = 2;
 
 function buildSessionStore() {
   try {
@@ -416,6 +416,16 @@ if (isRedisConfigured()) {
 }
 console.log(`[Queue] Driver: ${queueDriver()}.`);
 console.log(`[Cashfree] Mode: ${require('./lib/cashfree').cashfreeEnvironment()}.`);
+if (require('./lib/ai/mock').isAiMock()) {
+  const bar = '!'.repeat(72);
+  console.warn(bar);
+  console.warn('[AI] AI_MOCK=true — every AI answer is FAKE. No provider is called.');
+  console.warn('[AI] Local/load testing only. This must NEVER be set in production secrets.');
+  if (isProduction) console.warn('[AI] NODE_ENV=production: REMOVE AI_MOCK FROM THIS ENVIRONMENT NOW.');
+  console.warn(bar);
+} else {
+  console.log('[AI] Mock: off.');
+}
 
 // Start the background AI processing worker (message classification,
 // priority scoring, brand-deal extraction, summaries). Uses Redis/BullMQ

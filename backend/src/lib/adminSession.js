@@ -81,7 +81,7 @@ function skipOnAdminPaths(middleware) {
   };
 }
 
-const ADMIN_DB_POOL_MAX = 2;
+const ADMIN_DB_POOL_MAX = 1;
 
 /** The Postgres-backed admin store. Tests pass their own (MemoryStore). */
 function buildAdminStore() {
