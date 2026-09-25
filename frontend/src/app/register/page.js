@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { register, getGoogleAuthUrl } from '@/lib/api';
 import Icon from '@/app/components/Icon';
@@ -11,6 +11,21 @@ import PasswordInput from '@/app/components/PasswordInput';
 import AuthErrorBanner from '@/app/components/AuthErrorBanner';
 import { auth, errors, validation, legal } from '@/content/copy';
 import styles from '../login/login.module.css';
+
+/**
+ * Optional influencer / promo code. Uncontrolled, so an influencer link
+ * (/register?code=PRIYA20) can prefill it without a state update in an
+ * effect; inside <Suspense> as the Next docs require for useSearchParams.
+ */
+function CouponField() {
+  const prefill = (useSearchParams().get('code') || '').slice(0, 32);
+  return (
+    <div className={styles.formGroup}>
+      <label className={styles.formLabel} htmlFor="couponCode">{auth.register.couponLabel}</label>
+      <input id="couponCode" name="couponCode" type="text" className="input" defaultValue={prefill} maxLength={32} autoComplete="off" placeholder={auth.register.couponPlaceholder} />
+    </div>
+  );
+}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -24,6 +39,7 @@ export default function RegisterPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    const couponCode = (e.currentTarget.elements.couponCode?.value || '').trim();
 
     if (password.length < 6) {
       setError(validation.passwordTooShort);
@@ -38,7 +54,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register({ name, email, password, confirmPassword });
+      await register({ name, email, password, confirmPassword, ...(couponCode ? { couponCode } : {}) });
       router.push('/onboarding');
     } catch (err) {
       setError(err.response?.data?.error || errors.generic);
@@ -158,6 +174,10 @@ export default function RegisterPage() {
               minLength={6}
             />
           </div>
+
+          <Suspense fallback={null}>
+            <CouponField />
+          </Suspense>
 
           <button
             type="submit"

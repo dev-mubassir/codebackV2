@@ -14,8 +14,8 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 | 3 Health + AI monitoring | done | 4d763ca |
 | 3B IG token auto-refresh | done | 14826bb |
 | 4 Multi-provider AI | done | 07befb1 |
-| 5 User management | done | (see git log: feat(admin): user management) |
-| 6 Plans, quotas, coupons | pending | |
+| 5 User management | done | f4804a4 |
+| 6 Plans, quotas, coupons | done | (see git log: feat(billing-admin)) |
 | 7 Kill switches, settings, alerts, announcements | pending | |
 | 8 Hardening + UI polish + final report | pending | |
 
@@ -70,6 +70,21 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - User detail: plan + expiry/grace, quota (classifications this cycle vs plan cap, reply credits), IG accounts (connected date, token expiry, refresh error code), classification counts (all time, 30 days, inbound by AI status), last active, 20 most recent AI errors (codes only). No DM content, no AI summaries.
 - The Gate-1 "retired endpoints" test no longer probes DELETE /users/:id (returned on the safe path).
 
+### Gate 6 decisions (NEW)
+- EXTENDED billing_plans / plan_prices (owner decision). Spec field mapping: region/currency/price = plan_prices rows (IN→INR, INTL→USD); classificationLimit = classificationCapCycle; features = new `billing_plans.features` JSON; isActive existing.
+- "Edits apply to new purchases only": the enforced limits (cycle cap, hourly throttle, bank cap, IG account limit) are SNAPSHOTTED onto the entitlement at every grant (grantPlan, trial grant, admin grant) — new entitlements.term_* columns. Migration 20260926090000 BACKFILLS every existing entitlement from today's plan values. Readers now use the snapshot (entitlementService classificationGateReason, computeBankRollover/grantPlan carry cap, recordInstagramSlotUsage), falling back to the live plan only for an un-snapshotted row.
+- Places that read plan data (flagged): entitlementService (above + grantPlan credits/cycle length, creditsUsedFromOrder fallback), routes/billing.js (public /plans — now also returns `features`; /summary trial block; checkout price + PURCHASABLE_PLAN_CODES), services/billingFulfillment.js (grantedCredits), lib/igIdentity.js (trial grant — now reads the TRIAL plan).
+- FIXED an existing inconsistency: trial granted 25 credits (hardcoded) while the TRIAL row said 0 and the billing summary showed 0. Migration 20260926091000 sets TRIAL credits to 25 (only if still 0); the trial grant now reads credits + length from the TRIAL plan (constants = fallback).
+- Refund revocation restoring a prior plan re-copies that plan's CURRENT terms (the grant snapshot never stored prior terms) — only differs if the plan was edited since.
+- New admin-created plans start HIDDEN (isActive false). They cannot be bought at checkout (PURCHASABLE_PLAN_CODES = STARTER, PRO) — extending checkout is Cashfree work, out of scope.
+- Per-customer controls (step-up + reason + audit): grant plan with custom expiry (STARTER/PRO/ENTERPRISE, ≤1 year, via grantPlan, ledger source `admin_grant:<plan>`, no region lock), extend expiry (1–365 days; lapsed plans extend from today), bonus classification quota (this cycle only — new `bonus_classifications_cycle`, reset by grants and cycle rolls), reset trial (refused on a live paid plan; clears entitlement + ledger EXPIRE + trialConsumedAt on the user's CONNECTED IG identities).
+- Coupons: `coupons` + `coupon_redemptions` (one per customer ever). Redeemed at POST /auth/register (optional `couponCode`; an invalid code is a 400 BEFORE the account exists; the register page accepts `?code=` prefill) and at POST /api/billing/trial/claim (optional). Atomic (conditional usedCount + unique redemption in one tx). Admin CRUD = create / edit limits, tag, on/off — never deleted. Reason + audit, no step-up (creates no money movement today). Influencer report: signups (redemptions) and paid conversions (redeemed users with a PAID plan order).
+- CASHFREE PLUG-IN POINT (not built): routes/billing.js POST /checkout/plan — apply the tenant's redemption discount to `price.amount` on the first paid plan order before creating the Cashfree order (comment in place).
+- Google sign-up does not carry a coupon (OAuth round-trip); such users can enter it at trial claim.
+- Payment history: GET /api/admin/payments — orders + attempts + refunds, never rawPayload/grantSnapshot; no Cashfree calls.
+- BILLING_ENABLED differences: OFF → entitlement gates are not enforced, so plan edits / grants / bonus quota change data but not behaviour until billing is on; POST /api/billing/trial/claim (and its coupon) and GET /api/billing/plans 404. Signup coupon redemption, admin plans/coupons/payments pages work either way. ON → everything enforced as described.
+- Known flake (same root cause as the trial-claim race below): "a double-submit over HTTP grants exactly one" failed once under full-suite load, 0/6 in isolation with and without this gate's change. Left active, not skipped.
+
 ## Skipped / TEMP tests
 
 - `admin-session.test.js` H10, `scopes-and-admin.test.js` M10 ×2, `authz-and-limits.test.js` F1/F5 — old admin behaviour, replaced by `admin-auth.test.js`.
@@ -88,6 +103,8 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - Admin Health page (`/admin/health`): loads, refreshes every 30s, "Test AI" shows provider/model/latency; an unattended health page still times out after 30 idle minutes.
 - Admin AI page (`/admin/ai`): only providers with a key are selectable; "Test on 10 sample messages" shows per-sample results + cost; Activate asks for a reason and the password; Roll back works; with fallback enabled, the fallback model must be tested first.
 - Admin customers: filters (plan/status/dates) narrow the list; "Details" opens /admin/users/[id]; Sign out everywhere (reason); Delete (reason + password) returns to the list and the customer is gone.
+- Admin Plans (/admin/plans): create (starts hidden), edit, save asks reason + password; Coupons (/admin/coupons): create, turn off/on, influencer report; Payments (/admin/payments): list + status filter; customer detail "Plan controls": grant/extend/bonus/reset-trial each ask reason + password.
+- Register page: `/register?code=XYZ` prefills the code field; an invalid code shows the error and creates no account.
 - Customer idle: with `user_session_idle_minutes = 5`, the warning appears about 3 minutes in; "Stay signed in" in one tab closes the warning in the other; both tabs go to login after 5 minutes.
 
 ## Trial-claim race — findings (read-only; NOT fixed, owner decides)
@@ -131,5 +148,5 @@ need their own retry handling. Not recommended.
 
 ## RESUME HERE
 
-1. Gate 6 — plans, quotas, coupons: EXTEND billing_plans / plan_prices (owner decision; no new Plan table). Admin create/edit plans (edits apply to new purchases only — check how grantPlan snapshots values), manual per-user controls (grant plan w/ custom expiry, extend expiry, bonus classification quota, reset trial) — reason + step-up + audit, via entitlementService + CreditLedger. Coupon + CouponRedemption tables, admin CRUD, influencer report; wire redemption ONLY into the trial flow (igIdentity / billing trial claim); flag the Cashfree checkout plug-in point. Payment history view from orders/payment_attempts/refunds (no Cashfree calls). Must work with BILLING_ENABLED on or off — record differences.
-2. Then Gates 7 → 8.
+1. Gate 7 — FeatureFlag/settings (reuse app_settings + lib/settings.js, 30s cache): ai_classification_enabled (default true), signups_enabled (true), maintenance_mode (false), enforce_subscriptions (default = current BILLING_ENABLED env at runtime), user_session_idle_minutes (exists). Wire each (classification in messageAnalysisJob; signups in /auth/register + Google new-user; maintenance → customer API 503 except auth/me? + webhooks keep working; enforce_subscriptions → isBillingEnabled()). Admin editor (step-up + reason + audit for flags). Alert cron every 5 min with editable thresholds + 1h cooldown per type (adminOpsAlert). Business metrics page. Announcement banner (admin sets message/type/start/end; user app shows it).
+2. Then Gate 8 + final report.

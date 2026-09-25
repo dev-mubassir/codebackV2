@@ -31,6 +31,8 @@ const aiRouter = require('../lib/ai/router');
 const aiModels = require('../lib/ai/models');
 const { runModelTest, findPassingTest } = require('../lib/ai/modelTest');
 const { deleteUserAccount } = require('../services/accountDeletion');
+const adminBilling = require('../services/adminBilling');
+const coupons = require('../services/coupons');
 const { effectiveStatus } = require('../services/entitlementService');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession, destroyUserSessions } = require('../lib/session');
@@ -1351,6 +1353,341 @@ router.get('/settings', async (req, res) => {
   } catch (error) {
     console.error('[Admin] Settings error:', error.message);
     res.status(500).json({ error: "Couldn't load server configuration. Refresh to try again." });
+  }
+});
+
+// ============================================
+// 6. PLANS, PER-CUSTOMER PLAN CONTROLS, COUPONS, PAYMENTS (Gate 6)
+//
+// Plans live in billing_plans + plan_prices (extended, not replaced). An edit
+// applies to NEW purchases only: every grant snapshots the plan's limits onto
+// the customer's entitlement (entitlementService termsFrom), so existing
+// customers keep what they bought. Changing plans and per-customer grants need
+// step-up + a reason; every change is audited.
+// ============================================
+
+const PLAN_INT_FIELDS = ['igAccountLimit', 'autoReplyCreditsPerCycle', 'autoReplyBankCap', 'classificationCapCycle', 'classificationThrottlePerHour'];
+const REGION_CURRENCY = { IN: 'INR', INTL: 'USD' };
+
+function badRequest(res, error, code = 'INVALID') {
+  res.status(400).json({ error, code });
+  return null;
+}
+
+/** Validate a plan body. Returns { data, prices } or null (response already sent). */
+function readPlanBody(req, res, { creating }) {
+  const b = req.body || {};
+  const allowed = ['name', 'cycleLengthDays', 'isActive', 'isQuoteOnly', 'features', 'prices', 'reason', ...PLAN_INT_FIELDS, ...(creating ? ['code'] : [])];
+  if (!onlyFields(req, res, allowed)) return null;
+  const data = {};
+
+  if (creating) {
+    if (typeof b.code !== 'string' || !/^[A-Z][A-Z0-9_]{1,30}$/.test(b.code)) return badRequest(res, 'Plan code: capital letters, digits and _ (2 to 31 characters).');
+    data.code = b.code;
+  }
+  if (b.name !== undefined || creating) {
+    if (typeof b.name !== 'string' || b.name.trim().length < 2 || b.name.length > 60) return badRequest(res, 'Name: 2 to 60 characters.');
+    data.name = b.name.trim();
+  }
+  for (const f of PLAN_INT_FIELDS) {
+    if (b[f] === undefined) continue;
+    if (b[f] !== null && !(Number.isInteger(b[f]) && b[f] >= 0 && b[f] <= 10000000)) return badRequest(res, `${f} must be a whole number (or empty for no limit).`);
+    data[f] = b[f];
+  }
+  if (b.cycleLengthDays !== undefined) {
+    if (!Number.isInteger(b.cycleLengthDays) || b.cycleLengthDays < 1 || b.cycleLengthDays > 366) return badRequest(res, 'Cycle length: 1 to 366 days.');
+    data.cycleLengthDays = b.cycleLengthDays;
+  }
+  for (const f of ['isActive', 'isQuoteOnly']) {
+    if (b[f] === undefined) continue;
+    if (typeof b[f] !== 'boolean') return badRequest(res, `${f} must be true or false.`);
+    data[f] = b[f];
+  }
+  // A new plan starts HIDDEN unless it says otherwise: the public pricing
+  // endpoint lists every active plan, and a new code cannot be bought at
+  // checkout (routes/billing.js PURCHASABLE_PLAN_CODES).
+  if (creating && data.isActive === undefined) data.isActive = false;
+
+  if (b.features !== undefined) {
+    const f = b.features;
+    if (f !== null && (typeof f !== 'object' || Array.isArray(f))) return badRequest(res, 'Features must be an object.');
+    const entries = f ? Object.entries(f) : [];
+    if (entries.length > 30) return badRequest(res, 'At most 30 features.');
+    for (const [k, v] of entries) {
+      if (!/^[a-z0-9_]{1,40}$/.test(k)) return badRequest(res, 'Feature names: lowercase letters, digits and _.');
+      const okValue = typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 200);
+      if (!okValue) return badRequest(res, 'Feature values: true/false, a number, or text up to 200 characters.');
+    }
+    data.features = f;
+  }
+
+  let prices;
+  if (b.prices !== undefined) {
+    if (!Array.isArray(b.prices) || b.prices.length > 2) return badRequest(res, 'Prices: a list of up to two regions.');
+    const seen = new Set();
+    prices = [];
+    for (const p of b.prices) {
+      if (!p || typeof p !== 'object') return badRequest(res, 'Each price needs billingRegion and amount.');
+      const currency = REGION_CURRENCY[p.billingRegion];
+      if (!currency || seen.has(p.billingRegion)) return badRequest(res, 'billingRegion must be IN or INTL, once each.');
+      if (p.currency !== undefined && p.currency !== currency) return badRequest(res, `Region ${p.billingRegion} is priced in ${currency}.`);
+      if (!Number.isInteger(p.amount) || p.amount < 1 || p.amount > 100000000) return badRequest(res, 'Amount: a whole number in the smallest unit (paise / cents).');
+      seen.add(p.billingRegion);
+      prices.push({ billingRegion: p.billingRegion, currency, amount: p.amount });
+    }
+  }
+  return { data, prices };
+}
+
+const planWithPrices = { prices: { select: { billingRegion: true, currency: true, amount: true } } };
+
+// GET /api/admin/plans
+router.get('/plans', async (req, res) => {
+  try {
+    res.json(await prisma.plan.findMany({ orderBy: { createdAt: 'asc' }, include: planWithPrices }));
+  } catch (error) {
+    console.error('[Admin] Plans list error:', error.message);
+    res.status(500).json({ error: "Couldn't load plans. Refresh to try again." });
+  }
+});
+
+// POST /api/admin/plans — create. Step-up + reason. Starts hidden (isActive false) unless set.
+router.post('/plans', requireStepUp, async (req, res) => {
+  const parsed = readPlanBody(req, res, { creating: true });
+  if (!parsed) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    if (await prisma.plan.findUnique({ where: { code: parsed.data.code } })) {
+      return res.status(409).json({ error: 'A plan with that code already exists.', code: 'EXISTS' });
+    }
+    const created = await prisma.$transaction(async (tx) => {
+      const plan = await tx.plan.create({ data: { ...parsed.data, ...(parsed.prices ? { prices: { create: parsed.prices } } : {}) }, include: planWithPrices });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'PLAN_CREATE', targetType: 'PLAN', targetId: plan.code, reason, after: plan }) });
+      return plan;
+    });
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('[Admin] Plan create error:', error.message);
+    res.status(500).json({ error: "Couldn't create that plan. Try again." });
+  }
+});
+
+// PUT /api/admin/plans/:code — edit (new purchases only). Step-up + reason.
+// `prices`, when given, replaces the plan's price list.
+router.put('/plans/:code', requireStepUp, async (req, res) => {
+  const parsed = readPlanBody(req, res, { creating: false });
+  if (!parsed) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const before = await prisma.plan.findUnique({ where: { code: req.params.code }, include: planWithPrices });
+    if (!before) return res.status(404).json({ error: 'That plan does not exist.' });
+    if (before.code === 'TRIAL' && parsed.prices && parsed.prices.length) {
+      return res.status(400).json({ error: 'The trial is free; it has no prices.', code: 'INVALID' });
+    }
+    const after = await prisma.$transaction(async (tx) => {
+      if (parsed.prices) {
+        await tx.planPrice.deleteMany({ where: { planId: before.id } });
+        if (parsed.prices.length) await tx.planPrice.createMany({ data: parsed.prices.map((p) => ({ ...p, planId: before.id })) });
+      }
+      const plan = await tx.plan.update({ where: { id: before.id }, data: parsed.data, include: planWithPrices });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'PLAN_UPDATE', targetType: 'PLAN', targetId: plan.code, reason, before, after: plan }) });
+      return plan;
+    });
+    res.json(after);
+  } catch (error) {
+    console.error('[Admin] Plan update error:', error.message);
+    res.status(500).json({ error: "Couldn't update that plan. Try again." });
+  }
+});
+
+/** Shared shape for the four per-customer plan controls: step-up + reason + audit. */
+function customerBillingAction(path, action, run) {
+  router.post(`/users/:id/billing/${path}`, requireStepUp, async (req, res) => {
+    const reason = readReason(req, res);
+    if (!reason) return undefined;
+    try {
+      const exists = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true } });
+      if (!exists) return res.status(404).json({ error: 'That customer no longer exists.' });
+      const result = await run(req.params.id, req.body || {});
+      await recordAdminAudit(req, { action, targetType: 'USER', targetId: exists.id, reason, before: result.before, after: { ...result.after, ...(result.identitiesCleared != null ? { identitiesCleared: result.identitiesCleared } : {}) } });
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof adminBilling.AdminBillingError) return res.status(error.status).json({ error: error.message, code: error.code });
+      console.error(`[Admin] ${action} error:`, error.message);
+      return res.status(500).json({ error: "Couldn't change that customer's plan. Try again." });
+    }
+  });
+}
+
+// { planCode: STARTER|PRO|ENTERPRISE, validUntil: ISO date-time, reason }
+customerBillingAction('grant-plan', 'PLAN_GRANT_MANUAL', (id, b) =>
+  adminBilling.grantPlanWithExpiry(id, b.planCode, typeof b.validUntil === 'string' ? new Date(b.validUntil) : null)
+);
+// { days: 1..365, reason }
+customerBillingAction('extend', 'PLAN_EXTEND', (id, b) => adminBilling.extendExpiry(id, b.days));
+// { amount: 1..100000, reason } — this cycle only
+customerBillingAction('bonus-quota', 'QUOTA_BONUS', (id, b) => adminBilling.addBonusClassifications(id, b.amount));
+// { reason }
+customerBillingAction('reset-trial', 'TRIAL_RESET', (id) => adminBilling.resetTrial(id));
+
+// ---- Coupons ----
+
+function readCouponBody(req, res, { creating }) {
+  const b = req.body || {};
+  const allowed = creating
+    ? ['code', 'discountType', 'value', 'currency', 'maxUses', 'expiresAt', 'influencerTag', 'reason']
+    : ['maxUses', 'expiresAt', 'influencerTag', 'isActive', 'reason'];
+  if (!onlyFields(req, res, allowed)) return null;
+  const data = {};
+  if (creating) {
+    const code = coupons.normalizeCode(b.code);
+    if (!code) return badRequest(res, 'Code: 3 to 32 letters, digits, _ or -.');
+    data.code = code;
+    if (!['PERCENT', 'FLAT'].includes(b.discountType)) return badRequest(res, 'discountType must be PERCENT or FLAT.');
+    data.discountType = b.discountType;
+    if (b.discountType === 'PERCENT') {
+      if (!Number.isInteger(b.value) || b.value < 1 || b.value > 100) return badRequest(res, 'A percent discount is 1 to 100.');
+      if (b.currency !== undefined && b.currency !== null) return badRequest(res, 'A percent discount has no currency.');
+    } else {
+      if (!Number.isInteger(b.value) || b.value < 1 || b.value > 100000000) return badRequest(res, 'A flat discount is a whole number in the smallest unit.');
+      if (!['INR', 'USD'].includes(b.currency)) return badRequest(res, 'A flat discount needs currency INR or USD.');
+      data.currency = b.currency;
+    }
+    data.value = b.value;
+  }
+  if (b.maxUses !== undefined) {
+    if (b.maxUses !== null && !(Number.isInteger(b.maxUses) && b.maxUses >= 1 && b.maxUses <= 1000000)) return badRequest(res, 'maxUses: a whole number, or empty for unlimited.');
+    data.maxUses = b.maxUses;
+  }
+  if (b.expiresAt !== undefined) {
+    if (b.expiresAt === null) data.expiresAt = null;
+    else {
+      const d = typeof b.expiresAt === 'string' ? new Date(b.expiresAt) : null;
+      if (!d || Number.isNaN(d.getTime())) return badRequest(res, 'expiresAt must be a date.');
+      data.expiresAt = d;
+    }
+  }
+  if (b.influencerTag !== undefined) {
+    if (b.influencerTag !== null && !(typeof b.influencerTag === 'string' && /^[A-Za-z0-9_.-]{1,40}$/.test(b.influencerTag))) return badRequest(res, 'Influencer tag: letters, digits, _ . or -.');
+    data.influencerTag = b.influencerTag;
+  }
+  if (!creating && b.isActive !== undefined) {
+    if (typeof b.isActive !== 'boolean') return badRequest(res, 'isActive must be true or false.');
+    data.isActive = b.isActive;
+  }
+  return data;
+}
+
+// GET /api/admin/coupons
+router.get('/coupons', async (req, res) => {
+  try {
+    res.json(await prisma.coupon.findMany({ orderBy: { createdAt: 'desc' } }));
+  } catch (error) {
+    console.error('[Admin] Coupons list error:', error.message);
+    res.status(500).json({ error: "Couldn't load coupons. Refresh to try again." });
+  }
+});
+
+// GET /api/admin/coupons/report — per influencer: signups, paid conversions.
+router.get('/coupons/report', async (req, res) => {
+  try {
+    res.json(await coupons.influencerReport());
+  } catch (error) {
+    console.error('[Admin] Coupon report error:', error.message);
+    res.status(500).json({ error: "Couldn't load the influencer report. Refresh to try again." });
+  }
+});
+
+// POST /api/admin/coupons — create. Reason + audit.
+router.post('/coupons', async (req, res) => {
+  const data = readCouponBody(req, res, { creating: true });
+  if (!data) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const coupon = await prisma.$transaction(async (tx) => {
+      const c = await tx.coupon.create({ data: { ...data, createdBy: req.admin.id } });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'COUPON_CREATE', targetType: 'COUPON', targetId: c.id, reason, after: c }) });
+      return c;
+    });
+    res.status(201).json(coupon);
+  } catch (error) {
+    if (error.code === 'P2002') return res.status(409).json({ error: 'That code already exists.', code: 'EXISTS' });
+    console.error('[Admin] Coupon create error:', error.message);
+    res.status(500).json({ error: "Couldn't create that coupon. Try again." });
+  }
+});
+
+// PUT /api/admin/coupons/:id — limits, expiry, tag, on/off. Never deleted
+// (history and the influencer report depend on it). Reason + audit.
+router.put('/coupons/:id', async (req, res) => {
+  const data = readCouponBody(req, res, { creating: false });
+  if (!data) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const before = await prisma.coupon.findUnique({ where: { id: req.params.id } });
+    if (!before) return res.status(404).json({ error: 'That coupon does not exist.' });
+    const after = await prisma.$transaction(async (tx) => {
+      const c = await tx.coupon.update({ where: { id: before.id }, data });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'COUPON_UPDATE', targetType: 'COUPON', targetId: c.id, reason, before, after: c }) });
+      return c;
+    });
+    res.json(after);
+  } catch (error) {
+    console.error('[Admin] Coupon update error:', error.message);
+    res.status(500).json({ error: "Couldn't update that coupon. Try again." });
+  }
+});
+
+// ---- Payments (read-only; no Cashfree calls) ----
+
+const ORDER_STATUSES = new Set(['CREATED', 'PAID', 'EXPIRED']);
+
+// GET /api/admin/payments?page=&limit=&status=&userId=
+router.get('/payments', async (req, res) => {
+  try {
+    const page = clampInt(req.query.page, { min: 1, max: 100000, fallback: 1 });
+    const limit = clampInt(req.query.limit, { min: 1, max: 100, fallback: 25 });
+    const status = str(req.query.status, 20);
+    const userId = str(req.query.userId, 60);
+    const where = { ...(ORDER_STATUSES.has(status) ? { status } : {}), ...(userId ? { tenantId: userId } : {}) };
+
+    const [orders, totalCount] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        // rawPayload / grantSnapshot deliberately not selected.
+        select: {
+          id: true, cashfreeOrderId: true, tenantId: true, planCode: true, addonCode: true, amount: true, currency: true,
+          status: true, paymentCountry: true, regionSource: true, createdAt: true, paidAt: true,
+        },
+      }),
+      prisma.order.count({ where }),
+    ]);
+    const ids = orders.map((o) => o.cashfreeOrderId);
+    const [attempts, refunds, users] = await Promise.all([
+      prisma.paymentAttempt.findMany({ where: { cashfreeOrderId: { in: ids } }, orderBy: { createdAt: 'desc' }, select: { cashfreeOrderId: true, status: true, paymentGroup: true, failureReason: true, createdAt: true } }),
+      prisma.refund.findMany({ where: { cashfreeOrderId: { in: ids } }, select: { cashfreeOrderId: true, refundId: true, amount: true, status: true, createdAt: true } }),
+      prisma.user.findMany({ where: { id: { in: [...new Set(orders.map((o) => o.tenantId))] } }, select: { id: true, email: true } }),
+    ]);
+    const email = new Map(users.map((u) => [u.id, u.email]));
+    res.json({
+      payments: orders.map((o) => ({
+        ...o,
+        customerEmail: email.get(o.tenantId) || null, // null once the account is deleted
+        attempts: attempts.filter((a) => a.cashfreeOrderId === o.cashfreeOrderId).map((a) => ({ ...a, failureReason: a.failureReason ? String(a.failureReason).slice(0, 120) : null })),
+        refunds: refunds.filter((r) => r.cashfreeOrderId === o.cashfreeOrderId),
+      })),
+      pagination: { page, limit, totalCount, totalPages: Math.ceil(totalCount / limit) },
+    });
+  } catch (error) {
+    console.error('[Admin] Payments list error:', error.message);
+    res.status(500).json({ error: "Couldn't load payments. Refresh to try again." });
   }
 });
 

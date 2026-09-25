@@ -15,6 +15,7 @@ const prisma = require('../lib/prisma');
 const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { isBillingEnabled, isUsdPricingEnabled, isMetaApproved } = require('../lib/billingFlags');
+const coupons = require('../services/coupons');
 const { effectiveStatus, LIVE_STATUSES, downgradeBlock } = require('../services/entitlementService');
 const { TRIAL_OUTCOMES, trialStatusForUser, claimTrialForUser } = require('../lib/igIdentity');
 const { createRateLimiter } = require('../lib/rateLimit');
@@ -88,6 +89,7 @@ router.get('/plans', async (req, res) => {
         // renders an amount from the catalogue, but must show a contact CTA
         // rather than a buy button.
         isQuoteOnly: plan.isQuoteOnly,
+        features: plan.features || {},
         prices: plan.prices.map(publicPrice),
         addons: {
           // Priced per PURCHASING plan tier — deliberately cheaper on Pro,
@@ -486,6 +488,19 @@ const TRIAL_CLAIM_HTTP_STATUS = {
 
 router.post('/trial/claim', trialClaimLimiter, async (req, res) => {
   try {
+    // An optional influencer / promo code (Gate 6), redeemed before the claim.
+    // One per customer, ever: a customer who already used one just claims.
+    const couponCode = req.body && req.body.couponCode;
+    if (typeof couponCode === 'string' && couponCode.trim() !== '') {
+      try {
+        await coupons.redeemCoupon(couponCode, req.userId, 'trial_claim');
+      } catch (couponErr) {
+        if (couponErr.code === 'INVALID') {
+          return res.status(400).json({ error: 'That code is not valid or has expired.', code: 'COUPON_INVALID' });
+        }
+        if (couponErr.code !== 'ALREADY_REDEEMED') throw couponErr;
+      }
+    }
     const { trialGranted, trialOutcome } = await claimTrialForUser({ userId: req.userId });
     console.log(`[Billing] Trial claim for user ${req.userId} — trial outcome: ${trialOutcome}.`);
     // DMs that arrived while this tenant had no entitlement. Never throws.
@@ -525,6 +540,10 @@ async function retireUnstartedOrder(orderId) {
  * pricing page displayed, never trusted as the actual lock. The lock
  * itself happens later, in billingFulfillment, from the payment itself.
  */
+// COUPON PLUG-IN POINT (Gate 6, not built — Cashfree changes are out of
+// scope): a customer's reserved coupon (coupon_redemptions → coupons) should
+// reduce `price.amount` below, on their FIRST paid plan order, before the
+// Cashfree order is created. See services/coupons.js.
 router.post('/checkout/plan', async (req, res) => {
   const { planCode, billingRegionHint, customerPhone } = req.body || {};
   let orderId = null;

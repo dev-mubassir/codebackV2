@@ -68,8 +68,8 @@ api.interceptors.response.use(
 // ---- Auth ----
 
 /** Register a new account with email & password */
-export async function register({ name, email, password, confirmPassword }) {
-  const { data } = await api.post('/auth/register', { name, email, password, confirmPassword });
+export async function register({ name, email, password, confirmPassword, couponCode }) {
+  const { data } = await api.post('/auth/register', { name, email, password, confirmPassword, ...(couponCode ? { couponCode } : {}) });
   return data;
 }
 
@@ -444,6 +444,49 @@ export async function runAdminAiTest() {
     if (err.response?.data?.errorCode) return { data: err.response.data };
     throw err;
   });
+  return data;
+}
+
+// ---- Admin: plans, coupons, payments, per-customer plan controls (Gate 6) ----
+
+export async function getAdminPlans() {
+  const { data } = await api.get('/api/admin/plans');
+  return data;
+}
+export async function createAdminPlan(body) {
+  const { data } = await api.post('/api/admin/plans', body);
+  return data;
+}
+export async function updateAdminPlan(code, body) {
+  const { data } = await api.put(`/api/admin/plans/${encodeURIComponent(code)}`, body);
+  return data;
+}
+export async function getAdminCoupons() {
+  const { data } = await api.get('/api/admin/coupons');
+  return data;
+}
+export async function getAdminCouponReport() {
+  const { data } = await api.get('/api/admin/coupons/report');
+  return data;
+}
+export async function createAdminCoupon(body) {
+  const { data } = await api.post('/api/admin/coupons', body);
+  return data;
+}
+export async function updateAdminCoupon(id, body) {
+  const { data } = await api.put(`/api/admin/coupons/${id}`, body);
+  return data;
+}
+export async function getAdminPayments(page = 1, status = '', userId = '') {
+  const qs = new URLSearchParams({ page: String(page) });
+  if (status) qs.set('status', status);
+  if (userId) qs.set('userId', userId);
+  const { data } = await api.get(`/api/admin/payments?${qs.toString()}`);
+  return data;
+}
+/** action: grant-plan | extend | bonus-quota | reset-trial */
+export async function customerPlanAction(userId, action, body) {
+  const { data } = await api.post(`/api/admin/users/${userId}/billing/${action}`, body);
   return data;
 }
 

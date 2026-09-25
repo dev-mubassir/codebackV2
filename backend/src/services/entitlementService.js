@@ -67,6 +67,43 @@ async function getPlan(planCode, db = prisma) {
 }
 
 /**
+ * THE TERMS BOUGHT (Gate 6). The plan's enforced limits, copied onto the
+ * entitlement at every grant, so an admin editing a Plan changes new
+ * purchases only — never what an existing customer already bought.
+ */
+function termsFrom(plan, now = new Date()) {
+  return {
+    termClassificationCapCycle: plan?.classificationCapCycle ?? null,
+    termClassificationThrottlePerHour: plan?.classificationThrottlePerHour ?? null,
+    termAutoReplyBankCap: plan?.autoReplyBankCap ?? null,
+    termIgAccountLimit: plan?.igAccountLimit ?? null,
+    termsSnapshotAt: now,
+  };
+}
+
+/**
+ * The limits that govern this tenant: the snapshot when there is one, else
+ * (a row granted before snapshots existed and not yet backfilled) the live
+ * plan. `plan` may be null when the snapshot exists — it is not needed then.
+ */
+function effectiveTerms(entitlement, plan) {
+  if (entitlement && entitlement.termsSnapshotAt) {
+    return {
+      classificationCapCycle: entitlement.termClassificationCapCycle,
+      classificationThrottlePerHour: entitlement.termClassificationThrottlePerHour,
+      autoReplyBankCap: entitlement.termAutoReplyBankCap,
+      igAccountLimit: entitlement.termIgAccountLimit,
+    };
+  }
+  return {
+    classificationCapCycle: plan?.classificationCapCycle ?? null,
+    classificationThrottlePerHour: plan?.classificationThrottlePerHour ?? null,
+    autoReplyBankCap: plan?.autoReplyBankCap ?? null,
+    igAccountLimit: plan?.igAccountLimit ?? null,
+  };
+}
+
+/**
  * Derive the status that actually governs behavior right now, independent
  * of whatever the stored `status` column says. See the module doc above.
  */
@@ -116,18 +153,21 @@ async function classificationGateReason(tenantId) {
   const entitlement = await getEntitlement(tenantId);
   if (!entitlement || !LIVE_STATUSES.includes(entitlement.effectiveStatus)) return 'not_entitled';
 
-  const plan = await getPlan(entitlement.planCode);
-  if (!plan) return 'not_entitled'; // no plan on record — fail closed, same precedent as the old billingService
+  // The terms bought (Gate 6); the live plan only for a row without them.
+  const plan = entitlement.termsSnapshotAt ? null : await getPlan(entitlement.planCode);
+  if (!entitlement.termsSnapshotAt && !plan) return 'not_entitled'; // no plan on record — fail closed, same precedent as the old billingService
+  const terms = effectiveTerms(entitlement, plan);
 
-  if (plan.classificationCapCycle != null && entitlement.classificationCountCycle >= plan.classificationCapCycle) {
-    return 'cycle_cap';
+  if (terms.classificationCapCycle != null) {
+    const cap = terms.classificationCapCycle + (entitlement.bonusClassificationsCycle || 0);
+    if (entitlement.classificationCountCycle >= cap) return 'cycle_cap';
   }
 
-  if (plan.classificationThrottlePerHour != null) {
+  if (terms.classificationThrottlePerHour != null) {
     const now = Date.now();
     const withinWindow = now - entitlement.hourWindowStartedAt.getTime() < HOUR_MS;
     const effectiveHourCount = withinWindow ? entitlement.classificationCountHour : 0;
-    if (effectiveHourCount >= plan.classificationThrottlePerHour) return 'hourly_throttle';
+    if (effectiveHourCount >= terms.classificationThrottlePerHour) return 'hourly_throttle';
   }
 
   return 'ok';
@@ -252,7 +292,7 @@ async function spendReplyCredit(tenantId) {
  * exactly one place.
  */
 function computeBankRollover(entitlement, plan) {
-  const bankCap = plan?.autoReplyBankCap ?? 0;
+  const bankCap = effectiveTerms(entitlement, plan).autoReplyBankCap ?? 0;
   const pool = entitlement.replyCreditsBanked + entitlement.replyCreditsCurrent;
   const banked = Math.min(pool, bankCap);
   return { banked, discarded: pool - banked };
@@ -365,7 +405,7 @@ async function alertPlanAnomaly(details) {
  * unlocked tenant unlocked (null || null = null) rather than ever locking
  * from weak/absent evidence — the plan is still granted normally either way.
  */
-async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit } = {}) {
+async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit, ledgerSource } = {}) {
   const plan = await getPlan(planCode, outerTx || prisma);
   if (!plan) throw new Error(`entitlementService.grantPlan: unknown plan code "${planCode}"`);
   assertAfterCommit(outerTx, afterCommit, 'grantPlan');
@@ -395,8 +435,8 @@ async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit 
       // renewal and an upgrade are unaffected (the new cap is equal or larger).
       // A downgrade keeps what was paid for under the old plan; the next cycle
       // roll or renewal caps it to the new plan in the normal way.
-      const oldPlan = existing.planCode === planCode ? plan : await getPlan(existing.planCode, tx);
-      const carryCap = Math.max(plan.autoReplyBankCap ?? 0, oldPlan?.autoReplyBankCap ?? 0);
+      const oldPlan = existing.termsSnapshotAt ? null : existing.planCode === planCode ? plan : await getPlan(existing.planCode, tx);
+      const carryCap = Math.max(plan.autoReplyBankCap ?? 0, effectiveTerms(existing, oldPlan).autoReplyBankCap ?? 0);
       carriedBank = Math.min(priorBalance, carryCap);
       if (priorBalance > carriedBank) {
         discard = {
@@ -438,6 +478,9 @@ async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit 
       replyCreditsBanked: carriedBank,
       classificationCountCycle: 0,
       extraIgAccounts,
+      // The terms bought with THIS grant (Gate 6), and no leftover bonus.
+      ...termsFrom(plan, now),
+      bonusClassificationsCycle: 0,
     };
 
     const updated = await tx.entitlement.upsert({
@@ -463,7 +506,7 @@ async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit 
         tenantId,
         delta: grantCredits,
         type: 'GRANT',
-        source: `plan_grant:${planCode.toLowerCase()}`,
+        source: ledgerSource || `plan_grant:${planCode.toLowerCase()}`,
         balanceAfter: updated.replyCreditsBanked + updated.replyCreditsCurrent,
       },
     });
@@ -548,6 +591,7 @@ async function rollCycle(tenantId) {
         replyCreditsBanked: banked,
         replyCreditsCurrent: 0,
         classificationCountCycle: 0,
+        bonusClassificationsCycle: 0, // an admin bonus is for one cycle
         cycleStartedAt: new Date(),
       },
     });
@@ -643,8 +687,8 @@ async function recordInstagramSlotUsage(tenantId, { now = new Date() } = {}) {
   try {
     const e = await prisma.entitlement.findUnique({ where: { userId: tenantId } });
     if (!e?.planCode || !e.extraIgAccounts) return 0;
-    const plan = await getPlan(e.planCode);
-    if (plan?.igAccountLimit == null) return 0;
+    const igAccountLimit = effectiveTerms(e, e.termsSnapshotAt ? null : await getPlan(e.planCode)).igAccountLimit;
+    if (igAccountLimit == null) return 0;
 
     const paidSlots = await prisma.order.findMany({
       where: { tenantId, status: 'PAID', addonCode: 'extra_ig_account' },
@@ -664,7 +708,7 @@ async function recordInstagramSlotUsage(tenantId, { now = new Date() } = {}) {
     const connected = await prisma.instagramAccount.count({ where: { userId: tenantId, connectionStatus: 'CONNECTED' } });
     let stamped = 0;
     for (let k = 0; k < held.length; k += 1) {
-      if (connected < plan.igAccountLimit + k + 1) break;
+      if (connected < igAccountLimit + k + 1) break;
       if (held[k].slotUsedAt) continue;
       const { count } = await prisma.order.updateMany({ where: { id: held[k].id, slotUsedAt: null }, data: { slotUsedAt: now } });
       stamped += count;
@@ -762,6 +806,13 @@ async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null }
 
     if (!nextLater && snap) {
       data.planCode = snap.priorPlanCode ?? null;
+      // The restored plan's terms. The grant snapshot never recorded the
+      // prior TERMS, so this re-copies them from the plan as it is now — an
+      // approximation that only differs if an admin edited that plan since.
+      Object.assign(
+        data,
+        data.planCode ? termsFrom(await getPlan(data.planCode, tx), now) : { ...termsFrom(null, now), termsSnapshotAt: null }
+      );
       data.validUntil = snap.priorValidUntil ? new Date(snap.priorValidUntil) : null;
       data.graceUntil = snap.priorGraceUntil ? new Date(snap.priorGraceUntil) : null;
       summary.validity = { mode: 'restored_prior' };
@@ -841,6 +892,8 @@ module.exports = {
   // does not produce.
   LIVE_STATUSES,
   PLAN_TIERS,
+  termsFrom,
+  effectiveTerms,
   downgradeBlock,
   effectiveStatus,
   getEntitlement,

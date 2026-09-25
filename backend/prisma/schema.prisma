@@ -1068,6 +1068,20 @@ model Entitlement {
 
   extraIgAccounts Int @default(0) @map("extra_ig_accounts") // recurring add-on count; folded into next renewal's price
 
+  // THE TERMS BOUGHT (Gate 6). Copied from the Plan at every grant (purchase,
+  // renewal, trial, admin grant), so an admin editing a plan changes what NEW
+  // purchases get — never what an existing customer already bought. NULL
+  // termsSnapshotAt = a row from before this existed; entitlementService then
+  // falls back to the live plan. The migration backfills every existing row.
+  termClassificationCapCycle        Int?      @map("term_classification_cap_cycle")
+  termClassificationThrottlePerHour Int?      @map("term_classification_throttle_per_hour")
+  termAutoReplyBankCap              Int?      @map("term_auto_reply_bank_cap")
+  termIgAccountLimit                Int?      @map("term_ig_account_limit")
+  termsSnapshotAt                   DateTime? @map("terms_snapshot_at")
+  // Admin-granted extra classifications for THIS cycle only; reset to 0 by
+  // every grant and cycle roll.
+  bonusClassificationsCycle         Int       @default(0) @map("bonus_classifications_cycle")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1282,7 +1296,7 @@ model Plan {
 
   name                          String
   igAccountLimit                Int?    @map("ig_account_limit") // null = custom (Enterprise)
-  autoReplyCreditsPerCycle      Int?    @map("auto_reply_credits_per_cycle") // monthly grant; the trial's own TRIAL_AUTO_REPLY_CREDITS constant lives in code, not here
+  autoReplyCreditsPerCycle      Int?    @map("auto_reply_credits_per_cycle") // credits per cycle; for TRIAL, the trial grant (lib/igIdentity.js) reads this too (Gate 6)
   autoReplyBankCap              Int?    @map("auto_reply_bank_cap") // max banked (rolled-over) credits; excess discarded at renewal
   classificationCapCycle        Int?    @map("classification_cap_cycle") // internal burst guard only — never advertised on marketing pages
   classificationThrottlePerHour Int?    @map("classification_throttle_per_hour")
@@ -1295,6 +1309,9 @@ model Plan {
   // two apart would be "does it have a price row", which stops being true
   // the moment a from-price exists.
   isQuoteOnly                   Boolean @default(false) @map("is_quote_only")
+  // Marketing/feature flags for the plan card (Gate 6): a flat object of
+  // booleans, numbers or short strings, validated in the admin route.
+  features                      Json?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1374,4 +1391,50 @@ model ExtraIgAccountPrice {
 
   @@unique([planCode, billingRegion])
   @@map("extra_ig_account_prices")
+}
+
+// ============================================
+// Coupons (Gate 6). Redeemed ONLY at signup / trial claim today, which
+// records attribution (the influencer tag) and reserves the discount for the
+// customer's first paid checkout. Applying the discount at Cashfree checkout
+// is NOT built (out of scope) — see routes/billing.js POST /checkout/plan.
+//
+// Never hard-deleted: deactivate instead, so redemption history and the
+// influencer report stay intact.
+// ============================================
+model Coupon {
+  id            String    @id @default(uuid())
+  code          String    @unique // stored UPPERCASE; matched case-insensitively
+  discountType  String    @map("discount_type") // PERCENT | FLAT
+  value         Int // PERCENT: 1..100; FLAT: smallest currency unit (paise / cents)
+  currency      String? // FLAT only: INR | USD
+  maxUses       Int?      @map("max_uses") // null = unlimited
+  usedCount     Int       @default(0) @map("used_count")
+  expiresAt     DateTime? @map("expires_at")
+  influencerTag String?   @map("influencer_tag")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdBy     String?   @map("created_by") // AdminUser id
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  redemptions CouponRedemption[]
+
+  @@index([influencerTag])
+  @@map("coupons")
+}
+
+// One per user, ever (the attribution is "who brought this customer").
+// userId is a plain field — like orders — so the influencer report keeps
+// counting a signup after the account is deleted; it identifies no one.
+model CouponRedemption {
+  id         String   @id @default(uuid())
+  couponId   String   @map("coupon_id")
+  userId     String   @unique @map("user_id")
+  context    String // signup | trial_claim
+  redeemedAt DateTime @default(now()) @map("redeemed_at")
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Restrict)
+
+  @@index([couponId])
+  @@map("coupon_redemptions")
 }

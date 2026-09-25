@@ -46,9 +46,12 @@ const HEARTBEAT_MIN_GAP_MS = 60 * 1000;
 
 const NAV_ITEMS = [
   { label: t.nav.dashboard, path: '/admin', icon: 'dashboard' },
-  { label: t.nav.health, path: '/admin/health', icon: 'zap' },
-  { label: t.nav.ai, path: '/admin/ai', icon: 'settings' },
+  { label: t.nav.health, path: '/admin/health', icon: 'shield' },
+  { label: t.nav.ai, path: '/admin/ai', icon: 'zap' },
   { label: t.nav.users, path: '/admin/users', icon: 'users' },
+  { label: t.nav.plans, path: '/admin/plans', icon: 'package' },
+  { label: t.nav.coupons, path: '/admin/coupons', icon: 'tag' },
+  { label: t.nav.payments, path: '/admin/payments', icon: 'creditCard' },
   { label: t.nav.accounts, path: '/admin/accounts', icon: 'instagram' },
   { label: t.nav.support, path: '/admin/support', icon: 'lifeBuoy' },
   { label: t.nav.settings, path: '/admin/settings', icon: 'settings' },

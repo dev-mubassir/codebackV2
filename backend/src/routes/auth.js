@@ -40,6 +40,7 @@ const { isBillingEnabled } = require('../lib/billingFlags');
 const { refreshExpiringAccountAvatars } = require('../lib/accountAvatar');
 const sessionIdle = require('../lib/sessionIdle');
 const { deleteUserAccount } = require('../services/accountDeletion');
+const coupons = require('../services/coupons');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -160,7 +161,7 @@ function sanitizeUser(user) {
 // ============================================
 router.post('/register', registerLimiter, async (req, res) => {
   try {
-    const { name, email, password, confirmPassword } = req.body || {};
+    const { name, email, password, confirmPassword, couponCode } = req.body || {};
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
       return res.status(400).json({ error: 'Enter a full name of at least 2 characters.' });
@@ -176,6 +177,14 @@ router.post('/register', registerLimiter, async (req, res) => {
 
     if (password !== confirmPassword) {
       return res.status(400).json({ error: 'Those passwords do not match.' });
+    }
+
+    // An optional influencer / promo code (Gate 6). Checked BEFORE the
+    // account exists, so a mistyped code is fixed by the person typing it
+    // rather than silently dropped. Redeemed after the account is created.
+    const wantsCoupon = typeof couponCode === 'string' && couponCode.trim() !== '';
+    if (wantsCoupon && !(await coupons.findRedeemable(couponCode))) {
+      return res.status(400).json({ error: 'That code is not valid or has expired. Check it, or leave it empty.', code: 'COUPON_INVALID' });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -223,6 +232,19 @@ router.post('/register', registerLimiter, async (req, res) => {
       sessionVersion: user.sessionVersion,
     });
 
+    // The code was valid a moment ago; the last use can still go to someone
+    // else in between. The account stands either way — the response says
+    // whether the code was applied.
+    let couponApplied = false;
+    if (wantsCoupon) {
+      try {
+        await coupons.redeemCoupon(couponCode, user.id, 'signup');
+        couponApplied = true;
+      } catch (couponErr) {
+        console.warn(`[Auth] Signup coupon not applied for user ${user.id}: ${couponErr.code || couponErr.message}`);
+      }
+    }
+
     // Send the verification link. A failure here must NOT fail registration —
     // the account exists and the user can request another link — but it must
     // be logged loudly, and the RESPONSE MUST NOT CLAIM THE MAIL WAS SENT.
@@ -254,6 +276,7 @@ router.post('/register', registerLimiter, async (req, res) => {
         : "Account created, but we couldn't send the confirmation email. Use \"Resend\" from your profile to try again.",
       user: sanitizeUser(user),
       emailVerificationSent: verificationSent,
+      ...(wantsCoupon ? { couponApplied } : {}),
     });
   } catch (error) {
     console.error('[Auth] Registration error:', error.message);

@@ -245,12 +245,25 @@ async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
   // A NONE row should hold nothing. If it ever did, the trial grant below
   // replaces that balance, and the replacement is recorded.
   const priorCurrent = entitlement?.replyCreditsCurrent ?? 0;
+  // The TRIAL plan's limits as they are at grant time (Gate 6): a later
+  // admin edit to the TRIAL plan applies to new trials only.
+  const trialPlan = await tx.plan.findUnique({ where: { code: 'TRIAL' } });
+  // The TRIAL plan row is the definition (Gate 6); the constants are only
+  // the fallback for a database without the row.
+  const trialCredits = trialPlan?.autoReplyCreditsPerCycle ?? TRIAL_AUTO_REPLY_CREDITS;
+  const trialDays = trialPlan?.cycleLengthDays ?? TRIAL_DAYS;
   const trialFields = {
     planCode: 'TRIAL',
     status: 'TRIALING',
     cycleStartedAt: now,
-    validUntil: trialEndDate(now),
-    replyCreditsCurrent: TRIAL_AUTO_REPLY_CREDITS,
+    validUntil: new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000),
+    replyCreditsCurrent: trialCredits,
+    termClassificationCapCycle: trialPlan?.classificationCapCycle ?? null,
+    termClassificationThrottlePerHour: trialPlan?.classificationThrottlePerHour ?? null,
+    termAutoReplyBankCap: trialPlan?.autoReplyBankCap ?? null,
+    termIgAccountLimit: trialPlan?.igAccountLimit ?? null,
+    termsSnapshotAt: trialPlan ? now : null,
+    bonusClassificationsCycle: 0,
   };
 
   if (entitlement) {
@@ -283,7 +296,7 @@ async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
   await tx.creditLedger.create({
     data: {
       tenantId: userId,
-      delta: TRIAL_AUTO_REPLY_CREDITS,
+      delta: trialCredits,
       type: 'GRANT',
       source: 'trial_grant',
       balanceAfter: granted.replyCreditsCurrent + granted.replyCreditsBanked,

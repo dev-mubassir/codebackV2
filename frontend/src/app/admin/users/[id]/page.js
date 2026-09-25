@@ -12,8 +12,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { deleteUserAdmin, forceLogoutUser, getAdminUserDetail, setUserSuspended } from '@/lib/api';
-import { Badge, Button, Skeleton } from '@/app/components/ui';
+import { customerPlanAction, deleteUserAdmin, forceLogoutUser, getAdminUserDetail, setUserSuspended } from '@/lib/api';
+import { Badge, Button, Input, Select, Skeleton } from '@/app/components/ui';
 import { admin as t, confirm as confirmCopy, errors } from '@/content/copy';
 import { formatCount, formatDate, formatDateTime } from '@/content/format';
 import ReasonDialog from '../../_components/ReasonDialog';
@@ -21,6 +21,78 @@ import { StepUpCancelled, useStepUp } from '../../_components/StepUp';
 import styles from '../../admin.module.css';
 
 const d = t.users.detail;
+const pc = t.planControls;
+
+/**
+ * Plan controls (Gate 6): grant a plan with a custom expiry, extend the
+ * expiry, add bonus quota for this cycle, reset the trial. Every one needs a
+ * written reason AND the password (step-up), and is audited.
+ */
+function PlanControls({ userId, onDone }) {
+  const [grant, setGrant] = useState({ planCode: 'STARTER', validUntil: '' });
+  const [days, setDays] = useState('');
+  const [amount, setAmount] = useState('');
+  const [pending, setPending] = useState(null); // { action, body, title }
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const { withStepUp } = useStepUp();
+
+  const ask = (action, body, title) => { setError(''); setPending({ action, body, title }); };
+
+  async function confirm(reason) {
+    setBusy(true);
+    setError('');
+    try {
+      await withStepUp(() => customerPlanAction(userId, pending.action, { ...pending.body, reason }));
+      setPending(null);
+      await onDone();
+    } catch (err) {
+      if (!(err instanceof StepUpCancelled)) setError(err?.response?.data?.error || errors.generic);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={styles.panel}>
+      <div className={styles.panelHeader}><h2 className={styles.panelTitle}>{pc.title}</h2></div>
+      <div className={styles.passwordForm}>
+        <form className={styles.filters} onSubmit={(e) => { e.preventDefault(); ask('grant-plan', { planCode: grant.planCode, validUntil: new Date(`${grant.validUntil}T23:59:59`).toISOString() }, `${pc.grant}: ${grant.planCode}`); }}>
+          <Select aria-label={pc.grantPlan} value={grant.planCode} onChange={(e) => setGrant((g) => ({ ...g, planCode: e.target.value }))}>
+            <option value="STARTER">STARTER</option>
+            <option value="PRO">PRO</option>
+            <option value="ENTERPRISE">ENTERPRISE</option>
+          </Select>
+          <Input type="date" aria-label={pc.grantUntil} value={grant.validUntil} onChange={(e) => setGrant((g) => ({ ...g, validUntil: e.target.value }))} required />
+          <Button type="submit" size="sm">{pc.grant}</Button>
+        </form>
+        <form className={styles.filters} onSubmit={(e) => { e.preventDefault(); ask('extend', { days: Number(days) }, `${pc.extend}: +${days}`); }}>
+          <Input type="number" min="1" max="365" aria-label={pc.days} placeholder={pc.days} value={days} onChange={(e) => setDays(e.target.value)} required />
+          <Button type="submit" size="sm">{pc.extend}</Button>
+        </form>
+        <form className={styles.filters} onSubmit={(e) => { e.preventDefault(); ask('bonus-quota', { amount: Number(amount) }, `${pc.bonus}: +${amount}`); }}>
+          <Input type="number" min="1" max="100000" aria-label={pc.amount} placeholder={pc.amount} value={amount} onChange={(e) => setAmount(e.target.value)} required />
+          <Button type="submit" size="sm">{pc.bonus}</Button>
+        </form>
+        <div>
+          <p className={styles.cellSub}>{pc.resetBody}</p>
+          <Button size="sm" onClick={() => ask('reset-trial', {}, pc.resetTrial)}>{pc.resetTrial}</Button>
+        </div>
+      </div>
+      {pending && (
+        <ReasonDialog
+          title={pending.title}
+          body={pc.confirmBody}
+          actionLabel={pending.title}
+          busy={busy}
+          error={error}
+          onConfirm={confirm}
+          onClose={() => { if (!busy) setPending(null); }}
+        />
+      )}
+    </section>
+  );
+}
 
 const ACTIONS = {
   suspend: { copy: confirmCopy.adminSuspendUser, variant: 'danger' },
@@ -167,6 +239,8 @@ export default function AdminUserDetailPage() {
               </table>
             </div>
           </section>
+
+          <PlanControls userId={user.id} onDone={load} />
 
           <section className={styles.panel}>
             <div className={styles.panelHeader}><h2 className={styles.panelTitle}>{d.actions}</h2></div>
