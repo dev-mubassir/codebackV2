@@ -16,7 +16,7 @@ const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { encrypt } = require('../lib/crypto');
 const { disconnectUserSockets } = require('../lib/socket');
-const { createRateLimiter } = require('../lib/rateLimit');
+const { createRateLimiter, redisHit } = require('../lib/rateLimit');
 const { recordInstagramSlotUsage } = require('../services/entitlementService');
 const { startAuthenticatedSession, saveSession } = require('../lib/session');
 const { logAdminAction } = require('../lib/auditLogger');
@@ -92,9 +92,10 @@ const resendVerificationLimiter = createRateLimiter({
 /**
  * Per-email throttle for password resets: 3 per hour.
  *
- * Kept in memory alongside lib/rateLimit.js for the same reasons documented
- * there (single instance, pre-launch). It is keyed on the email rather than
- * the IP so that a distributed mailbomb against one address is still stopped.
+ * Counted in Redis when it is configured (one limit across every instance),
+ * in memory otherwise — same store rules as lib/rateLimit.js. It is keyed on
+ * the email rather than the IP so that a distributed mailbomb against one
+ * address is still stopped.
  *
  * IMPORTANT: this must NOT change the response. Returning 429 for a
  * rate-limited address and 200 otherwise would itself be an account-enumeration
@@ -104,7 +105,15 @@ const forgotPasswordByEmail = new Map();
 const FORGOT_WINDOW_MS = 60 * 60 * 1000;
 const FORGOT_MAX_PER_EMAIL = 3;
 
-function maySendResetTo(normalizedEmail) {
+async function maySendResetTo(normalizedEmail) {
+  // Shared across instances when Redis is up (the hashed address is the key);
+  // otherwise counted in this process, as before.
+  const shared = await redisHit(
+    `fp:${crypto.createHash('sha256').update(normalizedEmail).digest('hex').slice(0, 32)}`,
+    FORGOT_WINDOW_MS
+  );
+  if (shared) return shared.count <= FORGOT_MAX_PER_EMAIL;
+
   const now = Date.now();
   const entry = forgotPasswordByEmail.get(normalizedEmail);
   if (!entry || now > entry.resetAt) {
@@ -472,7 +481,7 @@ router.post('/forgot-password', forgotPasswordIpLimiter, async (req, res) => {
       });
     }
 
-    if (!maySendResetTo(normalizedEmail)) {
+    if (!(await maySendResetTo(normalizedEmail))) {
       console.warn(`[Auth] Reset rate limit hit for a single address; send suppressed.`);
       return res.json(GENERIC);
     }

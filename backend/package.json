@@ -1,7 +1,7 @@
 {
   "name": "codeback-backend",
   "version": "1.0.0",
-  "description": "Codeback \u2014 Instagram DM Inbox SaaS Backend",
+  "description": "Codeback — Instagram DM Inbox SaaS Backend",
   "main": "src/index.js",
   "scripts": {
     "dev": "node --watch src/index.js",
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.9.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "argon2": "^0.45.1",
     "axios": "^1.7.0",
     "bcryptjs": "^3.0.3",
@@ -37,6 +38,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "socket.io-client": "^4.8.4",
     "supertest": "^7.2.2",
     "vitest": "^4.1.11"
   },

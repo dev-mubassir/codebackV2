@@ -151,12 +151,17 @@ function criticalReserve() {
 // ---------------------------------------------------------------------------
 // State
 //
-// In memory, matching lib/rateLimit.js and for the same stated reasons
-// (single instance, pre-launch). KNOWN LIMITATION: a restart resets the daily
-// counter, so a process that restarts mid-day can exceed the real provider
-// limit. That is acceptable while this is one instance deployed rarely; it is
-// NOT acceptable once deploys are frequent or there is more than one instance.
-// Recorded in FINDINGS.md.
+// Two stores with one set of rules (evaluate() below):
+//
+//   Redis   when REDIS_URL is configured — the cap is ONE cap across every
+//           instance and survives a restart, which is what the provider's
+//           100/day actually is. deliver() uses checkShared()/recordSendShared().
+//   memory  this process only. The fallback when Redis is not configured or is
+//           unreachable, and what the synchronous check()/recordSend() read —
+//           kept for tests and callers that only need this instance's view.
+//
+// recordSendShared() also updates the memory counters, so this instance's
+// stats() stay meaningful for the send log line either way.
 // ---------------------------------------------------------------------------
 let dayKey = null;
 let sentToday = 0;
@@ -198,7 +203,20 @@ if (typeof sweep.unref === 'function') sweep.unref();
  */
 function check(type, recipient) {
   rollDayIfNeeded();
+  const entry = perRecipient.get(`${type}:${String(recipient).toLowerCase()}`);
+  return evaluate(type, {
+    sentToday,
+    adminSentToday,
+    recipientCount: entry && Date.now() <= entry.resetAt ? entry.count : 0,
+  });
+}
 
+/**
+ * The quota rules, applied to a set of counts from either store.
+ * @param {string} type
+ * @param {{sentToday: number, adminSentToday: number, recipientCount: number}} counts
+ */
+function evaluate(type, { sentToday, adminSentToday, recipientCount }) {
   // The admin bucket is checked on its own and never falls through to the
   // shared cap — see ADMIN_TYPES. No per-recipient throttle either: a burst of
   // lockouts is exactly the thing the owner needs to see, and the daily cap
@@ -230,10 +248,8 @@ function check(type, recipient) {
     };
   }
 
-  const key = `${type}:${String(recipient).toLowerCase()}`;
-  const entry = perRecipient.get(key);
   const max = perRecipientMax(type);
-  if (entry && Date.now() <= entry.resetAt && entry.count >= max) {
+  if (recipientCount >= max) {
     return {
       ok: false,
       reason: 'per_recipient',
@@ -281,6 +297,64 @@ function stats() {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Shared (Redis) store
+// ---------------------------------------------------------------------------
+const crypto = require('crypto');
+const { getRedis, isRedisReady } = require('../redis');
+const { redisHit } = require('../rateLimit');
+
+const DAY_KEY_TTL_S = 36 * 60 * 60; // a day's counter outlives the day by 12h, then goes
+const rcptHash = (type, recipient) =>
+  crypto.createHash('sha256').update(`${type}:${String(recipient).toLowerCase()}`).digest('hex').slice(0, 32);
+const keys = {
+  sent: (day) => `email:quota:${day}:sent`,
+  admin: (day) => `email:quota:${day}:admin`,
+  rcpt: (type, recipient) => `email:quota:rcpt:${rcptHash(type, recipient)}`,
+};
+
+function sharedClient() {
+  const client = getRedis();
+  return client && isRedisReady() ? client : null;
+}
+
+/**
+ * check(), against the cross-instance counters when Redis is up; falls back to
+ * this process's memory otherwise. Never rejects.
+ */
+async function checkShared(type, recipient) {
+  const client = sharedClient();
+  if (!client) return check(type, recipient);
+  try {
+    const [sent, admin, rcpt] = await client.mget(keys.sent(today()), keys.admin(today()), keys.rcpt(type, recipient));
+    return evaluate(type, {
+      sentToday: Number(sent) || 0,
+      adminSentToday: Number(admin) || 0,
+      recipientCount: Number(rcpt) || 0,
+    });
+  } catch (err) {
+    console.warn('[email] quota: Redis unavailable, checking this instance only:', err.message);
+    return check(type, recipient);
+  }
+}
+
+/** recordSend(), on both stores. Never rejects. */
+async function recordSendShared(type, recipient) {
+  recordSend(type, recipient);
+  const client = sharedClient();
+  if (!client) return;
+  try {
+    const day = today();
+    const dayKey = ADMIN_TYPES.has(type) ? keys.admin(day) : keys.sent(day);
+    await client.multi().incr(dayKey).expire(dayKey, DAY_KEY_TTL_S).exec();
+    // The recipient window starts at the first send, like the memory entry —
+    // the same atomic INCR-then-PEXPIRE the rate limiter uses.
+    if (!ADMIN_TYPES.has(type)) await redisHit(keys.rcpt(type, recipient), PER_RECIPIENT_WINDOW_MS);
+  } catch (err) {
+    console.warn('[email] quota: could not record the send in Redis:', err.message);
+  }
+}
+
 /** Test seam. */
 function _reset() {
   dayKey = today();
@@ -292,6 +366,8 @@ function _reset() {
 module.exports = {
   check,
   recordSend,
+  checkShared,
+  recordSendShared,
   stats,
   _reset,
   CRITICAL_TYPES,
