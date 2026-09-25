@@ -470,6 +470,7 @@ describe('privacy and the fixed bugs', () => {
       `/api/admin/users/${user.id}`,
       '/api/admin/accounts',
       '/api/admin/logs/webhooks',
+      '/api/admin/health',
       `/api/admin/support/search?q=${encodeURIComponent(user.email)}`,
     ];
     for (const url of reads) {

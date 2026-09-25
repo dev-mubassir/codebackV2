@@ -23,7 +23,9 @@ const router = express.Router();
 const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { readAccountToken, writeAccountToken } = require('../lib/crypto');
-const { getAIStats } = require('../services/aiService');
+const aiService = require('../services/aiService');
+const { getAIStats } = aiService;
+const { collectHealth } = require('../lib/health');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession, destroyUserSessions } = require('../lib/session');
 const { disconnectUserSockets } = require('../lib/socket');
@@ -483,6 +485,58 @@ router.get('/stats', async (req, res) => {
     console.error('[Admin] Error fetching stats:', error.message);
     res.status(500).json({ error: "Couldn't load platform stats. Refresh to try again." });
   }
+});
+
+// ============================================
+// 3b. HEALTH (Gate 3)
+// ============================================
+
+// GET /api/admin/health — process, DB, sockets, jobs, webhooks, AI, email,
+// Instagram tokens, recent errors. A GET: the dashboard polls it every 30s
+// and that must not count as admin activity (it does not).
+router.get('/health', async (req, res) => {
+  try {
+    res.json(
+      await collectHealth({
+        aiConfig: () => aiService.activeAiConfig(),
+        emailFailures: () => mailer.sendFailureStats(),
+      })
+    );
+  } catch (error) {
+    console.error('[Admin] Health error:', error.message);
+    res.status(500).json({ error: "Couldn't load system health. Refresh to try again." });
+  }
+});
+
+const aiTestLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 5,
+  message: 'Wait a minute before testing the AI provider again.',
+});
+
+// POST /api/admin/health/ai-test — one minimal call to the active provider.
+// A fixed prompt with no customer data. Answers ok/latency/model or a safe
+// error code — never the provider's error text. Audit-logged (it spends money).
+router.post('/health/ai-test', aiTestLimiter, async (req, res) => {
+  const started = Date.now();
+  let result;
+  try {
+    const out = await aiService.callAIWithFailover({
+      prompt: 'Reply with the single word OK.',
+      isJson: false,
+      timeout: 10000,
+      jobType: 'admin_test',
+    });
+    result = { ok: true, provider: out.provider, model: out.model, latencyMs: Date.now() - started };
+  } catch (err) {
+    result = {
+      ok: false,
+      latencyMs: Date.now() - started,
+      errorCode: err.code === 'NO_PROVIDERS_CONFIGURED' ? 'NO_PROVIDERS_CONFIGURED' : 'PROVIDER_FAILED',
+    };
+  }
+  await recordAdminAudit(req, { action: 'AI_TEST', targetType: 'SYSTEM', after: result });
+  res.status(result.ok ? 200 : 502).json(result);
 });
 
 // ============================================

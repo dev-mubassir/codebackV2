@@ -187,6 +187,25 @@ function degradedReason() {
   return isDegraded() ? lastFailureReason : null;
 }
 
+// Provider send failures, for the admin health page (Gate 3). Timestamps
+// only — never the recipient or the message. In memory; a restart clears it.
+const sendFailures = [];
+function noteSendFailure() {
+  const now = Date.now();
+  sendFailures.push(now);
+  const dayAgo = now - 24 * 60 * 60 * 1000;
+  while (sendFailures.length && sendFailures[0] < dayAgo) sendFailures.shift();
+}
+function sendFailureStats() {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const last24h = sendFailures.filter((t) => t >= dayAgo);
+  return {
+    failures24h: last24h.length,
+    lastFailureAt: last24h.length ? new Date(last24h[last24h.length - 1]).toISOString() : null,
+    degraded: isDegraded(),
+  };
+}
+
 // Resolved per call rather than cached at module load, so tests can flip the
 // env var between cases without re-importing the module.
 async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
@@ -236,6 +255,7 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
     // own message survives, and it is usually the thing that names the cause
     // ("The mail.siffty.com domain is not verified", say).
     markTransportFailed(err.message);
+    noteSendFailure();
     console.error(
       `[email] FAILED to send "${subject}" via ${transport.name}: ${err.message}`
     );
@@ -266,6 +286,8 @@ module.exports = {
    */
   isDegraded,
   degradedReason,
+  /** Provider send failures in the last 24h (admin health page). */
+  sendFailureStats,
   /**
    * Mark the transport degraded from OUTSIDE this module.
    *

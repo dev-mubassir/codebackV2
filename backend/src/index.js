@@ -42,6 +42,11 @@ const { startWorkers } = require('./jobs');
 const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
 const { skipOnAdminPaths, buildAdminSessionMiddleware, buildAdminStore } = require('./lib/adminSession');
 const { userSessionGuard, socketSessionIsLive, startIdleSocketSweep } = require('./lib/sessionIdle');
+const { publicHealthHandler } = require('./lib/health');
+const { captureRequestContext, installConsoleErrorCapture } = require('./lib/errorRing');
+
+// The last 100 backend errors, sanitised, for the admin health page.
+installConsoleErrorCapture();
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandlers');
 
 // ============================================
@@ -72,6 +77,9 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
 // ============================================
 // Middleware
 // ============================================
+
+// Remember METHOD + path for errors logged during this request (errorRing).
+app.use(captureRequestContext);
 
 // Baseline security headers on every response (no external dependency).
 app.use(securityHeaders);
@@ -447,10 +455,9 @@ io.on('connection', async (socket) => {
 // Routes
 // ============================================
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// Public health check for an external uptime monitor: {status:"ok"} or a
+// 503, nothing else (lib/health.js). Details live behind /api/admin/health.
+app.get('/health', publicHealthHandler);
 
 // Handle OAuth callback if REDIRECT_URI is exactly the ngrok root.
 // `state` must be forwarded too, or the callback's CSRF check can never pass.

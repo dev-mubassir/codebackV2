@@ -420,6 +420,20 @@ export async function supportSearch(query) {
   return data;
 }
 
+export async function getAdminHealth() {
+  const { data } = await api.get('/api/admin/health');
+  return data;
+}
+
+/** One minimal call to the active AI provider. Answers ok or a safe error code. */
+export async function runAdminAiTest() {
+  const { data } = await api.post('/api/admin/health/ai-test').catch((err) => {
+    if (err.response?.data?.errorCode) return { data: err.response.data };
+    throw err;
+  });
+  return data;
+}
+
 export async function getAdminSettings() {
   const { data } = await api.get('/api/admin/settings');
   return data;

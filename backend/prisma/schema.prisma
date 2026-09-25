@@ -596,6 +596,68 @@ model AppSetting {
 }
 
 // ============================================
+// One row per AI provider HTTP call (Gate 3). Metadata ONLY — never the
+// prompt, the message, or the model's answer. tenantId is a plain field (no
+// FK) so rows survive a user delete until the 30-day purge; account deletion
+// also removes that tenant's rows (services/accountDeletion.js, Gate 5).
+// Rolled up into AiUsageDaily and deleted after 30 days (jobs/aiUsageJob.js).
+// ============================================
+model AiCallLog {
+  id            String   @id @default(uuid())
+  provider      String
+  model         String
+  jobType       String   @map("job_type") // classification | summary | reply | admin_test
+  tenantId      String?  @map("tenant_id")
+  latencyMs     Int      @map("latency_ms")
+  success       Boolean
+  errorCode     String?  @map("error_code") // provider status / network code, never message text
+  httpStatus    Int?     @map("http_status")
+  inputTokens   Int?     @map("input_tokens")
+  outputTokens  Int?     @map("output_tokens")
+  estimatedCost Float?   @map("estimated_cost") // USD, from the price table in lib/ai/models.js
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([provider, model, createdAt])
+  @@map("ai_call_logs")
+}
+
+// Daily roll-up of AiCallLog, kept after the raw rows are purged.
+model AiUsageDaily {
+  id             String   @id @default(uuid())
+  day            DateTime @db.Date
+  provider       String
+  model          String
+  jobType        String   @map("job_type")
+  calls          Int
+  failures       Int
+  inputTokens    Int      @map("input_tokens")
+  outputTokens   Int      @map("output_tokens")
+  estimatedCost  Float    @map("estimated_cost")
+  totalLatencyMs BigInt   @map("total_latency_ms")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([day, provider, model, jobType])
+  @@map("ai_usage_daily")
+}
+
+// One row per scheduled job run (Gate 3). Purged after 30 days by housekeeping.
+model JobRun {
+  id         String    @id @default(uuid())
+  jobName    String    @map("job_name")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  success    Boolean?
+  error      String? // first line only, bounded — see jobs/jobRuns.js
+  details    Json? // counts only, e.g. { refreshed: 3 }
+
+  @@index([jobName, startedAt])
+  @@index([startedAt])
+  @@map("job_runs")
+}
+
+// ============================================
 // Webhook Event & Health Log
 // ============================================
 model WebhookLog {

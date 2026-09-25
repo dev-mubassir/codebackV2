@@ -330,3 +330,39 @@ describe('background work does not need a session', () => {
     expect(saved, 'the DM is stored with nobody logged in').not.toBeNull();
   });
 });
+
+describe('sweep against the REAL production store (connect-pg-simple)', () => {
+  it('treats a missing session as gone and an idle one as expired, on Postgres', async () => {
+    const session = require('express-session');
+    const PgStore = require('connect-pg-simple')(session);
+    const { Pool } = require('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const store = new PgStore({ pool, tableName: 'user_sessions', createTableIfMissing: false });
+    const put = (sid, sess) => new Promise((resolve, reject) => store.set(sid, sess, (e) => (e ? reject(e) : resolve())));
+    const get = (sid) => new Promise((resolve) => store.get(sid, (e, s) => resolve({ e, s })));
+    const cookie = { originalMaxAge: 7 * 24 * 60 * MIN, expires: new Date(Date.now() + 7 * 24 * 60 * MIN) };
+
+    try {
+      const liveSid = uniq('pg-live');
+      const idleSid = uniq('pg-idle');
+      await put(liveSid, { cookie, userId: 'u-live', lastActivityAt: Date.now(), authenticatedAt: Date.now() });
+      await put(idleSid, { cookie, userId: 'u-idle', lastActivityAt: Date.now() - 31 * MIN, authenticatedAt: Date.now() });
+
+      // What the store really returns for a missing sid: no error, no session.
+      const missing = await get(uniq('pg-missing'));
+      expect(missing.e).toBeFalsy();
+      expect(missing.s == null).toBe(true);
+
+      const { io, sockets } = stubIo([liveSid, idleSid, 'pg-no-such-session']);
+      const result = await sessionIdle.sweepIdleSockets({ io, store });
+      expect(result).toEqual({ checked: 3, disconnected: 2 });
+      expect(sockets[0].disconnect).not.toHaveBeenCalled();
+      expect(sockets[1].disconnect).toHaveBeenCalledWith(true);
+      expect(sockets[2].disconnect).toHaveBeenCalledWith(true);
+      expect((await get(idleSid)).s == null, 'idle row deleted from user_sessions').toBe(true);
+    } finally {
+      store.close();
+      await pool.end();
+    }
+  });
+});

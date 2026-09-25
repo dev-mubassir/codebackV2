@@ -8,6 +8,7 @@
  */
 
 const axios = require('axios');
+const { recordAiCall } = require('../lib/ai/callLog');
 const {
   CATEGORIES,
   CUSTOMER_TYPES,
@@ -92,6 +93,7 @@ const aiStats = {
   replyGenerations: 0,
   categoryCounts: Object.fromEntries(CATEGORIES.map((c) => [c, 0])),
   lastSuccessfulProvider: null,
+  lastSuccessfulModel: null,
 };
 
 function getAIStats() {
@@ -342,8 +344,48 @@ function formatBusinessProfileContext(profile) {
 
 // ============================================
 // AI Provider Implementations
+//
+// Every HTTP call goes through attempt(), which times it and records ONE
+// ai_call_logs row (lib/ai/callLog.js): provider, model, job type, tenant,
+// latency, success, error code, tokens, estimated cost. Metadata only — never
+// the prompt or the answer. An empty or unparseable answer is logged as a
+// failure (the call still cost tokens) and the loop moves to the next model,
+// exactly as before.
 // ============================================
-async function callGemini(apiKey, { prompt, isJson, timeout = 15000 }) {
+async function attempt({ provider, model, ctx }, send, readUsage) {
+  const started = Date.now();
+  let response;
+  try {
+    response = await send();
+  } catch (err) {
+    recordAiCall({ provider, model, ...ctx, latencyMs: Date.now() - started, success: false, error: err });
+    throw err;
+  }
+  const usage = readUsage(response.data) || {};
+  return {
+    response,
+    log(success, aiErrorCode) {
+      recordAiCall({
+        provider,
+        model,
+        ...ctx,
+        latencyMs: Date.now() - started,
+        success,
+        error: success ? null : { aiErrorCode },
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+      });
+    },
+  };
+}
+
+const geminiUsage = (data) => ({
+  input: data?.usageMetadata?.promptTokenCount,
+  output: data?.usageMetadata?.candidatesTokenCount,
+});
+const chatUsage = (data) => ({ input: data?.usage?.prompt_tokens, output: data?.usage?.completion_tokens });
+
+async function callGemini(apiKey, { prompt, isJson, timeout = 15000, ctx = {} }) {
   if (!apiKey || !apiKey.trim()) throw new Error('GEMINI_API_KEY is not configured');
 
   const models = [
@@ -361,16 +403,24 @@ async function callGemini(apiKey, { prompt, isJson, timeout = 15000 }) {
       const payload = { contents: [{ parts: [{ text: prompt }] }] };
       if (isJson) payload.generationConfig = { responseMimeType: 'application/json' };
 
-      const response = await axios.post(url, payload, { timeout });
+      const { response, log } = await attempt({ provider: 'gemini', model, ctx }, () => axios.post(url, payload, { timeout }), geminiUsage);
       const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawText) continue;
+      if (!rawText) {
+        log(false, 'EMPTY_RESPONSE');
+        continue;
+      }
 
       if (isJson) {
         const parsed = extractJSON(rawText);
-        if (!parsed) continue;
+        if (!parsed) {
+          log(false, 'UNPARSEABLE');
+          continue;
+        }
+        log(true);
         return { json: parsed, text: rawText, model, provider: 'gemini' };
       }
 
+      log(true);
       return { text: rawText.trim(), model, provider: 'gemini' };
     } catch (err) {
       lastError = err;
@@ -384,10 +434,8 @@ async function callGemini(apiKey, { prompt, isJson, timeout = 15000 }) {
   throw lastError || new Error('All Gemini models failed');
 }
 
-async function callXAI(apiKey, { prompt, isJson, timeout = 15000 }) {
-  if (!apiKey || !apiKey.trim()) throw new Error('GROK/xAI API key is not configured');
-
-  const models = ['grok-3-mini', 'grok-2-latest', 'grok-beta'];
+/** OpenAI-compatible chat completions (OpenAI, xAI). */
+async function callChatCompletions(provider, endpoint, models, apiKey, { prompt, isJson, timeout = 15000, ctx = {} }, isFatal) {
   let lastError = null;
 
   for (const model of models) {
@@ -398,74 +446,69 @@ async function callXAI(apiKey, { prompt, isJson, timeout = 15000 }) {
       };
       if (isJson) payload.response_format = { type: 'json_object' };
 
-      const response = await axios.post('https://api.x.ai/v1/chat/completions', payload, {
-        headers: {
-          Authorization: `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json',
-        },
-        timeout,
-      });
+      const { response, log } = await attempt(
+        { provider, model, ctx },
+        () =>
+          axios.post(endpoint, payload, {
+            headers: {
+              Authorization: `Bearer ${apiKey.trim()}`,
+              'Content-Type': 'application/json',
+            },
+            timeout,
+          }),
+        chatUsage
+      );
 
       const rawText = response.data?.choices?.[0]?.message?.content;
-      if (!rawText) continue;
+      if (!rawText) {
+        log(false, 'EMPTY_RESPONSE');
+        continue;
+      }
 
       if (isJson) {
         const parsed = extractJSON(rawText);
-        if (!parsed) continue;
-        return { json: parsed, text: rawText, model, provider: 'xai' };
+        if (!parsed) {
+          log(false, 'UNPARSEABLE');
+          continue;
+        }
+        log(true);
+        return { json: parsed, text: rawText, model, provider };
       }
 
-      return { text: rawText.trim(), model, provider: 'xai' };
+      log(true);
+      return { text: rawText.trim(), model, provider };
     } catch (err) {
       lastError = err;
-      if (err.response?.status === 400 || err.response?.status === 401) throw err;
+      if (isFatal(err)) throw err;
       continue;
     }
   }
 
-  throw lastError || new Error('All xAI Grok models failed');
+  throw lastError || new Error(`All ${provider} models failed`);
 }
 
-async function callOpenAI(apiKey, { prompt, isJson, timeout = 15000 }) {
+async function callXAI(apiKey, opts) {
+  if (!apiKey || !apiKey.trim()) throw new Error('GROK/xAI API key is not configured');
+  return callChatCompletions(
+    'xai',
+    'https://api.x.ai/v1/chat/completions',
+    ['grok-3-mini', 'grok-2-latest', 'grok-beta'],
+    apiKey,
+    opts,
+    (err) => err.response?.status === 400 || err.response?.status === 401
+  );
+}
+
+async function callOpenAI(apiKey, opts) {
   if (!apiKey || !apiKey.trim()) throw new Error('OPENAI_API_KEY is not configured');
-
-  const models = ['gpt-4o-mini', 'gpt-4o'];
-  let lastError = null;
-
-  for (const model of models) {
-    try {
-      const payload = {
-        model,
-        messages: [{ role: 'user', content: prompt }],
-      };
-      if (isJson) payload.response_format = { type: 'json_object' };
-
-      const response = await axios.post('https://api.openai.com/v1/chat/completions', payload, {
-        headers: {
-          Authorization: `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json',
-        },
-        timeout,
-      });
-
-      const rawText = response.data?.choices?.[0]?.message?.content;
-      if (!rawText) continue;
-
-      if (isJson) {
-        const parsed = extractJSON(rawText);
-        if (!parsed) continue;
-        return { json: parsed, text: rawText, model, provider: 'openai' };
-      }
-
-      return { text: rawText.trim(), model, provider: 'openai' };
-    } catch (err) {
-      lastError = err;
-      if (err.response?.status === 401) throw err;
-      continue;
-    }
-  }
-
-  throw lastError || new Error('All OpenAI models failed');
+  return callChatCompletions(
+    'openai',
+    'https://api.openai.com/v1/chat/completions',
+    ['gpt-4o-mini', 'gpt-4o'],
+    apiKey,
+    opts,
+    (err) => err.response?.status === 401
+  );
 }
 
 // ============================================
@@ -508,7 +551,27 @@ function getProviderChain() {
   return chain;
 }
 
-async function callAIWithFailover({ prompt, isJson = true, timeout = 14000 }) {
+/**
+ * @param {object} args
+ * @param {string} [args.jobType]  classification | summary | reply | admin_test — for ai_call_logs
+ * @param {string} [args.tenantId] the customer the call is for, when there is one
+ */
+/**
+ * Which provider would be tried first right now, which have a key, and what
+ * last answered. Provider ids only — never a key. (Gate 4 replaces this with
+ * the admin-selected AiConfig.)
+ */
+function activeAiConfig() {
+  const chain = getProviderChain();
+  return {
+    primaryProvider: chain[0] ? chain[0].id : null,
+    configuredProviders: chain.map((p) => p.id),
+    lastSuccessfulProvider: aiStats.lastSuccessfulProvider,
+    lastSuccessfulModel: aiStats.lastSuccessfulModel,
+  };
+}
+
+async function callAIWithFailover({ prompt, isJson = true, timeout = 14000, jobType = 'unknown', tenantId = null }) {
   const chain = getProviderChain();
 
   if (chain.length === 0) {
@@ -526,9 +589,10 @@ async function callAIWithFailover({ prompt, isJson = true, timeout = 14000 }) {
   for (let i = 0; i < chain.length; i++) {
     const provider = chain[i];
     try {
-      const result = await provider.call({ prompt, isJson, timeout });
+      const result = await provider.call({ prompt, isJson, timeout, ctx: { jobType, tenantId } });
       if (result) {
         aiStats.lastSuccessfulProvider = provider.id;
+        aiStats.lastSuccessfulModel = result.model;
         return result;
       }
     } catch (err) {
@@ -550,6 +614,7 @@ async function analyzeConversation({
   recentMessages = [],
   businessProfile = null,
   preferences = null,
+  tenantId = null,
 }) {
   if (!messageText || typeof messageText !== 'string') {
     return {
@@ -673,7 +738,7 @@ Return ONLY valid JSON in this exact shape:
 }`;
 
   try {
-    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true });
+    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true, jobType: 'classification', tenantId });
     const validated = validateAnalysisResult(json);
     const scored = computePriorityScore(validated, preferences);
 
@@ -744,6 +809,7 @@ async function generateReply({
   category = 'other',
   brandDeal = null,
   analysis = null,
+  tenantId = null,
 }) {
   const businessContext = formatBusinessProfileContext(businessProfile);
   const contextBlock = buildContextBlock(recentMessages, businessProfile?.businessName || 'Business Owner');
@@ -793,7 +859,7 @@ ${safetyGuidelines}
 Draft the reply text:`;
 
   try {
-    const { text, model, provider } = await callAIWithFailover({ prompt, isJson: false, timeout: 15000 });
+    const { text, model, provider } = await callAIWithFailover({ prompt, isJson: false, timeout: 15000, jobType: 'reply', tenantId });
     aiStats.replyGenerations++;
     return {
       text: text?.replace(/^"|"$/g, '').trim() || null,
@@ -810,7 +876,7 @@ Draft the reply text:`;
 // ============================================
 // 3. Conversation Summaries
 // ============================================
-async function summarizeConversation({ recentMessages = [], previousSummary = null, brandDeal = null, businessProfile = null }) {
+async function summarizeConversation({ recentMessages = [], previousSummary = null, brandDeal = null, businessProfile = null, tenantId = null }) {
   // Take only the last 3 messages as requested to save tokens
   const last3 = recentMessages.slice(-3);
   const contextBlock = buildContextBlock(last3, businessProfile?.businessName || 'Business Owner');
@@ -830,7 +896,7 @@ Return ONLY valid JSON:
 }`;
 
   try {
-    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true });
+    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true, jobType: 'summary', tenantId });
     aiStats.summariesGenerated++;
     return {
       summary: truncate(json?.summary, 600) || previousSummary || null,
@@ -860,4 +926,5 @@ module.exports = {
   validateAnalysisResult,
   getAIStats,
   callAIWithFailover,
+  activeAiConfig,
 };

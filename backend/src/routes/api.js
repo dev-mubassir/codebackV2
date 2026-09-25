@@ -520,6 +520,7 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
       preferences,
       instructions: typeof instructions === 'string' ? instructions.slice(0, 500) : null,
       category: conversation.category || 'other',
+      tenantId: req.userId,
     });
 
     if (result.failed || !result.text) {

@@ -170,6 +170,7 @@ async function maybeRegenerateSummary({ conversation, userId, analysis }) {
       recentMessages: recentMessages.reverse(),
       previousSummary: existingSummary?.summary || null,
       brandDeal: latestBrandDeal,
+      tenantId: userId,
     });
 
     if (!result.summary) return;
@@ -301,6 +302,7 @@ async function processMessageAnalysis(job) {
       recentMessages: recentMessages.reverse(),
       businessProfile,
       preferences,
+      tenantId: userId,
     });
 
     // Count the classification the moment the call returns, BEFORE the
@@ -694,6 +696,7 @@ async function maybeAutoReply({
       category: conversation.category || 'other',
       brandDeal,
       analysis,
+      tenantId: userId,
     });
 
     if (replyResult.failed || !replyResult.text || !replyResult.text.trim()) {

@@ -16,6 +16,10 @@ export const uniq = (label) => `${label}-${Date.now()}-${seq++}`;
 /** Wipe every table, children first. Used in beforeEach. */
 export async function resetDb() {
   await prisma.adminAuditLog.deleteMany({});
+  await prisma.aiCallLog.deleteMany({});
+  await prisma.aiUsageDaily.deleteMany({});
+  await prisma.jobRun.deleteMany({});
+  await prisma.appSetting.deleteMany({});
   await prisma.adminUser.deleteMany({});
   await prisma.adminLog.deleteMany({});
   await prisma.webhookLog.deleteMany({});

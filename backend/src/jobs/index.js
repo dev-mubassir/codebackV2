@@ -16,6 +16,13 @@ const { reconcileRecentOrders } = require('./billingReconciliationJob');
 const { sweepElapsedCycles } = require('./entitlementCycleJob');
 const { sendRenewalReminders } = require('./renewalReminderJob');
 const { isBillingEnabled } = require('../lib/billingFlags');
+const { recordJobRun } = require('./jobRuns');
+const { rollupAiUsage } = require('./aiUsageJob');
+
+// Every scheduled run is recorded in job_runs (./jobRuns.js) for the admin
+// health page and the Gate 7 alert cron. `track` keeps each job's existing
+// catch-and-log: recordJobRun re-throws, the .catch below logs as before.
+const track = (name, fn) => () => recordJobRun(name, fn);
 
 const QUEUE_NAME = 'ai-processing';
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -25,6 +32,7 @@ const HOUSEKEEPING_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BILLING_RECONCILIATION_INTERVAL_MS = 24 * 60 * 60 * 1000; // nightly
 const ENTITLEMENT_CYCLE_INTERVAL_MS = 60 * 60 * 1000;  // hourly: a cycle boundary should not sit unrolled for long
 const RENEWAL_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000; // 4x/day: day-27/29/expiry/grace windows only need day resolution
+const AI_USAGE_ROLLUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily: roll up ai_call_logs, purge raw rows > 30 days
 let started = false;
 let sweepTimer = null;
 let retentionTimer = null;
@@ -33,6 +41,7 @@ let housekeepingTimer = null;
 let billingReconciliationTimer = null;
 let entitlementCycleTimer = null;
 let renewalReminderTimer = null;
+let aiUsageTimer = null;
 
 function startWorkers() {
   const jobSystem = getJobSystem(QUEUE_NAME, { concurrency: 3 });
@@ -55,11 +64,12 @@ function startWorkers() {
     // times. The sweep itself is an idempotent conditional updateMany so the
     // duplicate runs are harmless, but it has only been exercised
     // single-instance. Revisit when Redis lands (H1/H2/H11).
-    sweepStalledAnalyses().catch((err) =>
+    const runSweep = track('stalled_analysis_sweep', sweepStalledAnalyses);
+    runSweep().catch((err) =>
       console.error('[Jobs] Initial stalled-analysis sweep failed:', err.message)
     );
     sweepTimer = setInterval(() => {
-      sweepStalledAnalyses().catch((err) =>
+      runSweep().catch((err) =>
         console.error('[Jobs] Stalled-analysis sweep failed:', err.message)
       );
     }, SWEEP_INTERVAL_MS);
@@ -73,7 +83,7 @@ function startWorkers() {
     // conditional updateMany, so N concurrent runs are harmless, but only
     // exercised single-instance.
     const runRetention = () =>
-      pruneWebhookPayloads().catch((err) =>
+      track('webhook_payload_retention', pruneWebhookPayloads)().catch((err) =>
         console.error('[Jobs] Webhook payload retention sweep failed:', err.message)
       );
     runRetention();
@@ -93,8 +103,10 @@ function startWorkers() {
     if (isBillingEnabled()) {
       const runTrials = async () => {
         try {
-          await expireFinishedTrials();
-          await sendTrialEndingWarnings({ intervalMs: TRIAL_INTERVAL_MS });
+          await recordJobRun('trial_sweep', async () => {
+            await expireFinishedTrials();
+            await sendTrialEndingWarnings({ intervalMs: TRIAL_INTERVAL_MS });
+          });
         } catch (err) {
           console.error('[Jobs] Trial sweep failed:', err.message);
         }
@@ -108,7 +120,7 @@ function startWorkers() {
     // row, see FINDINGS.md D4), expired auth tokens, spent OAuth nonces, and
     // ledger rows past their retention date.
     const runHousekeep = () =>
-      runHousekeeping().catch((err) =>
+      track('housekeeping', runHousekeeping)().catch((err) =>
         console.error('[Jobs] Housekeeping sweep failed:', err.message)
       );
     runHousekeep();
@@ -122,7 +134,7 @@ function startWorkers() {
     // avoids a scheduled task doing pointless work pre-launch.
     if (isBillingEnabled()) {
       const runBillingReconciliation = () =>
-        reconcileRecentOrders().catch((err) =>
+        track('billing_reconciliation', reconcileRecentOrders)().catch((err) =>
           console.error('[Jobs] Billing reconciliation sweep failed:', err.message)
         );
       runBillingReconciliation();
@@ -133,7 +145,7 @@ function startWorkers() {
       // resets the classification burst guard on the clock rather than on a
       // payment. See jobs/entitlementCycleJob.js.
       const runEntitlementCycle = () =>
-        sweepElapsedCycles().catch((err) =>
+        track('entitlement_cycle', sweepElapsedCycles)().catch((err) =>
           console.error('[Jobs] Entitlement cycle sweep failed:', err.message)
         );
       runEntitlementCycle();
@@ -144,13 +156,23 @@ function startWorkers() {
       // here by Wave 0 so Gate 7 implements jobs/renewalReminderJob.js
       // without touching this shared file. A no-op stub until then.
       const runRenewalReminders = () =>
-        sendRenewalReminders().catch((err) =>
+        track('renewal_reminders', sendRenewalReminders)().catch((err) =>
           console.error('[Jobs] Renewal reminder sweep failed:', err.message)
         );
       runRenewalReminders();
       renewalReminderTimer = setInterval(runRenewalReminders, RENEWAL_REMINDER_INTERVAL_MS);
       if (typeof renewalReminderTimer.unref === 'function') renewalReminderTimer.unref();
     }
+
+    // Daily AI usage roll-up + raw log purge (Gate 3). Runs whatever
+    // BILLING_ENABLED says: it is monitoring, not billing.
+    const runAiUsage = () =>
+      track('ai_usage_rollup', () => rollupAiUsage())().catch((err) =>
+        console.error('[Jobs] AI usage roll-up failed:', err.message)
+      );
+    runAiUsage();
+    aiUsageTimer = setInterval(runAiUsage, AI_USAGE_ROLLUP_INTERVAL_MS);
+    if (typeof aiUsageTimer.unref === 'function') aiUsageTimer.unref();
 
     started = true;
     console.log(`[Jobs] AI processing worker started (mode: ${jobSystem.mode}).`);

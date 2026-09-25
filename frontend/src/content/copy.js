@@ -651,6 +651,7 @@ export const admin = {
 
   nav: {
     dashboard: 'Dashboard',
+    health: 'Health',
     users: 'Users',
     accounts: 'Connected accounts',
     support: 'Support lookup',
@@ -688,6 +689,49 @@ export const admin = {
       inspect: 'Inspect',
       empty: 'No signups yet.',
     },
+  },
+
+  health: {
+    refreshed: 'Updated',
+    autoRefresh: 'Refreshes every 30 seconds.',
+    estimated: 'Costs are estimates from list prices.',
+    none: 'None',
+    never: 'Never',
+    sections: {
+      server: 'Server',
+      ai: 'AI',
+      jobs: 'Scheduled jobs',
+      tokens: 'Instagram access expiring within 7 days',
+      errors: 'Recent errors',
+    },
+    server: {
+      uptime: 'Uptime',
+      memory: 'Memory (RSS)',
+      loop: 'Event-loop lag (p99)',
+      db: 'Database ping',
+      dbDown: 'Unreachable',
+      sockets: 'Live connections',
+      webhooks: 'Meta deliveries (24h)',
+      lastWebhook: 'Last delivery',
+      email: 'Email send failures (24h)',
+    },
+    ai: {
+      lastHour: 'Last hour',
+      lastDay: 'Last 24 hours',
+      calls: 'Calls',
+      errorRate: 'Error rate',
+      p95: 'p95 latency',
+      cost: 'Est. cost',
+      active: 'Active provider',
+      lastModel: 'Last model that answered',
+      test: 'Test AI',
+      testing: 'Testing…',
+      testOk: 'answered in',
+      testFailed: 'The AI test failed:',
+    },
+    jobs: { name: 'Job', lastRun: 'Last run', status: 'Status', ok: 'OK', failed: 'Failed', running: 'Running' },
+    tokens: { account: 'Account', expires: 'Expires', status: 'Status', reconnect: 'need reconnecting' },
+    errors: { when: 'When', where: 'Where', what: 'Message' },
   },
 
   users: {

@@ -15,6 +15,7 @@
 const prisma = require('../lib/prisma');
 const authTokens = require('../lib/authTokens');
 const oauthState = require('../lib/oauthState');
+const { purgeOldJobRuns } = require('./jobRuns');
 
 const WEBHOOK_DELIVERY_RETENTION_DAYS = 7;
 
@@ -77,6 +78,7 @@ async function runHousekeeping() {
     oauthNonces: 0,
     identities: 0,
     adminLogIps: 0,
+    jobRuns: 0,
   };
 
   // Each is independent; one failure must not stop the rest.
@@ -104,6 +106,11 @@ async function runHousekeeping() {
     results.adminLogIps = await redactExpiredAdminLogIps();
   } catch (err) {
     console.error('[Jobs] redactExpiredAdminLogIps failed:', err.message);
+  }
+  try {
+    results.jobRuns = await purgeOldJobRuns();
+  } catch (err) {
+    console.error('[Jobs] purgeOldJobRuns failed:', err.message);
   }
 
   return results;
