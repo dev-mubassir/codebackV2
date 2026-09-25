@@ -1,13 +1,13 @@
 'use client';
 
 /**
- * Admin — customers: search, export, suspend and restore.
+ * Admin — customers: search and filter (plan, status, signup date), export,
+ * suspend and restore. Sign-out-everywhere and delete live on the customer's
+ * detail page (/admin/users/[id]).
  *
- * Admin rebuild (Gate 1): "view as customer" (impersonation) and delete are
- * gone — the first exposed customer DMs, the second skipped the real account
- * deletion path and returns in Gate 5 on top of it. Suspend/restore need a
- * written reason (audit log). The CSV export needs step-up, so the page
- * confirms the password before navigating to the download.
+ * "View as customer" (impersonation) is gone for good: it exposed DMs.
+ * Every action needs a written reason (audit log). The CSV export needs
+ * step-up, so the page confirms the password before the download starts.
  *
  * Data layer is master's, including the Gate-1 initial load written out with
  * a cancelled flag rather than calling loadUsers() from the effect.
@@ -17,9 +17,10 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { getAdminUsers, setUserSuspended } from '@/lib/api';
 import Icon from '@/app/components/Icon';
-import { Badge, Button, Input, Skeleton } from '@/app/components/ui';
+import { Badge, Button, Input, Select, Skeleton } from '@/app/components/ui';
 import { admin as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
 import { formatDate, formatCount } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
@@ -39,6 +40,7 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, totalCount: 0, totalPages: 1 });
   const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState({ plan: '', status: '', signedUpFrom: '', signedUpTo: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { ensureStepUp } = useStepUp();
@@ -48,10 +50,10 @@ export default function AdminUsersPage() {
   const [pendingBusy, setPendingBusy] = useState(false);
   const [pendingError, setPendingError] = useState('');
 
-  const loadUsers = useCallback(async (page = 1, searchQuery = search) => {
+  const loadUsers = useCallback(async (page = 1, searchQuery = search, f = filters) => {
     setLoading(true);
     try {
-      const data = await getAdminUsers(searchQuery, page, 10);
+      const data = await getAdminUsers(searchQuery, page, 10, f);
       setUsers(data.users);
       setPagination(data.pagination);
     } catch {
@@ -59,7 +61,7 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, filters]);
 
   // Initial load, written out rather than calling loadUsers(): loadUsers opens
   // with a synchronous setLoading(true), and a synchronous setState in an
@@ -139,6 +141,21 @@ export default function AdminUsersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <Select aria-label={t.users.filters.plan} value={filters.plan} onChange={(e) => setFilters((f) => ({ ...f, plan: e.target.value }))}>
+            <option value="">{t.users.filters.anyPlan}</option>
+            <option value="NONE">{t.users.filters.noPlan}</option>
+            <option value="TRIAL">TRIAL</option>
+            <option value="STARTER">STARTER</option>
+            <option value="PRO">PRO</option>
+            <option value="ENTERPRISE">ENTERPRISE</option>
+          </Select>
+          <Select aria-label={t.users.filters.status} value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
+            <option value="">{t.users.filters.anyStatus}</option>
+            <option value="active">{t.users.active}</option>
+            <option value="suspended">{t.users.suspended}</option>
+          </Select>
+          <Input type="date" aria-label={t.users.filters.from} value={filters.signedUpFrom} onChange={(e) => setFilters((f) => ({ ...f, signedUpFrom: e.target.value }))} />
+          <Input type="date" aria-label={t.users.filters.to} value={filters.signedUpTo} onChange={(e) => setFilters((f) => ({ ...f, signedUpTo: e.target.value }))} />
           <Button type="submit" size="sm">{common.search}</Button>
         </form>
 
@@ -166,6 +183,7 @@ export default function AdminUsersPage() {
               <tr>
                 <th>{t.users.columns.user}</th>
                 <th>{t.users.columns.status}</th>
+                <th>{t.users.columns2.plan}</th>
                 <th>{t.users.columns.accounts}</th>
                 <th>{t.users.columns.joined}</th>
                 <th className={styles.alignRight}>{t.users.columns.actions}</th>
@@ -174,13 +192,13 @@ export default function AdminUsersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="5" aria-busy="true" aria-label={common.loading}>
+                  <td colSpan="6" aria-busy="true" aria-label={common.loading}>
                     <Skeleton lines={3} height={20} />
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className={styles.cellEmpty}>
+                  <td colSpan="6" className={styles.cellEmpty}>
                     {search ? t.users.empty : empty.adminUsers.body}
                   </td>
                 </tr>
@@ -194,6 +212,9 @@ export default function AdminUsersPage() {
                     {u.isSuspended
                       ? <Badge tone="danger">{t.users.suspended}</Badge>
                       : <Badge tone="neutral">{t.users.active}</Badge>}
+                  </td>
+                  <td className={styles.cellMono}>
+                    {u.plan?.planCode ? `${u.plan.planCode} · ${u.plan.status}` : '—'}
                   </td>
                   <td>
                     {u.instagramAccounts?.length === 0 ? (
@@ -209,6 +230,7 @@ export default function AdminUsersPage() {
                   <td>{formatDate(u.createdAt)}</td>
                   <td className={styles.alignRight}>
                     <div className={styles.rowActions}>
+                      <Link href={`/admin/users/${u.id}`} className={styles.linkBtn}>{t.users.details}</Link>
                       <Button size="sm" onClick={() => openDialog(u.isSuspended ? 'restore' : 'suspend', u)}>
                         {u.isSuspended ? t.users.unsuspend : t.users.suspend}
                       </Button>

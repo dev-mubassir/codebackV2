@@ -13,8 +13,8 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 | Trial-claim investigation (read-only) | done — findings below, not fixed | — |
 | 3 Health + AI monitoring | done | 4d763ca |
 | 3B IG token auto-refresh | done | 14826bb |
-| 4 Multi-provider AI | done | (see git log: feat(ai)) |
-| 5 User management | pending | |
+| 4 Multi-provider AI | done | 07befb1 |
+| 5 User management | done | (see git log: feat(admin): user management) |
 | 6 Plans, quotas, coupons | pending | |
 | 7 Kill switches, settings, alerts, announcements | pending | |
 | 8 Hardening + UI polish + final report | pending | |
@@ -61,6 +61,15 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - PRIVACY POLICY: OpenAI and Anthropic must be listed in the privacy policy before either is activated in production (shown on the AI page too).
 - Env vars: ADD (optional) OPENAI_API_KEY, ANTHROPIC_API_KEY. DEAD, delete: AI_PROVIDER, GROK_API_KEY, XAI_API_KEY.
 
+### Gate 5 decisions (NEW)
+- ONE deletion path: services/accountDeletion.js `deleteUserAccount()`: deletes the users row (cascade), the tenant's ai_call_logs, ends ALL sessions (Postgres store) and sockets. Used by admin DELETE /users/:id, DELETE /auth/account (BEHAVIOUR CHANGE: self-delete now also ends the user's other devices' sessions), and Meta's /data-deletion/instagram callback. Kept by design: orders, payment_attempts, refunds, credit_ledger, instagram_identities, admin_audit_logs.
+- NOT done (not in any existing flow either): unsubscribing the Instagram account's webhooks at Meta on deletion. Recorded as a possible follow-up.
+- Admin delete: step-up + reason + audit (id, createdAt, account count only — never the deleted person's email/name).
+- Force logout (POST /users/:id/logout): reason + audit; bumps sessionVersion + deletes store rows + disconnects sockets; does not suspend.
+- User list filters: plan (NONE/TRIAL/STARTER/PRO/ENTERPRISE, from entitlements), status (active/suspended), signup date range (UTC days). List rows now carry the plan summary.
+- User detail: plan + expiry/grace, quota (classifications this cycle vs plan cap, reply credits), IG accounts (connected date, token expiry, refresh error code), classification counts (all time, 30 days, inbound by AI status), last active, 20 most recent AI errors (codes only). No DM content, no AI summaries.
+- The Gate-1 "retired endpoints" test no longer probes DELETE /users/:id (returned on the safe path).
+
 ## Skipped / TEMP tests
 
 - `admin-session.test.js` H10, `scopes-and-admin.test.js` M10 ×2, `authz-and-limits.test.js` F1/F5 — old admin behaviour, replaced by `admin-auth.test.js`.
@@ -78,6 +87,7 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - Admin: sign in, every admin page loads, step-up dialog on CSV export, reason dialogs on suspend / refresh / resubscribe / mark-reconnect, change password.
 - Admin Health page (`/admin/health`): loads, refreshes every 30s, "Test AI" shows provider/model/latency; an unattended health page still times out after 30 idle minutes.
 - Admin AI page (`/admin/ai`): only providers with a key are selectable; "Test on 10 sample messages" shows per-sample results + cost; Activate asks for a reason and the password; Roll back works; with fallback enabled, the fallback model must be tested first.
+- Admin customers: filters (plan/status/dates) narrow the list; "Details" opens /admin/users/[id]; Sign out everywhere (reason); Delete (reason + password) returns to the list and the customer is gone.
 - Customer idle: with `user_session_idle_minutes = 5`, the warning appears about 3 minutes in; "Stay signed in" in one tab closes the warning in the other; both tabs go to login after 5 minutes.
 
 ## Trial-claim race — findings (read-only; NOT fixed, owner decides)
@@ -121,5 +131,5 @@ need their own retry handling. Not recommended.
 
 ## RESUME HERE
 
-1. Gate 5 — user management: paginated list (search email/name; filter plan, status, signup date); user detail (profile, plan + expiry, quota used/remaining, IG accounts w/ connected date + token expiry, classification counts, last active, recent AI errors — NO DM content); actions with reason + audit: suspend/unsuspend (exists), force logout (new), delete user (step-up; extract services/accountDeletion.js from DELETE /auth/account + dataDeletion eraseInstagramUserData; also delete ai_call_logs for the tenant); tests incl. tenant isolation.
-2. Then Gates 6 → 8.
+1. Gate 6 — plans, quotas, coupons: EXTEND billing_plans / plan_prices (owner decision; no new Plan table). Admin create/edit plans (edits apply to new purchases only — check how grantPlan snapshots values), manual per-user controls (grant plan w/ custom expiry, extend expiry, bonus classification quota, reset trial) — reason + step-up + audit, via entitlementService + CreditLedger. Coupon + CouponRedemption tables, admin CRUD, influencer report; wire redemption ONLY into the trial flow (igIdentity / billing trial claim); flag the Cashfree checkout plug-in point. Payment history view from orders/payment_attempts/refunds (no Cashfree calls). Must work with BILLING_ENABLED on or off — record differences.
+2. Then Gates 7 → 8.

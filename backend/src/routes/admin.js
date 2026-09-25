@@ -30,6 +30,8 @@ const { collectHealth } = require('../lib/health');
 const aiRouter = require('../lib/ai/router');
 const aiModels = require('../lib/ai/models');
 const { runModelTest, findPassingTest } = require('../lib/ai/modelTest');
+const { deleteUserAccount } = require('../services/accountDeletion');
+const { effectiveStatus } = require('../services/entitlementService');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession, destroyUserSessions } = require('../lib/session');
 const { disconnectUserSockets } = require('../lib/socket');
@@ -746,25 +748,73 @@ function userSearchWhere(search) {
   };
 }
 
-// GET /api/admin/users?search=&page=&limit=
+const PLAN_FILTERS = new Set(['NONE', 'TRIAL', 'STARTER', 'PRO', 'ENTERPRISE']);
+const STATUS_FILTERS = new Set(['active', 'suspended']);
+
+function parseDay(raw) {
+  if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Where-clause for the users list: search + plan + status + signup dates. */
+function userListWhere(q) {
+  const and = [];
+  const search = str(q.search, 100);
+  if (search) and.push(userSearchWhere(search));
+
+  const plan = str(q.plan, 20).toUpperCase();
+  if (PLAN_FILTERS.has(plan)) {
+    and.push(
+      plan === 'NONE'
+        ? { OR: [{ entitlement: null }, { entitlement: { status: 'NONE' } }] }
+        : { entitlement: { planCode: plan, status: { not: 'NONE' } } }
+    );
+  }
+
+  const status = str(q.status, 20).toLowerCase();
+  if (STATUS_FILTERS.has(status)) and.push({ isSuspended: status === 'suspended' });
+
+  const from = parseDay(q.signedUpFrom);
+  const to = parseDay(q.signedUpTo);
+  if (from || to) {
+    and.push({
+      createdAt: {
+        ...(from ? { gte: from } : {}),
+        ...(to ? { lt: new Date(to.getTime() + 24 * 60 * 60 * 1000) } : {}),
+      },
+    });
+  }
+  return and.length ? { AND: and } : {};
+}
+
+const ENTITLEMENT_SUMMARY_SELECT = { planCode: true, status: true, validUntil: true, graceUntil: true };
+const planSummary = (e) =>
+  e ? { planCode: e.planCode, status: effectiveStatus(e), validUntil: e.validUntil } : { planCode: null, status: 'NONE', validUntil: null };
+
+// GET /api/admin/users?search=&plan=&status=&signedUpFrom=YYYY-MM-DD&signedUpTo=YYYY-MM-DD&page=&limit=
 router.get('/users', async (req, res) => {
   try {
-    const search = str(req.query.search, 100);
     const page = clampInt(req.query.page, { min: 1, max: 100000, fallback: 1 });
     const limit = clampInt(req.query.limit, { min: 1, max: 100, fallback: 10 });
-    const where = userSearchWhere(search);
+    const where = userListWhere(req.query);
 
-    const [users, totalCount] = await Promise.all([
+    const [rows, totalCount] = await Promise.all([
       prisma.user.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
-        select: { ...USER_ADMIN_SELECT, instagramAccounts: { select: ACCOUNT_ADMIN_SELECT } },
+        select: {
+          ...USER_ADMIN_SELECT,
+          instagramAccounts: { select: ACCOUNT_ADMIN_SELECT },
+          entitlement: { select: ENTITLEMENT_SUMMARY_SELECT },
+        },
       }),
       prisma.user.count({ where }),
     ]);
 
+    const users = rows.map(({ entitlement, ...u }) => ({ ...u, plan: planSummary(entitlement) }));
     res.json({ users, pagination: { page, limit, totalCount, totalPages: Math.ceil(totalCount / limit) } });
   } catch (error) {
     console.error('[Admin] Error listing users:', error.message);
@@ -795,15 +845,64 @@ router.get('/users/export/csv', requireStepUp, async (req, res) => {
   }
 });
 
-// GET /api/admin/users/:id
+// GET /api/admin/users/:id — profile, plan + quota, connected accounts,
+// classification counts, last active, recent AI errors. Counts and metadata
+// only: no message text, no AI summaries, no tokens.
 router.get('/users/:id', async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
-      select: { ...USER_ADMIN_SELECT, instagramAccounts: { select: ACCOUNT_ADMIN_SELECT } },
+      select: {
+        ...USER_ADMIN_SELECT,
+        instagramAccounts: { select: { ...ACCOUNT_ADMIN_SELECT, disconnectedAt: true, tokenRefreshedAt: true, tokenRefreshError: true } },
+        entitlement: true,
+      },
     });
     if (!user) return res.status(404).json({ error: 'That customer no longer exists.' });
-    res.json(user);
+
+    const { entitlement, ...profile } = user;
+    const accountIds = user.instagramAccounts.map((a) => a.id);
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const byConversation = { conversation: { instagramAccountId: { in: accountIds } } };
+
+    const [plan, analysesTotal, analyses30d, messageStatus, aiErrors] = await Promise.all([
+      entitlement?.planCode ? prisma.plan.findUnique({ where: { code: entitlement.planCode } }) : null,
+      prisma.aIAnalysis.count({ where: byConversation }),
+      prisma.aIAnalysis.count({ where: { ...byConversation, createdAt: { gte: monthAgo } } }),
+      prisma.message.groupBy({ by: ['aiStatus'], where: { ...byConversation, direction: 'inbound' }, _count: { _all: true } }),
+      prisma.aiCallLog.findMany({
+        where: { tenantId: user.id, success: false },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: { provider: true, model: true, jobType: true, errorCode: true, httpStatus: true, createdAt: true },
+      }),
+    ]);
+
+    const cap = plan?.classificationCapCycle ?? null;
+    const used = entitlement?.classificationCountCycle ?? 0;
+    res.json({
+      ...profile,
+      plan: {
+        ...planSummary(entitlement),
+        graceUntil: entitlement?.graceUntil ?? null,
+        cycleStartedAt: entitlement?.cycleStartedAt ?? null,
+        billingRegion: entitlement?.billingRegion ?? null,
+      },
+      quota: {
+        classificationsUsedThisCycle: used,
+        classificationCapPerCycle: cap,
+        classificationsRemaining: cap == null ? null : Math.max(0, cap - used),
+        replyCreditsCurrent: entitlement?.replyCreditsCurrent ?? 0,
+        replyCreditsBanked: entitlement?.replyCreditsBanked ?? 0,
+      },
+      classifications: {
+        total: analysesTotal,
+        last30Days: analyses30d,
+        inboundByStatus: Object.fromEntries(messageStatus.map((r) => [r.aiStatus, r._count._all])),
+      },
+      lastActiveAt: profile.lastSeenAt,
+      recentAiErrors: aiErrors,
+    });
   } catch (error) {
     console.error('[Admin] Error fetching user detail:', error.message);
     res.status(500).json({ error: "Couldn't load that customer. Try again." });
@@ -860,6 +959,60 @@ router.post('/users/:id/suspend', async (req, res) => {
   } catch (error) {
     console.error('[Admin] Error changing suspension:', error.message);
     res.status(500).json({ error: "Couldn't change that customer's status. Try again." });
+  }
+});
+
+// POST /api/admin/users/:id/logout — { reason }: end every session and
+// socket of this customer now. They can sign straight back in.
+router.post('/users/:id/logout', async (req, res) => {
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!existing) return res.status(404).json({ error: 'That customer no longer exists.' });
+
+    await prisma.$transaction([
+      // sessionVersion ends sessions in requireAuth whatever the store.
+      prisma.user.update({ where: { id: existing.id }, data: { sessionVersion: { increment: 1 } } }),
+      prisma.adminAuditLog.create({
+        data: buildAuditRow(req, { action: 'USER_FORCE_LOGOUT', targetType: 'USER', targetId: existing.id, reason }),
+      }),
+    ]);
+    const ended = await destroyUserSessions(existing.id).catch((err) => {
+      console.error('[Admin] Could not clear sessions on force logout:', err.message);
+      return 0;
+    });
+    disconnectUserSockets(existing.id);
+    res.json({ message: 'Customer signed out everywhere', sessionsEnded: Number(ended) || 0 });
+  } catch (error) {
+    console.error('[Admin] Force logout error:', error.message);
+    res.status(500).json({ error: "Couldn't sign that customer out. Try again." });
+  }
+});
+
+// DELETE /api/admin/users/:id — { reason }: permanent, through the one
+// deletion path (services/accountDeletion.js). Step-up. The audit row keeps
+// the id and counts only, not the deleted person's email or name.
+router.delete('/users/:id', requireStepUp, async (req, res) => {
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, select: { id: true, createdAt: true } });
+    if (!existing) return res.status(404).json({ error: 'That customer no longer exists.' });
+
+    const result = await deleteUserAccount(existing.id);
+    await recordAdminAudit(req, {
+      action: 'USER_DELETE',
+      targetType: 'USER',
+      targetId: existing.id,
+      reason,
+      before: { exists: true, createdAt: existing.createdAt, instagramAccounts: result.instagramAccounts },
+      after: { deleted: result.deleted },
+    });
+    res.json({ message: 'Customer deleted', deleted: result.deleted });
+  } catch (error) {
+    console.error('[Admin] Delete user error:', error.message);
+    res.status(500).json({ error: "Couldn't delete that customer. Try again." });
   }
 });
 

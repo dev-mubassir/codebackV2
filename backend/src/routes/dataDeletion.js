@@ -39,6 +39,7 @@ const { disconnectUserSockets } = require('../lib/socket');
 // Bound as `mailer`, never `email` — see routes/auth.js. A local `email`
 // variable shadowing this module silently broke registration once already.
 const mailer = require('../lib/email');
+const { deleteUserAccount } = require('../services/accountDeletion');
 
 /** base64url -> Buffer (Meta uses URL-safe base64 without padding). */
 function b64urlDecode(value) {
@@ -144,8 +145,10 @@ async function eraseInstagramUserData(igUserId) {
     const remaining = await prisma.instagramAccount.count({ where: { userId } });
     let userDeleted = false;
     if (remaining === 0) {
-      const deleted = await prisma.user.delete({ where: { id: userId } }).catch(() => null);
-      userDeleted = Boolean(deleted);
+      // The shared deletion path (services/accountDeletion.js), which also
+      // ends the user's sessions and sockets and removes their AI call logs.
+      const result = await deleteUserAccount(userId).catch(() => ({ deleted: false }));
+      userDeleted = result.deleted;
     }
     notifications.push({
       userId,

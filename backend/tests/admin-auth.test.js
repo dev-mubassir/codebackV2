@@ -429,7 +429,9 @@ describe('suspension', () => {
 });
 
 describe('retired endpoints are gone', () => {
-  it('impersonation, the DM viewer and the unsafe deletes no longer exist', async () => {
+  // DELETE /users/:id returned in Gate 5 on the safe deletion path — see
+  // tests/user-management.test.js. The account hard-delete stays gone.
+  it('impersonation, the DM viewer and the unsafe account delete no longer exist', async () => {
     const { agent, password } = await adminAgent();
     await stepUp(agent, password);
     const { user } = await createUser({});
@@ -439,7 +441,6 @@ describe('retired endpoints are gone', () => {
       agent.post(`/api/admin/users/${user.id}/impersonate`).set('Origin', ORIGIN).send({}),
       agent.post('/api/admin/impersonate/exit').set('Origin', ORIGIN).send({}),
       agent.get('/api/admin/support/conversations/any-id'),
-      agent.delete(`/api/admin/users/${user.id}`).set('Origin', ORIGIN).send({ reason: 'test' }),
       agent.delete(`/api/admin/accounts/${account.id}`).set('Origin', ORIGIN).send({ reason: 'test' }),
     ];
     for (const res of await Promise.all(probes)) {

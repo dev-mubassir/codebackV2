@@ -365,8 +365,21 @@ export async function getAdminStats() {
   return data;
 }
 
-export async function getAdminUsers(search = '', page = 1, limit = 10) {
-  const { data } = await api.get(`/api/admin/users?search=${encodeURIComponent(search)}&page=${page}&limit=${limit}`);
+/** filters: { plan, status, signedUpFrom, signedUpTo } — all optional. */
+export async function getAdminUsers(search = '', page = 1, limit = 10, filters = {}) {
+  const qs = new URLSearchParams({ search, page: String(page), limit: String(limit) });
+  for (const [k, v] of Object.entries(filters)) if (v) qs.set(k, v);
+  const { data } = await api.get(`/api/admin/users?${qs.toString()}`);
+  return data;
+}
+
+export async function forceLogoutUser(id, reason) {
+  const { data } = await api.post(`/api/admin/users/${id}/logout`, { reason });
+  return data;
+}
+
+export async function deleteUserAdmin(id, reason) {
+  const { data } = await api.delete(`/api/admin/users/${id}`, { data: { reason } });
   return data;
 }
 

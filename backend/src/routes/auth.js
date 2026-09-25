@@ -39,6 +39,7 @@ const { requireAuth } = require('../middleware/auth');
 const { isBillingEnabled } = require('../lib/billingFlags');
 const { refreshExpiringAccountAvatars } = require('../lib/accountAvatar');
 const sessionIdle = require('../lib/sessionIdle');
+const { deleteUserAccount } = require('../services/accountDeletion');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -1541,12 +1542,10 @@ router.delete('/account', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Log in to continue.' });
     }
 
-    // Delete user from database (cascades to all user data)
-    await prisma.user.delete({
-      where: { id: userId },
-    });
-
-    disconnectUserSockets(userId);
+    // The one deletion path (services/accountDeletion.js): cascades every
+    // owned table, removes the tenant's AI call logs, and ends EVERY session
+    // and socket of this user — not just this browser's.
+    await deleteUserAccount(userId);
     console.log(`[Auth] Permanently deleted user account ${userId}`);
 
     req.session.destroy((err) => {
