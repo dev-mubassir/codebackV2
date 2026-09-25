@@ -4,8 +4,8 @@ Branch: `draft-credits` (from master `cd3d133`). Autonomous run; one owner stop 
 
 ## RESUME HERE
 
-Phases 0–4 DONE and committed on `draft-credits`. Next: Phase 5 — merge into master locally (do not push),
-then STOP for the owner: DB backup + `backend/scripts/prod-migrate.ps1`. The only new migration is
+Phases 0–4 DONE. Phase 5 step 1 DONE: master fast-forwarded locally to the draft-credits commits (NOT pushed).
+WAITING FOR THE OWNER: DB backup + `backend/scripts/prod-migrate.ps1`. The only new migration is
 `20260927090000_draft_credits` (additive; see its header). After the owner says "migrated" with the status
 output: verify it lists that migration as applied, push master, then Phase 6 (poll api.siffty.com/health,
 read-only Northflank logs, landing page check, public /api/billing/plans if billing is on).
