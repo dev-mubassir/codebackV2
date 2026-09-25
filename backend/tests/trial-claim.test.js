@@ -202,12 +202,9 @@ describe('concurrency — exactly one trial', () => {
     expect(await trialGrantRows(user.id)).toBe(1);
   });
 
-  // TEMP: skipped in admin-rebuild Gate 1 — PRE-EXISTING failure, not caused
-  // by this branch: it fails 4/4 runs on unmodified master (9dfd2f1). The
-  // invariant holds (exactly one trial granted, one ledger row); what fails is
-  // line 213 — some LOSING concurrent claims report an outcome other than
-  // ALREADY_ENTITLED. Needs its own investigation in lib/igIdentity.js.
-  it.skip('eight concurrent claims grant one trial and write one ledger row', async () => {
+  // Was TEMP-skipped (pre-existing on master): losers could report TRIAL_ALREADY_CONSUMED.
+  // Fixed by reading identities before the entitlement in loadUserTrialContext.
+  it('eight concurrent claims grant one trial and write one ledger row', async () => {
     const { user, igUserIdHash } = await connectedWithoutTrial();
 
     const results = await Promise.all(

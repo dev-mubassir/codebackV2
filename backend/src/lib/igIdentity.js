@@ -187,7 +187,7 @@ function trialDecision({ identity, blocked = false, emailVerified, entitlement }
 /**
  * A concurrent request granted first: one of grantTrialInTx's conditional
  * writes matched nothing. Throwing rolls the whole transaction back —
- * including a stamp this attempt already wrote — and retryOnceIfRaceLost
+ * including a stamp this attempt already wrote — and retryIfRaceLost
  * re-runs the decision, which then reads the winner's committed rows.
  */
 class TrialGrantRaceLost extends Error {
@@ -197,12 +197,17 @@ class TrialGrantRaceLost extends Error {
   }
 }
 
-async function retryOnceIfRaceLost(run) {
-  try {
-    return await run();
-  } catch (err) {
-    if (err instanceof TrialGrantRaceLost) return run();
-    throw err;
+// Up to 3 retries: with a burst of more than two concurrent claims a retry
+// can lose again to another in-flight transaction.
+const RACE_RETRIES = 3;
+
+async function retryIfRaceLost(run) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (err) {
+      if (!(err instanceof TrialGrantRaceLost) || attempt >= RACE_RETRIES) throw err;
+    }
   }
 }
 
@@ -321,7 +326,6 @@ async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
  */
 async function loadUserTrialContext(db, userId) {
   const owner = await db.user.findUnique({ where: { id: userId }, select: { emailVerifiedAt: true } });
-  const entitlement = await db.entitlement.findUnique({ where: { userId }, select: ENTITLEMENT_CONNECT_FIELDS });
   const connected = await db.instagramAccount.findMany({
     where: { userId, connectionStatus: 'CONNECTED' },
     select: { igUserId: true },
@@ -334,6 +338,12 @@ async function loadUserTrialContext(db, userId) {
         select: { igUserIdHash: true, trialConsumedAt: true, blockedAt: true },
       })
     : [];
+  // The entitlement is read AFTER the identities, on purpose. Each statement
+  // sees its own READ COMMITTED snapshot, and the stamp and the grant commit
+  // together — so an identity seen stamped guarantees this read sees the
+  // winner's TRIALING entitlement, and a losing concurrent claim reports
+  // ALREADY_ENTITLED instead of TRIAL_ALREADY_CONSUMED.
+  const entitlement = await db.entitlement.findUnique({ where: { userId }, select: ENTITLEMENT_CONNECT_FIELDS });
   const byHash = new Map(rows.map((r) => [r.igUserIdHash, r]));
   const candidates = hashes.map(
     (h) => byHash.get(h) || { igUserIdHash: h, trialConsumedAt: null, blockedAt: null, missing: true }
@@ -365,7 +375,7 @@ async function trialStatusForUser(userId) {
  * @returns {Promise<{trialGranted: boolean, trialOutcome: string}>}
  */
 async function claimTrialForUser({ userId }) {
-  return retryOnceIfRaceLost(() =>
+  return retryIfRaceLost(() =>
     prisma.$transaction(async (tx) => {
       const ctx = await loadUserTrialContext(tx, userId);
       const decision = trialDecision(ctx);
@@ -406,7 +416,7 @@ async function claimTrialForUser({ userId }) {
 async function claimInstagramIdentity({ userId, igUserId, emailVerified }) {
   const igUserIdHash = hashIgUserId(igUserId);
 
-  return retryOnceIfRaceLost(() =>
+  return retryIfRaceLost(() =>
     prisma.$transaction(async (tx) => {
       // --- 1. Find or create the ledger row -------------------------------
       // Upsert rather than find-then-create: two concurrent connects of the same

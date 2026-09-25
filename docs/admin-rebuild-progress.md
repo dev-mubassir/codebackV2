@@ -110,7 +110,6 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 ## Skipped / TEMP tests
 
 - `admin-session.test.js` H10, `scopes-and-admin.test.js` M10 ×2, `authz-and-limits.test.js` F1/F5 — old admin behaviour, replaced by `admin-auth.test.js`.
-- `trial-claim.test.js` "eight concurrent claims…" — PRE-EXISTING failure on master; see investigation below.
 
 ## Manual steps for the owner
 
@@ -133,7 +132,11 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - Admin Announcements: publish one → it shows at the top of the customer app within a minute; Dismiss hides it on that browser; Turn off removes it.
 - Customer idle: with `user_session_idle_minutes = 5`, the warning appears about 3 minutes in; "Stay signed in" in one tab closes the warning in the other; both tabs go to login after 5 minutes.
 
-## Trial-claim race — findings (read-only; NOT fixed, owner decides)
+## Trial-claim race — FIXED after the final report (owner approved)
+
+loadUserTrialContext now reads identities before the entitlement; retryIfRaceLost (renamed from retryOnceIfRaceLost) retries up to 3 times; "eight concurrent claims" un-skipped. 10/10 passes each for it and "double-submit over HTTP".
+
+### Original findings
 
 **Is there a real race where one Instagram account gets the trial twice? No.**
 Every run, 8 concurrent claims grant exactly one trial, write one ledger row
