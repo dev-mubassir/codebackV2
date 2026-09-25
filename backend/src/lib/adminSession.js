@@ -81,19 +81,25 @@ function skipOnAdminPaths(middleware) {
   };
 }
 
+const ADMIN_DB_POOL_MAX = 2;
+
 /** The Postgres-backed admin store. Tests pass their own (MemoryStore). */
 function buildAdminStore() {
   const pgSession = require('connect-pg-simple')(session);
   const { Pool } = require('pg');
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  // Capped: admin traffic is one person. See the connection budget in lib/prisma.js.
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: ADMIN_DB_POOL_MAX });
   pool.on('error', (err) => console.error('[AdminSession] Postgres pool error:', err.message));
-  return new pgSession({
+  const store = new pgSession({
     pool,
     tableName: 'admin_sessions',
     // Created by migration 20260924120000_admin_users_audit_sessions.
     createTableIfMissing: false,
     pruneSessionInterval: 60 * 60,
   });
+  // For graceful shutdown: the store does not end a pool it was handed.
+  store.dbPool = pool;
+  return store;
 }
 
 /**

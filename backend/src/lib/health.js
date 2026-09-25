@@ -13,6 +13,10 @@ const { getIO } = require('./socket');
 const { aiStatsSince } = require('./ai/callLog');
 const { latestRunPerJob } = require('../jobs/jobRuns');
 const { recentErrors } = require('./errorRing');
+const { isRedisConfigured, pingRedis } = require('./redis');
+const { socketAdapterMode } = require('./socketAdapter');
+const { queueDriver } = require('./queue');
+const { rateLimitStore } = require('./rateLimit');
 
 // Started once at load; resolution 20ms is plenty for a lag gauge.
 const loopDelay = monitorEventLoopDelay({ resolution: 20 });
@@ -52,6 +56,45 @@ function processStats() {
       max: Math.round(loopDelay.max / 1e4) / 100,
     },
   };
+}
+
+/**
+ * Redis and everything that switches on it. `configured` without `connected`
+ * means REDIS_URL is set but Redis is not answering — rate limits and quota
+ * have fallen back to per-instance memory, and the queue/adapter are stalled.
+ */
+async function redisStats() {
+  const configured = isRedisConfigured();
+  let connected = false;
+  let pingMs = null;
+  if (configured) {
+    try {
+      pingMs = Math.round((await pingRedis({ timeoutMs: 1000 })) * 10) / 10;
+      connected = true;
+    } catch {
+      connected = false;
+    }
+  }
+  // Lazily required: jobs/scheduler -> jobs/jobRuns, which this file loads too.
+  const { schedulerEnabled } = require('../jobs/scheduler');
+  return {
+    configured,
+    connected,
+    pingMs,
+    socketAdapter: socketAdapterMode(),
+    sessionStore: 'postgres',
+    queueDriver: queueDriver(),
+    rateLimitStore: rateLimitStore(),
+    scheduler: { inProcess: schedulerEnabled() },
+  };
+}
+
+/** Postgres's connection ceiling and current use — the pool budget's reality check. */
+async function dbConnectionStats() {
+  const rows = await prisma.$queryRaw`
+    SELECT current_setting('max_connections')::int AS "max",
+           (SELECT count(*)::int FROM pg_stat_activity WHERE datname = current_database()) AS "active"`;
+  return { maxConnections: rows[0].max, activeConnections: rows[0].active };
 }
 
 function socketStats() {
@@ -106,19 +149,22 @@ async function tokenStats(now) {
  */
 async function collectHealth({ aiConfig, emailFailures }) {
   const now = Date.now();
-  const [db, jobs, webhooks, ai1h, ai24h, tokens] = await Promise.all([
+  const [db, jobs, webhooks, ai1h, ai24h, tokens, redis, dbConns] = await Promise.all([
     section(async () => ({ ok: true, pingMs: Math.round((await dbPing()) * 10) / 10 })),
     section(latestRunPerJob),
     section(() => webhookStats(now)),
     section(() => aiStatsSince(new Date(now - HOUR_MS))),
     section(() => aiStatsSince(new Date(now - DAY_MS))),
     section(() => tokenStats(now)),
+    section(redisStats),
+    section(dbConnectionStats),
   ]);
 
   return {
     generatedAt: new Date(now).toISOString(),
     process: processStats(),
-    database: db.error ? { ok: false } : db,
+    database: db.error ? { ok: false } : { ...db, ...(dbConns.error ? {} : dbConns) },
+    redis,
     sockets: socketStats(),
     jobs,
     webhooks,
@@ -129,19 +175,40 @@ async function collectHealth({ aiConfig, emailFailures }) {
   };
 }
 
+let shuttingDown = false;
+
+/** Called on SIGTERM: /health answers 503 so the load balancer drains us. */
+function markShuttingDown() {
+  shuttingDown = true;
+}
+
 /**
- * GET /health — for an external uptime monitor. Says ok or error and nothing
- * else: no version, no timestamp, no dependency detail. The database is
- * pinged (bounded), so "ok" means the service can actually serve.
+ * GET /health — readiness, and the external uptime monitor's check. Says ok or
+ * error and nothing else: no version, no timestamp, no dependency detail. The
+ * database is pinged (bounded), and Redis too when it is configured, so "ok"
+ * means this instance can actually serve. While shutting down it answers 503,
+ * which takes the instance out of rotation before it stops.
  */
 async function publicHealthHandler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
+  if (shuttingDown) return res.status(503).json({ status: 'error' });
   try {
-    await dbPing();
+    await Promise.all([dbPing(), isRedisConfigured() ? pingRedis({ timeoutMs: 1000 }) : null]);
     res.json({ status: 'ok' });
   } catch {
     res.status(503).json({ status: 'error' });
   }
 }
 
-module.exports = { collectHealth, dbPing, publicHealthHandler };
+/**
+ * GET /livez — liveness. Touches no dependency: "the process is up and the
+ * event loop answers". A database or Redis outage must NOT fail this, or the
+ * platform would restart every instance at once for a problem restarts cannot
+ * fix.
+ */
+function livezHandler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'ok' });
+}
+
+module.exports = { collectHealth, dbPing, publicHealthHandler, livezHandler, markShuttingDown, redisStats };

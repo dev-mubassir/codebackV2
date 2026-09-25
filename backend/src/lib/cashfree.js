@@ -85,6 +85,29 @@ function verifyWebhookSignature(rawBody, signatureHeader, timestampHeader, secre
 }
 
 /**
+ * Replay window for signed webhooks: ±5 minutes around x-webhook-timestamp.
+ *
+ * LOG-ONLY for now. The signature covers the timestamp, so a stale timestamp
+ * means a replayed (or long-retried) delivery — but Cashfree RETRIES failed
+ * deliveries, and until sandbox shows whether a retry carries the original
+ * timestamp or a fresh one, rejecting on age could drop a genuine late retry.
+ * Fulfilment is idempotent (the CREATED -> PAID guard), so a replay cannot
+ * grant twice either way. Flip WEBHOOK_TIMESTAMP_ENFORCE=true once confirmed.
+ *
+ * Accepts epoch seconds or milliseconds. Returns the skew in ms (or null if
+ * the header is not a number) and whether it is inside the window.
+ */
+const WEBHOOK_TIMESTAMP_WINDOW_MS = 5 * 60 * 1000;
+
+function checkWebhookTimestamp(timestampHeader, now = Date.now()) {
+  const raw = Number(String(timestampHeader ?? '').trim());
+  if (!Number.isFinite(raw) || raw <= 0) return { withinWindow: false, skewMs: null };
+  const ms = raw < 1e12 ? raw * 1000 : raw;
+  const skewMs = now - ms;
+  return { withinWindow: Math.abs(skewMs) <= WEBHOOK_TIMESTAMP_WINDOW_MS, skewMs };
+}
+
+/**
  * Convert our internal smallest-currency-unit storage (paise for INR, cents
  * for USD — both 2-decimal currencies) to the decimal amount Cashfree's
  * Orders API expects (e.g. 49900 -> 499.00). Currency-agnostic: dividing by
@@ -200,6 +223,8 @@ function cashfreeResponseParser(data) {
 }
 
 module.exports = {
+  checkWebhookTimestamp,
+  WEBHOOK_TIMESTAMP_WINDOW_MS,
   getBaseUrl,
   cashfreeEnvironment,
   verifyWebhookSignature,
