@@ -41,6 +41,7 @@ const { assertMigrationsCurrent } = require('./lib/migrationGuard');
 const { startWorkers } = require('./jobs');
 const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
 const { skipOnAdminPaths, buildAdminSessionMiddleware, buildAdminStore } = require('./lib/adminSession');
+const { userSessionGuard, socketSessionIsLive, startIdleSocketSweep } = require('./lib/sessionIdle');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandlers');
 
 // ============================================
@@ -313,10 +314,12 @@ function buildSessionStore() {
   }
 }
 
-// Session middleware
+// Session middleware. The store is kept in a variable because the idle-socket
+// sweep (lib/sessionIdle.js) re-reads sessions from it.
+const sessionStore = buildSessionStore();
 const sessionMiddleware = session({
   name: 'codeback.sid',
-  store: buildSessionStore(),
+  store: sessionStore,
   // An ARRAY, not a string. express-session signs with the first entry and
   // accepts any of them when verifying, so a future rotation can prepend a new
   // secret and keep old cookies valid until they expire, instead of logging
@@ -344,6 +347,12 @@ app.use(skipOnAdminPaths(sessionMiddleware));
 // is present but not on the CORS allowlist (lib/security.js). Runs after the
 // session is loaded and before route handlers.
 app.use(originGuard);
+
+// Customer session lifetime: 30-minute idle (setting) and 7-day absolute
+// limits, where only mutating requests and POST /auth/activity count as
+// activity. After originGuard, so a blocked cross-site POST never counts.
+// See lib/sessionIdle.js.
+app.use(skipOnAdminPaths(userSessionGuard()));
 
 // JSON body parser. Meta's webhook signature is an HMAC over the bytes on the
 // wire, so the raw body is captured here via `verify` — body-parser hands us
@@ -395,17 +404,27 @@ setIO(io);
 // lib/queue.js. Either way this runs off the webhook's request/response path.
 startWorkers();
 
+// Every 60s: disconnect sockets whose session went idle with no further HTTP
+// request (a tab left open). Not recorded as a job run — at once a minute it
+// would drown the job history; its failures are logged.
+startIdleSocketSweep({ store: sessionStore });
+
 // Handle Socket.io connections
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   const session = socket.request?.session;
   const userId = session?.userId;
 
-  // Reject unauthenticated socket connections
-  if (!userId) {
-    console.warn(`[Socket.io] Rejected unauthenticated connection attempt (socket ${socket.id}, no active session)`);
+  // Reject unauthenticated socket connections — and sessions that are already
+  // past their idle or absolute limit, which the HTTP guard never sees here.
+  if (!userId || !(await socketSessionIsLive(socket).catch(() => false))) {
+    console.warn(`[Socket.io] Rejected connection (socket ${socket.id}): no live session`);
     socket.disconnect(true);
     return;
   }
+
+  // Bind the socket to the session it authenticated with, so an expired
+  // session disconnects exactly its own sockets (lib/sessionIdle.js).
+  socket.data.sid = socket.request.sessionID;
 
   // Automatically join the user-scoped room verified from the server session
   socket.join(`user:${userId}`);

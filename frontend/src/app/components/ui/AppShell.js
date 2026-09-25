@@ -22,6 +22,8 @@ import Icon from '@/app/components/Icon';
 import Avatar from '@/app/components/Avatar';
 import { buildNavItems } from '@/app/components/navItems';
 import { logout } from '@/lib/api';
+import { broadcastSession } from '@/lib/sessionChannel';
+import SessionGuard from '@/app/components/SessionGuard';
 import { nav as navCopy } from '@/content/copy';
 import s from './AppShell.module.css';
 
@@ -67,6 +69,7 @@ export default function AppShell({
 
   async function handleLogout() {
     await logout().catch(() => {});
+    broadcastSession({ type: 'logout' });
     router.push('/login');
   }
 
@@ -74,6 +77,8 @@ export default function AppShell({
 
   return (
     <div className={cx(s.shell, isFull && s.shellFull)}>
+      {/* Idle-timeout heartbeat and warning; only once someone is signed in. */}
+      {user && <SessionGuard />}
       <div
         className={cx(s.scrim, drawerOpen && s.scrimOpen)}
         onClick={closeDrawer}

@@ -28,11 +28,13 @@ import cookieParser from 'cookie-parser';
 
 import security from '../../src/lib/security.js';
 import adminSession from '../../src/lib/adminSession.js';
+import sessionIdle from '../../src/lib/sessionIdle.js';
 import authRoutes from '../../src/routes/auth.js';
 import errorHandlers from '../../src/middleware/errorHandlers.js';
 
 const { securityHeaders, originGuard } = security;
 const { skipOnAdminPaths, buildAdminSessionMiddleware } = adminSession;
+const { userSessionGuard } = sessionIdle;
 
 /**
  * @param {object} [options]
@@ -53,9 +55,14 @@ export function buildTestApp({ mount = {}, admin = null } = {}) {
 
   // skipOnAdminPaths, exactly as src/index.js: the customer session never
   // loads on /api/admin.
+  // An explicit store, exposed on app.locals, so a test can re-read sessions
+  // the way the idle-socket sweep does.
+  const sessionStore = new session.MemoryStore();
+  app.locals.sessionStore = sessionStore;
   app.use(skipOnAdminPaths(
     session({
       name: 'codeback.sid',
+      store: sessionStore,
       secret: process.env.SESSION_SECRET,
       resave: false,
       saveUninitialized: false,
@@ -64,6 +71,8 @@ export function buildTestApp({ mount = {}, admin = null } = {}) {
   ));
 
   app.use(originGuard);
+  // Identical to src/index.js: idle/absolute session limits, after originGuard.
+  app.use(skipOnAdminPaths(userSessionGuard()));
 
   // Identical to src/index.js. `verify` hands us the exact bytes body-parser
   // is about to parse, which is what the webhook HMAC must be computed over.

@@ -5,6 +5,7 @@
 
 import axios from 'axios';
 import { BACKEND_URL } from './backendUrl';
+import { broadcastSession, SESSION_EXPIRED_URL } from './sessionChannel';
 
 const api = axios.create({
   baseURL: BACKEND_URL,
@@ -31,9 +32,27 @@ function isAdminSignOut(error) {
   return null;
 }
 
+/**
+ * Customer pages: the backend ended the session for inactivity (or at the
+ * 7-day limit). Tell every other open tab, then go to login with a message
+ * saying why — rather than each page's own catch bouncing to a bare /login.
+ */
+const CUSTOMER_SESSION_ENDED = new Set(['SESSION_IDLE_EXPIRED', 'SESSION_EXPIRED']);
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (
+      typeof window !== 'undefined' &&
+      error.response?.status === 401 &&
+      CUSTOMER_SESSION_ENDED.has(error.response.data?.code) &&
+      !window.location.pathname.startsWith('/admin')
+    ) {
+      broadcastSession({ type: 'expired' });
+      window.location.href = SESSION_EXPIRED_URL;
+      return Promise.reject(error);
+    }
+
     const reason = typeof window !== 'undefined' ? isAdminSignOut(error) : null;
     if (
       reason &&
@@ -63,6 +82,18 @@ export async function login({ email, password }) {
 /** Get the currently logged-in user's info (identity is taken from the session cookie) */
 export async function getMe() {
   const { data } = await api.get('/auth/me');
+  return data;
+}
+
+/** When this session ends. A GET — asking does not count as activity. */
+export async function getSessionStatus() {
+  const { data } = await api.get('/auth/session');
+  return data;
+}
+
+/** The heartbeat, sent only on real clicks, keystrokes and page changes. */
+export async function sendActivity() {
+  const { data } = await api.post('/auth/activity');
   return data;
 }
 

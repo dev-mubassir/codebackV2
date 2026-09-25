@@ -32,7 +32,10 @@ function saveSession(req) {
  */
 async function startAuthenticatedSession(req, values = {}) {
   await regenerateSession(req);
-  Object.assign(req.session, values);
+  // Signing in is activity, and starts the 7-day absolute clock
+  // (lib/sessionIdle.js). The admin login passes its own values for both.
+  const now = Date.now();
+  Object.assign(req.session, { authenticatedAt: now, lastActivityAt: now }, values);
   await saveSession(req);
 }
 

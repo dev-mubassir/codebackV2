@@ -38,6 +38,7 @@ const igIdentity = require('../lib/igIdentity');
 const { requireAuth } = require('../middleware/auth');
 const { isBillingEnabled } = require('../lib/billingFlags');
 const { refreshExpiringAccountAvatars } = require('../lib/accountAvatar');
+const sessionIdle = require('../lib/sessionIdle');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -1344,6 +1345,27 @@ router.get('/instagram/callback', async (req, res) => {
     console.error('[Auth] OAuth callback error:', error.response?.data || error.message);
     res.redirect(`${frontendUrl()}?error=oauth_failed`);
   }
+});
+
+// ============================================
+// Session lifetime (lib/sessionIdle.js)
+//
+// GET  /auth/session   when this session will end. A GET, so asking does NOT
+//                      count as activity — the app polls this before showing
+//                      the "you'll be logged out" warning, and must not
+//                      extend the session by doing so.
+// POST /auth/activity  the heartbeat the app sends on real clicks, keystrokes
+//                      and page changes, and from "Stay signed in". It is a
+//                      mutating request, which is what the session guard
+//                      counts as activity; this handler only reports the new
+//                      deadline.
+// ============================================
+router.get('/session', requireAuth, async (req, res) => {
+  res.json(await sessionIdle.deadlines(req.session));
+});
+
+router.post('/activity', requireAuth, async (req, res) => {
+  res.json(await sessionIdle.deadlines(req.session));
 });
 
 // ============================================

@@ -33,6 +33,15 @@ async function requireAuth(req, res, next) {
   const userId = req.session ? req.session.userId : null;
 
   if (!userId) {
+    // lib/sessionIdle.js ended this session on THIS request. Say so, so the
+    // app can show "you were signed out for inactivity" instead of a bare
+    // login page.
+    if (req.sessionExpired === 'idle') {
+      return res.status(401).json({ error: 'You were signed out after a period of inactivity. Log in again.', code: 'SESSION_IDLE_EXPIRED' });
+    }
+    if (req.sessionExpired === 'absolute') {
+      return res.status(401).json({ error: 'Your session expired. Log in again.', code: 'SESSION_EXPIRED' });
+    }
     return res.status(401).json({ error: 'Log in to continue.' });
   }
 

@@ -607,6 +607,14 @@ export const marketing = {
   },
 };
 
+// The idle-timeout warning (components/SessionGuard.js).
+export const sessionWarning = {
+  title: "You'll be logged out soon",
+  body: "You'll be logged out in 2 minutes because you haven't done anything for a while.",
+  stay: 'Stay signed in',
+  logOut: 'Log out now',
+};
+
 export const admin = {
   brand: 'Siffty admin',
   panelTitle: 'Admin',
@@ -1148,6 +1156,7 @@ const copy = {
   onboarding,
   marketing,
   admin,
+  sessionWarning,
   errors,
   empty,
   toast,
