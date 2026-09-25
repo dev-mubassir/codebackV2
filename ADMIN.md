@@ -56,14 +56,10 @@ uses for `prisma migrate deploy` (see `docs/DEPLOYMENT-RUNBOOK.md`, Phase 4).
 `DATABASE_URL` is already set in that shell's environment. The script reads it
 and **never prints it**; any error text is scrubbed of connection strings.
 
-1. Deploy the code, then apply the migration in the service shell:
-   ```bash
-   ./node_modules/.bin/prisma migrate deploy
-   ```
-   The backend refuses to start until
-   `20260924120000_admin_users_audit_sessions` is applied (the migration
-   guard). That is expected.
-2. In the same shell:
+1. The migrations must already be applied (deploy checklist step 2, run
+   from your machine with `scripts/prod-migrate.ps1` BEFORE the code is
+   pushed). Otherwise the new backend refuses to start (the migration guard).
+2. In the new container's service shell:
    ```bash
    node scripts/create-admin.js
    ```
@@ -205,73 +201,99 @@ It copies their old audit history into `admin_audit_logs`, demotes them to
 ## Production deploy checklist for the admin rebuild
 
 Follow the steps in this order. Each step says what to check before you move
-on, and how to back out.
+on, and how to back out. Steps marked **(owner)** are yours alone: they touch
+the production database or its credentials.
 
-### Before you start
+| # | Step | Who |
+|---|---|---|
+| 1 | Back up the database | owner |
+| 2 | Apply the migrations (old code still running) | owner |
+| 3 | Push `master` (deploy the code) | Claude, after you paste the migrate status |
+| 4 | Check `/health` and the boot log | owner |
+| 5 | Create the admin | owner |
+| 6 | Verify admin sign-in | owner |
+| 7 | List the legacy admin rows | owner |
+| 8 | Promote the legacy cleanup migration | Claude, after you paste the list |
+| 9 | Apply it (migrate again) | owner |
+| 10 | Delete the old environment variables | owner |
+| 11 | Set up the uptime monitor | owner |
 
-- Keep the old `ADMIN_*` variables in Northflank until step 6. The **old** code
-  needs them for admin sign-in, so keeping them is what makes rolling back the
-  code (step 2) safe.
-- Run `node scripts/list-legacy-admin-users.js` in the current service shell
-  and **save the output**. It is the record step 5's rollback restores from.
+Keep the old `ADMIN_*` variables in Northflank until step 10. The **old** code
+needs them for admin sign-in, so keeping them is what makes rolling back the
+code (step 3) safe.
 
-### Step 1: Apply the migrations (old code still running)
+### Step 1: Back up the database (owner)
 
-The rebuild adds eight migrations, all additive for the old code:
+In the Northflank dashboard: project `codeback` > Addons > `codeback-postgres`
+> Backups > take a manual backup. Wait until it shows as completed.
 
-| Migration | What it does |
-|---|---|
-| `20260924120000_admin_users_audit_sessions` | admin_users, admin_audit_logs, admin_sessions |
-| `20260925090000_app_settings` | app_settings (kill switches, thresholds) |
-| `20260925120000_ai_logs_job_runs` | ai_call_logs, ai_usage_daily, job_runs |
-| `20260925150000_token_refresh_tracking` | 3 nullable columns on instagram_accounts |
-| `20260925180000_ai_config` | ai_config (empty = today's Gemini model) |
-| `20260926090000_plan_terms_coupons` | plan features, entitlement term snapshot columns + **backfill from today's plans**, coupons |
-| `20260926091000_trial_plan_credits` | TRIAL plan row: 0 to 25 reply credits (what the trial already granted) |
-| `20260926120000_announcements` | announcements |
+**Rollback for everything below, as a last resort:** restore this backup.
 
-The running old code never reads the new tables or columns. Its migration guard only refuses to start when the database
-is *behind* the code, never when it is ahead. So applying the migration before
-the push is safe.
+### Step 2: Apply the migrations (owner, old code still running)
 
-**Catch:** the *current* container's `prisma/migrations` folder does not
-contain this migration, so `migrate deploy` in today's service shell has
-nothing to apply. Two ways to do it:
+The rebuild adds eight migrations. They apply in this order, and all are
+safe while the old code runs: the old code never reads the new tables or
+columns, and the migration guard only refuses to start when the database is
+*behind* the code, never ahead.
 
-- **A, recommended: migrate first, from this branch.** In a local checkout of
-  `admin-rebuild`, open a shell that has the production `DATABASE_URL` in its
-  environment *for that session only* (for example through a Northflank
-  port-forward to the database). Then run:
-  ```bash
-  cd backend
-  ./node_modules/.bin/prisma migrate deploy
-  ./node_modules/.bin/prisma migrate status
-  ```
-  Expect "Database schema is up to date!" and nothing pending. Never paste the
-  URL into a file, a command argument or chat.
-- **B: the runbook order.** Push first (step 2), then run `migrate deploy` in
-  the *new* container's service shell. Between the two, the new container
-  refuses to start (the migration guard). That is the window
-  `docs/DEPLOYMENT-RUNBOOK.md` Phase 4 describes.
+| Migration | What it does | Writes data? |
+|---|---|---|
+| `20260924120000_admin_users_audit_sessions` | admin_users, admin_audit_logs, admin_sessions | no |
+| `20260925090000_app_settings` | app_settings (kill switches, thresholds) | no |
+| `20260925120000_ai_logs_job_runs` | ai_call_logs, ai_usage_daily, job_runs | no |
+| `20260925150000_token_refresh_tracking` | 3 nullable columns on instagram_accounts | no |
+| `20260925180000_ai_config` | ai_config (empty = today's Gemini model) | no |
+| `20260926090000_plan_terms_coupons` | plan features, entitlement term-snapshot columns, coupons | **yes**: copies each entitlement's current plan limits into the new term columns. The old code never reads them. |
+| `20260926091000_trial_plan_credits` | TRIAL plan row | **yes**: 0 to 25 reply credits, only if still 0. The old code grants 25 hardcoded anyway; only the trial summary's displayed number changes, to the true value. |
+| `20260926120000_announcements` | announcements | no |
+
+How, from this checkout (Windows PowerShell):
+
+1. Window 1, the port-forward (keep it open):
+   ```powershell
+   northflank forward addon --projectId codeback --addonId codeback-postgres --skipHostnames
+   ```
+   Note the local address it prints for Postgres (IP and port).
+2. Dashboard: `codeback-postgres` > **Connection details**. Copy the
+   `POSTGRES_URI` value (the internal connection string). Paste it somewhere
+   **only in your head / a text box you won't save**: replace the part between
+   `@` and the next `/` (the internal `host:port`) with the forwarded address
+   from step 1. Keep the user, password, database name and any `?sslmode=...`
+   unchanged.
+3. Window 2:
+   ```powershell
+   cd C:\codeback\backend
+   powershell -ExecutionPolicy Bypass -File .\scripts\prod-migrate.ps1
+   ```
+   Paste the edited connection string at the hidden prompt, type `MIGRATE`.
+   It runs `prisma migrate deploy` then `prisma migrate status` and clears the
+   variable.
+
+**Check:** `migrate status` says the database schema is up to date, with no
+pending or failed migrations. Paste that output to Claude.
 
 **Rollback:** only needed if the new code is never deployed. Each migration
 file has a REVERSE block at the top; run them newest first, then remove their
 `_prisma_migrations` rows. Leaving them in place is harmless to the old code.
 
-### Step 2: Deploy the code
+### Step 3: Push master (deploy the code)
 
-Merge `admin-rebuild` into `master` and push; Northflank deploys it.
+`admin-rebuild` is already merged into local `master`; Claude pushes it after
+checking your migrate status output. Northflank builds and deploys it.
 
-**Check:** the service boots, and `/health` returns 200.
+**Rollback:** a revert commit of the merge on `master`, pushed (never a
+force-push). The old code comes back with its old admin sign-in, because the
+`ADMIN_*` variables are still set. The new tables stay behind, unused.
 
-**Check:** the boot log shows the warning that the `ADMIN_*` variables are
-set but unused. That is expected until step 6.
+### Step 4: Check /health and the boot log (owner)
 
-**Rollback:** revert the merge commit on `master` and push. The old code comes
-back with its old admin sign-in, because the `ADMIN_*` variables are still set.
-The new tables stay behind, unused and harmless.
+- [ ] `GET https://<api domain>/health` returns 200 `{"status":"ok"}`.
+- [ ] The boot log has no migration-guard error and no crash loop.
+- [ ] The boot log warns that the `ADMIN_*` (and `AI_PROVIDER` / `GROK_API_KEY`
+      / `XAI_API_KEY`, if set) variables are set but unused. Expected until
+      step 10.
 
-### Step 3: Create the admin
+### Step 5: Create the admin (owner)
 
 In the new container's service shell:
 
@@ -286,9 +308,7 @@ twice).
 `reset-admin-password.js`. To remove the admin, delete its `admin_users` row;
 its audit rows stay, with `admin_id` set to NULL.
 
-### Step 4: Verify sign-in
-
-Before touching anything else, check all of these:
+### Step 6: Verify admin sign-in (owner)
 
 - [ ] Sign in at `/admin/login`. The alert email arrives with the time, IP and
       browser.
@@ -299,33 +319,43 @@ Before touching anything else, check all of these:
       password, then works.
 - [ ] In a private window, signed in as a normal customer, `/api/admin/me`
       returns 404.
-- [ ] Settings → Change your password works. Then sign in again with the new
+- [ ] Settings > Change your password works. Then sign in again with the new
       password.
 
 **Rollback:** if sign-in does not work, do not continue. Check the logs. If it
-cannot be fixed quickly, roll back as in step 2.
+cannot be fixed quickly, roll back as in step 3.
 
-### Step 5: Apply the legacy cleanup
+### Step 7: List the legacy admin rows (owner)
 
-Promote the approved migration, commit, push, then apply it in the service
-shell:
+This script only exists in the NEW container. In its service shell:
 
 ```bash
-git mv backend/prisma/pending-approval/20260924130000_retire_legacy_admin_users backend/prisma/migrations/
-# commit, push, wait for the deploy, then in the service shell:
-./node_modules/.bin/prisma migrate deploy
+node scripts/list-legacy-admin-users.js
 ```
 
-**Check:** `node scripts/list-legacy-admin-users.js` shows the rows with
-`role=USER`, and the fake row is suspended. `admin_audit_logs` now has
-`LEGACY_*` rows.
+**Save the output.** It is the record step 9's rollback restores from. Paste
+it to Claude.
 
-**Rollback:** using the list you saved before you started, set `role = 'ADMIN'`
-on those ids, and set `is_suspended = false` on `admin@codeback.internal`.
+### Step 8: Promote the legacy cleanup migration
+
+Claude moves `prisma/pending-approval/20260924130000_retire_legacy_admin_users`
+into `prisma/migrations`, runs the tests, commits and pushes. Wait for the
+deploy to finish.
+
+### Step 9: Apply it (owner, migrate again)
+
+Same as step 2: port-forward, then `.\scripts\prod-migrate.ps1`.
+
+**Check:** `node scripts/list-legacy-admin-users.js` in the service shell
+shows the rows with `role=USER`, and the fake row is suspended.
+`admin_audit_logs` now has `LEGACY_*` rows.
+
+**Rollback:** using the list you saved in step 7, set `role = 'ADMIN'` on
+those ids, and set `is_suspended = false` on `admin@codeback.internal`.
 Delete the copied history with:
 `DELETE FROM "admin_audit_logs" WHERE "action" LIKE 'LEGACY_%';`
 
-### Step 6: Delete the old variables
+### Step 10: Delete the old variables (owner)
 
 In Northflank, delete `ADMIN_USERNAME`, `ADMIN_PASSWORD`,
 `ADMIN_PASSWORD_HASH`, `ADMIN_EMAILS`, `AI_PROVIDER`, `GROK_API_KEY` and
@@ -335,3 +365,7 @@ In Northflank, delete `ADMIN_USERNAME`, `ADMIN_PASSWORD`,
 
 **Rollback:** re-add them. You only need them if you ever roll back to code
 from before the admin rebuild.
+
+### Step 11: Set up the uptime monitor (owner)
+
+See "Free uptime monitor on /health" above.
