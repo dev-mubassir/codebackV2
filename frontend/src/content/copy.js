@@ -720,6 +720,7 @@ export const admin = {
       jobs: 'Scheduled jobs',
       tokens: 'Instagram access expiring within 7 days',
       errors: 'Recent errors',
+      scaling: 'Redis & scaling',
     },
     server: {
       uptime: 'Uptime',
@@ -755,6 +756,24 @@ export const admin = {
       code: 'Error code',
     },
     errors: { when: 'When', where: 'Where', what: 'Message' },
+    scaling: {
+      subtitle: 'What this instance shares with the others.',
+      healthy: 'Healthy',
+      unavailable: 'Unavailable',
+      notConfigured: 'Not configured',
+      ping: 'Redis ping',
+      adapter: 'Live-update adapter',
+      sessions: 'Session store',
+      queue: 'Queue driver',
+      rateLimit: 'Rate-limit store',
+      scheduler: 'Scheduled jobs',
+      schedulerHere: 'Run in this instance',
+      schedulerElsewhere: 'Not in this instance',
+      dbConnections: 'Database connections',
+      dbConnectionsHint: 'active / max',
+      // Store and driver codes the backend reports. An unknown code is shown as-is.
+      values: { redis: 'Redis', memory: 'In memory', postgres: 'Postgres', bullmq: 'BullMQ' },
+    },
   },
 
   plans: {

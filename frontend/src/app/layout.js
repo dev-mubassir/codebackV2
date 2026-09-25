@@ -4,7 +4,13 @@ import "./globals.css";
 import "./tokens.css";
 import { meta } from "@/content/copy";
 
+// The public origin that relative URLs in metadata (Open Graph, Twitter) are
+// resolved against — link previews need absolute URLs, and the server that
+// builds or serves the page does not know its own public hostname.
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL?.trim() || "https://app.siffty.com";
+
 export const metadata = {
+  metadataBase: new URL(SITE_URL),
   title: meta.root.title,
   description: meta.root.description,
   // No `icons` block: src/app/{icon.png,apple-icon.png,favicon.ico} are picked

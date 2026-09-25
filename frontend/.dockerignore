@@ -1,0 +1,21 @@
+# Secrets never enter the build context. NEXT_PUBLIC_* values arrive as
+# --build-arg (see Dockerfile), not from an env file. Patterns here match from
+# the context root only, hence the **/ twins.
+.env*
+**/.env*
+*.pem
+**/*.pem
+certs/
+
+# Rebuilt inside the image.
+node_modules
+.next
+
+# Not needed to build or run the app.
+.git
+design/
+*.log
+**/*.log
+README.md
+AGENTS.md
+CLAUDE.md
