@@ -1,0 +1,83 @@
+{
+  "_note": "Project 'siffty', region asia-south-delhi. Records of what was created (northflank create ... -f <file>); names and non-secret defaults only - the owner enters every secret value in the UI.",
+  "name": "web",
+  "description": "Siffty web (Next.js standalone)",
+  "billing": {
+    "deploymentPlan": "nf-compute-20",
+    "buildPlan": "nf-compute-400-16"
+  },
+  "deployment": {
+    "type": "deployment",
+    "instances": 0,
+    "storage": {
+      "ephemeralStorage": {
+        "storageSize": 1024
+      }
+    }
+  },
+  "ports": [
+    {
+      "name": "http",
+      "internalPort": 3000,
+      "public": true,
+      "protocol": "HTTP"
+    }
+  ],
+  "vcsData": {
+    "projectUrl": "https://github.com/dev-mubassir/codebackV2",
+    "projectType": "github",
+    "projectBranch": "master",
+    "accountLogin": "dev-mubassir"
+  },
+  "buildSettings": {
+    "dockerfile": {
+      "buildEngine": "buildkit",
+      "dockerFilePath": "/frontend/Dockerfile",
+      "dockerWorkDir": "/frontend",
+      "useCache": true
+    }
+  },
+  "runtimeEnvironment": {
+    "PORT": "3000"
+  },
+  "healthChecks": [
+    {
+      "protocol": "HTTP",
+      "type": "readinessProbe",
+      "path": "/",
+      "port": 3000,
+      "initialDelaySeconds": 5,
+      "periodSeconds": 10,
+      "timeoutSeconds": 3,
+      "failureThreshold": 3,
+      "successThreshold": 1
+    },
+    {
+      "protocol": "HTTP",
+      "type": "livenessProbe",
+      "path": "/",
+      "port": 3000,
+      "initialDelaySeconds": 15,
+      "periodSeconds": 20,
+      "timeoutSeconds": 5,
+      "failureThreshold": 4
+    }
+  ],
+  "disabledCI": true,
+  "disabledCD": false,
+  "autoscaling_at_cutover": {
+    "horizontal": {
+      "enabled": true,
+      "minReplicas": 1,
+      "maxReplicas": 3,
+      "cpu": {
+        "enabled": true,
+        "thresholdPercentage": 70
+      },
+      "memory": {
+        "enabled": true,
+        "thresholdPercentage": 80
+      }
+    }
+  }
+}

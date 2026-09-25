@@ -1,0 +1,43 @@
+{
+  "_note": "Project 'siffty', region asia-south-delhi. Records of what was created (northflank create ... -f <file>); names and non-secret defaults only - the owner enters every secret value in the UI.",
+  "postgres": {
+    "type": "postgresql",
+    "version": "18",
+    "billing": {
+      "deploymentPlan": "nf-compute-50",
+      "storage": 10240,
+      "replicas": 2,
+      "storageClass": "nvme"
+    },
+    "tlsEnabled": true,
+    "backupSchedules": [
+      {
+        "scheduling": {
+          "interval": "daily",
+          "minute": [
+            30
+          ],
+          "hour": [
+            21
+          ]
+        },
+        "backupType": "snapshot",
+        "retentionTime": 7
+      }
+    ]
+  },
+  "redis": {
+    "type": "redis",
+    "version": "latest",
+    "billing": {
+      "deploymentPlan": "nf-compute-50",
+      "storage": 4096,
+      "replicas": 1,
+      "storageClass": "nvme"
+    },
+    "tlsEnabled": true,
+    "typeSpecificSettings": {
+      "redisMaxMemoryPolicy": "noeviction"
+    }
+  }
+}

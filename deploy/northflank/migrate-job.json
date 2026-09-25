@@ -1,0 +1,32 @@
+{
+  "_note": "Project 'siffty', region asia-south-delhi. Records of what was created (northflank create ... -f <file>); names and non-secret defaults only - the owner enters every secret value in the UI.",
+  "name": "migrate",
+  "description": "prisma migrate deploy, run by the release flow before every deploy",
+  "billing": {
+    "deploymentPlan": "nf-compute-20",
+    "buildPlan": "nf-compute-400-16"
+  },
+  "backoffLimit": 0,
+  "activeDeadlineSeconds": 600,
+  "vcsData": {
+    "projectUrl": "https://github.com/dev-mubassir/codebackV2",
+    "projectType": "github",
+    "projectBranch": "master",
+    "accountLogin": "dev-mubassir"
+  },
+  "buildSettings": {
+    "dockerfile": {
+      "buildEngine": "buildkit",
+      "dockerFilePath": "/backend/Dockerfile.migrate",
+      "dockerWorkDir": "/backend",
+      "useCache": true
+    }
+  },
+  "deployment": {
+    "docker": {
+      "configType": "default"
+    }
+  },
+  "disabledCI": true,
+  "disabledCD": false
+}
