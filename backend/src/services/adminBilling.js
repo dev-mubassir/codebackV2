@@ -12,7 +12,7 @@
  */
 
 const prisma = require('../lib/prisma');
-const { grantPlan, effectiveStatus, termsFrom } = require('./entitlementService');
+const { grantPlan, effectiveStatus, termsFrom, grantBonusDraftCredits } = require('./entitlementService');
 const { hashIgUserId } = require('../lib/igIdentity');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -35,6 +35,7 @@ const snapshot = (e) =>
         validUntil: e.validUntil,
         graceUntil: e.graceUntil,
         credits: e.replyCreditsCurrent + e.replyCreditsBanked,
+        draftCredits: e.draftCreditsCurrent + e.draftCreditsBanked,
         bonusClassificationsCycle: e.bonusClassificationsCycle,
       }
     : null;
@@ -86,10 +87,27 @@ async function extendExpiry(userId, days) {
 
 /** Extra classifications for the CURRENT cycle only (reset by the next grant or roll). */
 async function addBonusClassifications(userId, amount) {
-  if (!Number.isInteger(amount) || amount < 1 || amount > 100000) throw new AdminBillingError(400, 'BAD_AMOUNT', 'Amount must be a whole number from 1 to 100,000.');
+  return addBonusQuota(userId, { amount });
+}
+
+/**
+ * The "bonus quota" control: extra classifications for this cycle (`amount`),
+ * bonus draft credits (`draftCredits`), or both. Draft credits go through the
+ * ledger (source draft:admin_bonus) so the invariant holds; they join this
+ * cycle's pool and bank at the next roll like any other current credit.
+ */
+async function addBonusQuota(userId, { amount, draftCredits } = {}) {
+  const has = (v) => v !== undefined && v !== null;
+  if (!has(amount) && !has(draftCredits)) throw new AdminBillingError(400, 'BAD_AMOUNT', 'Give classifications, draft credits, or both.');
+  if (has(amount) && (!Number.isInteger(amount) || amount < 1 || amount > 100000)) throw new AdminBillingError(400, 'BAD_AMOUNT', 'Amount must be a whole number from 1 to 100,000.');
+  if (has(draftCredits) && (!Number.isInteger(draftCredits) || draftCredits < 1 || draftCredits > 10000)) throw new AdminBillingError(400, 'BAD_AMOUNT', 'Draft credits must be a whole number from 1 to 10,000.');
   const e = await prisma.entitlement.findUnique({ where: { userId } });
   if (!e || !e.planCode) throw new AdminBillingError(409, 'NO_PLAN', 'This customer has no plan or trial to add quota to.');
-  const after = await prisma.entitlement.update({ where: { userId }, data: { bonusClassificationsCycle: { increment: amount } } });
+  await prisma.$transaction(async (tx) => {
+    if (has(amount)) await tx.entitlement.update({ where: { userId }, data: { bonusClassificationsCycle: { increment: amount } } });
+    if (has(draftCredits)) await grantBonusDraftCredits(userId, draftCredits, { tx });
+  });
+  const after = await prisma.entitlement.findUnique({ where: { userId } });
   return { before: snapshot(e), after: snapshot(after) };
 }
 
@@ -110,6 +128,7 @@ async function resetTrial(userId) {
   await prisma.$transaction(async (tx) => {
     if (e) {
       const balance = e.replyCreditsCurrent + e.replyCreditsBanked;
+      const draftBalance = e.draftCreditsCurrent + e.draftCreditsBanked;
       await tx.entitlement.update({
         where: { userId },
         data: {
@@ -119,12 +138,19 @@ async function resetTrial(userId) {
           graceUntil: null,
           replyCreditsCurrent: 0,
           replyCreditsBanked: 0,
+          draftCreditsCurrent: 0,
+          draftCreditsBanked: 0,
           classificationCountCycle: 0,
           bonusClassificationsCycle: 0,
           ...termsFrom(null),
           termsSnapshotAt: null,
         },
       });
+      if (draftBalance > 0) {
+        await tx.creditLedger.create({
+          data: { tenantId: userId, delta: -draftBalance, type: 'EXPIRE', pool: 'DRAFT', source: 'draft:expire:admin_trial_reset', balanceAfter: 0 },
+        });
+      }
       if (balance > 0) {
         await tx.creditLedger.create({
           data: { tenantId: userId, delta: -balance, type: 'EXPIRE', source: 'expire:admin_trial_reset', balanceAfter: 0 },
@@ -139,4 +165,4 @@ async function resetTrial(userId) {
   return { before: snapshot(e), after: snapshot(after), identitiesCleared: hashes.length };
 }
 
-module.exports = { grantPlanWithExpiry, extendExpiry, addBonusClassifications, resetTrial, AdminBillingError, PAID_GRANTABLE };
+module.exports = { grantPlanWithExpiry, extendExpiry, addBonusClassifications, addBonusQuota, resetTrial, AdminBillingError, PAID_GRANTABLE };

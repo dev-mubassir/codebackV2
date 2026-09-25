@@ -16,7 +16,7 @@ const { requireAuth } = require('../middleware/auth');
 const { generateOrderId, createOrder } = require('../lib/cashfreeOrders');
 const { isBillingEnabled, isUsdPricingEnabled, isMetaApproved } = require('../lib/billingFlags');
 const coupons = require('../services/coupons');
-const { effectiveStatus, LIVE_STATUSES, downgradeBlock } = require('../services/entitlementService');
+const { effectiveStatus, LIVE_STATUSES, downgradeBlock, draftStatusOf, draftCreditStatus } = require('../services/entitlementService');
 const { TRIAL_OUTCOMES, trialStatusForUser, claimTrialForUser } = require('../lib/igIdentity');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { recoverSkippedMessages, countUnsortedMessages } = require('../services/skippedMessageRecovery');
@@ -67,13 +67,20 @@ router.get('/plans', async (req, res) => {
         include: { prices: { where: { billingRegion: { in: regions } } } },
       }),
       prisma.addonPack.findMany({
-        where: { isActive: true },
+        // isListed, not isActive — see AddonPack.isActive's schema note.
+        where: { isListed: true },
+        orderBy: { creditAmount: 'asc' },
         include: { prices: { where: { billingRegion: { in: regions } } } },
       }),
       prisma.extraIgAccountPrice.findMany({ where: { billingRegion: { in: regions } } }),
     ]);
 
     const publicPrice = (p) => ({ billingRegion: p.billingRegion, currency: p.currency, amount: p.amount });
+    const packFor = (planCode) => (pack) => ({
+      code: pack.code,
+      creditAmount: pack.creditAmount,
+      prices: pack.prices.filter((p) => p.planCode === planCode).map(publicPrice),
+    });
 
     const payload = plans
       .filter((plan) => plan.code !== 'TRIAL') // granted by connecting Instagram, never purchased
@@ -83,6 +90,9 @@ router.get('/plans', async (req, res) => {
         igAccountLimit: plan.igAccountLimit,
         autoReplyCreditsPerCycle: plan.autoReplyCreditsPerCycle,
         autoReplyBankCap: plan.autoReplyBankCap,
+        // Manual AI drafts per cycle; null = unlimited.
+        draftCreditsPerCycle: plan.draftCreditsPerCycle,
+        draftBankCap: plan.draftBankCap,
         cycleLengthDays: plan.cycleLengthDays,
         purchasable: PURCHASABLE_PLAN_CODES.includes(plan.code),
         // Quoted, not checked out. Carries real "from" prices so the card
@@ -95,11 +105,9 @@ router.get('/plans', async (req, res) => {
           // Priced per PURCHASING plan tier — deliberately cheaper on Pro,
           // which is the gap the upgrade pitch is built on, so both pages
           // need the per-tier number rather than one global add-on price.
-          replyCredits: packs.map((pack) => ({
-            code: pack.code,
-            creditAmount: pack.creditAmount,
-            prices: pack.prices.filter((p) => p.planCode === plan.code).map(publicPrice),
-          })),
+          replyCredits: packs.filter((pack) => pack.pool === 'REPLY').map(packFor(plan.code)),
+          // Draft-credit packs: their own list, so replyCredits[0] is still the reply pack.
+          draftCredits: packs.filter((pack) => pack.pool === 'DRAFT').map(packFor(plan.code)),
           extraIgAccount: {
             code: RECURRING_ADDON_CODE,
             prices: extraIgPrices.filter((p) => p.planCode === plan.code).map(publicPrice),
@@ -273,9 +281,26 @@ router.get('/summary', async (req, res) => {
     // warning is aimed at.
     const spentThisCycle = entitlement
       ? await prisma.creditLedger.count({
-          where: { tenantId, type: 'SPEND', createdAt: { gte: entitlement.cycleStartedAt } },
+          where: { tenantId, type: 'SPEND', pool: 'REPLY', createdAt: { gte: entitlement.cycleStartedAt } },
         })
       : 0;
+
+    // Draft credits: the same numbers for the second pool. A draft whose AI
+    // call failed was refunded, so it is not counted as used.
+    const draftSpentThisCycle = entitlement
+      ? Math.max(
+          0,
+          (await prisma.creditLedger.count({
+            where: { tenantId, type: 'SPEND', pool: 'DRAFT', createdAt: { gte: entitlement.cycleStartedAt } },
+          })) -
+            (await prisma.creditLedger.count({
+              where: { tenantId, pool: 'DRAFT', source: { startsWith: 'draft:refund:' }, createdAt: { gte: entitlement.cycleStartedAt } },
+            }))
+        )
+      : 0;
+    const draftStatus = draftStatusOf(entitlement, entitlement && !entitlement.draftTermsAt ? plan : null);
+    const draftRemaining = draftStatus.remaining;
+    const draftPool = draftRemaining + draftSpentThisCycle;
 
     const current = entitlement?.replyCreditsCurrent ?? 0;
     const banked = entitlement?.replyCreditsBanked ?? 0;
@@ -331,12 +356,15 @@ router.get('/summary', async (req, res) => {
     // the recurring extra-IG-account add-on, which is counted separately via
     // entitlement.extraIgAccounts because it persists across cycles rather
     // than being consumed by one.
+    // Draft-credit packs are excluded: the Pro upgrade verdict compares REPLY
+    // configurations only.
+    const draftPackCodes = (await prisma.addonPack.findMany({ where: { pool: 'DRAFT' }, select: { code: true } })).map((p) => p.code);
     const replyCreditPacksThisCycle = entitlement?.cycleStartedAt
       ? await prisma.order.count({
           where: {
             tenantId,
             status: 'PAID',
-            addonCode: { not: null, notIn: [RECURRING_ADDON_CODE] },
+            addonCode: { not: null, notIn: [RECURRING_ADDON_CODE, ...draftPackCodes] },
             paidAt: { gte: entitlement.cycleStartedAt },
           },
         })
@@ -379,6 +407,7 @@ router.get('/summary', async (req, res) => {
             igAccountLimit: plan.igAccountLimit,
             autoReplyCreditsPerCycle: plan.autoReplyCreditsPerCycle,
             autoReplyBankCap: plan.autoReplyBankCap,
+            draftCreditsPerCycle: plan.draftCreditsPerCycle,
             cycleLengthDays: plan.cycleLengthDays,
             purchasable: PURCHASABLE_PLAN_CODES.includes(plan.code),
         // Quoted, not checked out. Carries real "from" prices so the card
@@ -405,11 +434,24 @@ router.get('/summary', async (req, res) => {
         // the number printed beside it can never disagree by a rounding step.
         usedPercent: Math.round(usedFraction * 100),
       },
+      // The manual "Draft AI reply" button's own pool — never mixed with the
+      // reply credits above. unlimited: true for a plan without a draft limit.
+      draftCredits: {
+        current: draftStatus.current,
+        banked: draftStatus.banked,
+        remaining: draftRemaining,
+        unlimited: draftStatus.unlimited,
+        perCycle: draftStatus.perCycle,
+        spentThisCycle: draftSpentThisCycle,
+        cyclePool: draftPool,
+        usedPercent: draftPool > 0 ? Math.round((draftSpentThisCycle / draftPool) * 100) : 0,
+      },
       usage: {
         // The customer's own consumption. No cap, no throttle — see the route
         // doc above.
         classificationsThisCycle: entitlement?.classificationCountCycle ?? 0,
         autoRepliesThisCycle: spentThisCycle,
+        draftsThisCycle: draftSpentThisCycle,
       },
       extraIgAccounts: entitlement?.extraIgAccounts ?? 0,
       trialStatus,
@@ -428,6 +470,7 @@ router.get('/summary', async (req, res) => {
             days: trialPlan.cycleLengthDays,
             classificationLimit: trialPlan.classificationCapCycle,
             autoReplyCredits: trialPlan.autoReplyCreditsPerCycle,
+            draftCredits: trialPlan.draftCreditsPerCycle,
           }
         : null,
       renewal: {
@@ -449,6 +492,22 @@ router.get('/summary', async (req, res) => {
   } catch (error) {
     console.error('[Billing] Failed to load the billing summary:', error.message);
     return res.status(500).json({ error: "Couldn't load your billing details. Try again." });
+  }
+});
+
+/**
+ * GET /api/billing/draft-credits — the inbox's draft counter, nothing else.
+ * Tenant-scoped by the session like /summary; takes no identifier. Behind the
+ * billing gate like every route here, so with billing off it 404s and the
+ * inbox shows no counter.
+ */
+router.get('/draft-credits', async (req, res) => {
+  try {
+    const st = await draftCreditStatus(req.userId);
+    return res.json({ remaining: st.remaining, unlimited: st.unlimited, allowed: st.allowed, reason: st.reason });
+  } catch (error) {
+    console.error('[Billing] Failed to load draft credits:', error.message);
+    return res.status(500).json({ error: "Couldn't load your draft credits. Try again." });
   }
 });
 
@@ -632,6 +691,9 @@ router.post('/checkout/plan', async (req, res) => {
  * POST /api/billing/checkout/addon
  * body: { addonCode: string, customerPhone: string }
  *
+ * Reply-credit packs, draft-credit packs and the extra Instagram account all
+ * check out here; the pack's own pool decides what fulfilment grants.
+ *
  * Both add-on shapes require an existing paid (STARTER/PRO) plan — priced
  * per the CURRENT plan tier, cheaper on Pro on purpose (see
  * AddonPackPrice/ExtraIgAccountPrice schema notes). A trial or unentitled
@@ -661,7 +723,7 @@ router.post('/checkout/addon', async (req, res) => {
       });
     } else {
       const pack = await prisma.addonPack.findUnique({ where: { code: addonCode } });
-      if (!pack || !pack.isActive) {
+      if (!pack || !pack.isListed) {
         return res.status(404).json({ error: 'Unknown add-on code.' });
       }
       price = await prisma.addonPackPrice.findUnique({

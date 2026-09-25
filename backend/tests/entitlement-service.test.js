@@ -75,7 +75,7 @@ describe('entitlementService — bank cap enforcement', () => {
     expect(updated.replyCreditsBanked).toBe(500);
     expect(updated.replyCreditsCurrent).toBe(0);
 
-    const ledger = await prisma.creditLedger.findMany({ where: { tenantId: user.id }, orderBy: { createdAt: 'desc' } });
+    const ledger = await prisma.creditLedger.findMany({ where: { tenantId: user.id, pool: 'REPLY' }, orderBy: { createdAt: 'desc' } });
     expect(ledger[0].type).toBe('EXPIRE');
     expect(ledger[0].delta).toBe(-200); // 700 - 500 discarded
     expect(ledger[0].balanceAfter).toBe(500);
@@ -94,7 +94,7 @@ describe('entitlementService — bank cap enforcement', () => {
 
     await entitlementService.rollCycle(user.id);
 
-    const ledger = await prisma.creditLedger.findMany({ where: { tenantId: user.id } });
+    const ledger = await prisma.creditLedger.findMany({ where: { tenantId: user.id, pool: 'REPLY' } });
     expect(ledger[0].type).toBe('ROLLOVER');
     expect(ledger[0].delta).toBe(0);
   });

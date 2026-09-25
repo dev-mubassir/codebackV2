@@ -203,6 +203,11 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventTyp
     // Refund eligibility and revocation measure the purchase's own credits from
     // it — see entitlementService.creditsUsedFromOrder.
     let creditsAheadAtGrant = null;
+    // The pool the order's own credits went into (DRAFT for a draft pack), and
+    // for a plan the draft credits it granted alongside the reply credits.
+    let pool = null;
+    let grantedDraftCredits;
+    let draftCreditsAheadAtGrant;
     if (order.planCode) {
       granted = await entitlementService.grantPlan(
         order.tenantId,
@@ -216,13 +221,23 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventTyp
       // grantPlan puts the new cycle's credits in `current` and the carried
       // balance in `banked`, and spend drains banked first.
       creditsAheadAtGrant = granted.replyCreditsBanked;
+      pool = 'REPLY';
+      grantedDraftCredits = plan?.draftCreditsPerCycle ?? 0;
+      draftCreditsAheadAtGrant = granted.draftCreditsBanked;
     } else if (order.addonCode) {
       granted = await entitlementService.grantAddon(order.tenantId, order.addonCode, { tx });
       const pack =
         order.addonCode === 'extra_ig_account' ? null : await tx.addonPack.findUnique({ where: { code: order.addonCode } });
       grantedCredits = pack?.creditAmount ?? 0;
-      // A top-up joins the back of the queue: everything already held spends first.
-      creditsAheadAtGrant = pack ? (before ? before.replyCreditsCurrent + before.replyCreditsBanked : 0) : null;
+      pool = pack ? pack.pool : null;
+      // A top-up joins the back of the queue: everything already held IN ITS
+      // POOL spends first.
+      const held = !before
+        ? 0
+        : pool === 'DRAFT'
+          ? before.draftCreditsCurrent + before.draftCreditsBanked
+          : before.replyCreditsCurrent + before.replyCreditsBanked;
+      creditsAheadAtGrant = pack ? held : null;
     } else {
       // Schema allows neither to be set only through a bug elsewhere — the
       // checkout path (routes/billing.js) always sets exactly one. Fail loud,
@@ -245,6 +260,8 @@ async function fulfillPaidOrder({ cashfreeOrderId, payment, rawPayload, eventTyp
           grantedDays,
           grantedCredits,
           creditsAheadAtGrant,
+          pool,
+          ...(grantedDraftCredits !== undefined ? { grantedDraftCredits, draftCreditsAheadAtGrant } : {}),
         },
       },
     });

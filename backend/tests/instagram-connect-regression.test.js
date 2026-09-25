@@ -155,8 +155,14 @@ describe('Instagram connect with BILLING_ENABLED off', () => {
     // writes a ledger row, and that row's balanceAfter needs the true banked
     // balance. A NAMED addition like this is the point of pinning — what this
     // test forbids is a column becoming a connect dependency by accident.
+    // draftCreditsCurrent/Banked joined for the same reason: the trial grant
+    // writes a DRAFT-pool ledger row with a true balanceAfter (migration
+    // 20260927090000_draft_credits, applied before the code that reads them).
     expect(Object.keys(claim.entitlement).sort()).toEqual(
-      ['cycleStartedAt', 'id', 'planCode', 'replyCreditsBanked', 'replyCreditsCurrent', 'status', 'userId', 'validUntil'].sort()
+      [
+        'cycleStartedAt', 'id', 'planCode', 'replyCreditsBanked', 'replyCreditsCurrent', 'status', 'userId', 'validUntil',
+        'draftCreditsBanked', 'draftCreditsCurrent',
+      ].sort()
     );
     expect(
       Object.keys(claim.entitlement),

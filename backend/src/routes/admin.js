@@ -34,7 +34,7 @@ const { deleteUserAccount } = require('../services/accountDeletion');
 const adminBilling = require('../services/adminBilling');
 const coupons = require('../services/coupons');
 const settings = require('../lib/settings');
-const { effectiveStatus } = require('../services/entitlementService');
+const { effectiveStatus, draftTerms } = require('../services/entitlementService');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession, destroyUserSessions } = require('../lib/session');
 const { disconnectUserSockets } = require('../lib/socket');
@@ -910,6 +910,10 @@ router.get('/users/:id', async (req, res) => {
         classificationsRemaining: cap == null ? null : Math.max(0, cap - used),
         replyCreditsCurrent: entitlement?.replyCreditsCurrent ?? 0,
         replyCreditsBanked: entitlement?.replyCreditsBanked ?? 0,
+        draftCreditsCurrent: entitlement?.draftCreditsCurrent ?? 0,
+        draftCreditsBanked: entitlement?.draftCreditsBanked ?? 0,
+        // null draftCreditsPerCycle = unlimited drafts on this customer's terms.
+        draftCreditsPerCycle: entitlement ? draftTerms(entitlement, plan).perCycle : null,
       },
       classifications: {
         total: analysesTotal,
@@ -1380,7 +1384,7 @@ router.get('/settings', async (req, res) => {
 // step-up + a reason; every change is audited.
 // ============================================
 
-const PLAN_INT_FIELDS = ['igAccountLimit', 'autoReplyCreditsPerCycle', 'autoReplyBankCap', 'classificationCapCycle', 'classificationThrottlePerHour'];
+const PLAN_INT_FIELDS = ['igAccountLimit', 'autoReplyCreditsPerCycle', 'autoReplyBankCap', 'draftCreditsPerCycle', 'draftBankCap', 'classificationCapCycle', 'classificationThrottlePerHour'];
 const REGION_CURRENCY = { IN: 'INR', INTL: 'USD' };
 
 function badRequest(res, error, code = 'INVALID') {
@@ -1421,6 +1425,14 @@ function readPlanBody(req, res, { creating }) {
   // endpoint lists every active plan, and a new code cannot be bought at
   // checkout (routes/billing.js PURCHASABLE_PLAN_CODES).
   if (creating && data.isActive === undefined) data.isActive = false;
+  // Draft credits default to the 1/4 rule when a new plan leaves them out —
+  // an omitted (null) value would otherwise mean UNLIMITED drafts.
+  if (creating && data.draftCreditsPerCycle === undefined && Number.isInteger(data.autoReplyCreditsPerCycle)) {
+    data.draftCreditsPerCycle = Math.floor(data.autoReplyCreditsPerCycle / 4);
+  }
+  if (creating && data.draftBankCap === undefined && Number.isInteger(data.autoReplyBankCap)) {
+    data.draftBankCap = Math.floor(data.autoReplyBankCap / 4);
+  }
 
   if (b.features !== undefined) {
     const f = b.features;
@@ -1516,6 +1528,126 @@ router.put('/plans/:code', requireStepUp, async (req, res) => {
   }
 });
 
+// ---- Add-on packs (reply-credit and draft-credit top-ups) ----
+//
+// Money settings, so the same rules as plans: step-up + reason + audit. Prices
+// are per PURCHASING tier (STARTER / PRO) and region, like the seed. A pack's
+// pool is fixed at creation — paid orders reference the code. Visibility is
+// isListed; isActive (the legacy column older code reads) is kept equal to it
+// for REPLY packs and always false for DRAFT packs — see the schema note.
+
+const PACK_TIERS = new Set(['STARTER', 'PRO']);
+const packWithPrices = { prices: { select: { planCode: true, billingRegion: true, currency: true, amount: true }, orderBy: [{ planCode: 'asc' }, { billingRegion: 'asc' }] } };
+
+/** Validate a pack body. Returns { data, prices } or null (response already sent). */
+function readPackBody(req, res, { creating }) {
+  const b = req.body || {};
+  const allowed = ['creditAmount', 'isListed', 'prices', 'reason', ...(creating ? ['code', 'pool'] : [])];
+  if (!onlyFields(req, res, allowed)) return null;
+  const data = {};
+  if (creating) {
+    if (typeof b.code !== 'string' || !/^[a-z][a-z0-9_]{2,40}$/.test(b.code) || b.code === 'extra_ig_account') {
+      return badRequest(res, 'Pack code: lowercase letters, digits and _ (3 to 41 characters).');
+    }
+    if (!['REPLY', 'DRAFT'].includes(b.pool)) return badRequest(res, 'pool must be REPLY or DRAFT.');
+    data.code = b.code;
+    data.pool = b.pool;
+  }
+  if (b.creditAmount !== undefined || creating) {
+    if (!Number.isInteger(b.creditAmount) || b.creditAmount < 1 || b.creditAmount > 100000) return badRequest(res, 'Credits: a whole number from 1 to 100,000.');
+    data.creditAmount = b.creditAmount;
+  }
+  if (b.isListed !== undefined) {
+    if (typeof b.isListed !== 'boolean') return badRequest(res, 'isListed must be true or false.');
+    data.isListed = b.isListed;
+  }
+  if (creating && data.isListed === undefined) data.isListed = false; // new packs start hidden, like new plans
+  let prices;
+  if (b.prices !== undefined) {
+    if (!Array.isArray(b.prices) || b.prices.length > 4) return badRequest(res, 'Prices: up to one per tier (STARTER, PRO) and region (IN, INTL).');
+    const seen = new Set();
+    prices = [];
+    for (const p of b.prices) {
+      if (!p || typeof p !== 'object') return badRequest(res, 'Each price needs planCode, billingRegion and amount.');
+      const currency = REGION_CURRENCY[p.billingRegion];
+      const pair = `${p.planCode}:${p.billingRegion}`;
+      if (!PACK_TIERS.has(p.planCode) || !currency || seen.has(pair)) return badRequest(res, 'Each price: planCode STARTER or PRO, billingRegion IN or INTL, once per pair.');
+      if (p.currency !== undefined && p.currency !== currency) return badRequest(res, `Region ${p.billingRegion} is priced in ${currency}.`);
+      if (!Number.isInteger(p.amount) || p.amount < 1 || p.amount > 100000000) return badRequest(res, 'Amount: a whole number in the smallest unit (paise / cents).');
+      seen.add(pair);
+      prices.push({ planCode: p.planCode, billingRegion: p.billingRegion, currency, amount: p.amount });
+    }
+  }
+  return { data, prices };
+}
+
+// GET /api/admin/addon-packs
+router.get('/addon-packs', async (req, res) => {
+  try {
+    res.json(await prisma.addonPack.findMany({ orderBy: [{ pool: 'asc' }, { creditAmount: 'asc' }], include: packWithPrices }));
+  } catch (error) {
+    console.error('[Admin] Add-on packs list error:', error.message);
+    res.status(500).json({ error: "Couldn't load add-on packs. Refresh to try again." });
+  }
+});
+
+// POST /api/admin/addon-packs — create. Step-up + reason. Starts hidden unless isListed.
+router.post('/addon-packs', requireStepUp, async (req, res) => {
+  const parsed = readPackBody(req, res, { creating: true });
+  if (!parsed) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    if (await prisma.addonPack.findUnique({ where: { code: parsed.data.code } })) {
+      return res.status(409).json({ error: 'A pack with that code already exists.', code: 'EXISTS' });
+    }
+    const created = await prisma.$transaction(async (tx) => {
+      const pack = await tx.addonPack.create({
+        data: {
+          ...parsed.data,
+          isActive: parsed.data.pool === 'REPLY' ? parsed.data.isListed : false,
+          ...(parsed.prices ? { prices: { create: parsed.prices } } : {}),
+        },
+        include: packWithPrices,
+      });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'ADDON_PACK_CREATE', targetType: 'ADDON_PACK', targetId: pack.code, reason, after: pack }) });
+      return pack;
+    });
+    res.status(201).json(created);
+  } catch (error) {
+    console.error('[Admin] Add-on pack create error:', error.message);
+    res.status(500).json({ error: "Couldn't create that pack. Try again." });
+  }
+});
+
+// PUT /api/admin/addon-packs/:code — credits, prices, show/hide. Step-up + reason.
+// `prices`, when given, replaces the pack's price list.
+router.put('/addon-packs/:code', requireStepUp, async (req, res) => {
+  const parsed = readPackBody(req, res, { creating: false });
+  if (!parsed) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const before = await prisma.addonPack.findUnique({ where: { code: req.params.code }, include: packWithPrices });
+    if (!before) return res.status(404).json({ error: 'That pack does not exist.' });
+    const data = { ...parsed.data };
+    if (data.isListed !== undefined) data.isActive = before.pool === 'REPLY' ? data.isListed : false;
+    const after = await prisma.$transaction(async (tx) => {
+      if (parsed.prices) {
+        await tx.addonPackPrice.deleteMany({ where: { addonPackId: before.id } });
+        if (parsed.prices.length) await tx.addonPackPrice.createMany({ data: parsed.prices.map((p) => ({ ...p, addonPackId: before.id })) });
+      }
+      const pack = await tx.addonPack.update({ where: { id: before.id }, data, include: packWithPrices });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'ADDON_PACK_UPDATE', targetType: 'ADDON_PACK', targetId: pack.code, reason, before, after: pack }) });
+      return pack;
+    });
+    res.json(after);
+  } catch (error) {
+    console.error('[Admin] Add-on pack update error:', error.message);
+    res.status(500).json({ error: "Couldn't update that pack. Try again." });
+  }
+});
+
 /** Shared shape for the four per-customer plan controls: step-up + reason + audit. */
 function customerBillingAction(path, action, run) {
   router.post(`/users/:id/billing/${path}`, requireStepUp, async (req, res) => {
@@ -1541,8 +1673,10 @@ customerBillingAction('grant-plan', 'PLAN_GRANT_MANUAL', (id, b) =>
 );
 // { days: 1..365, reason }
 customerBillingAction('extend', 'PLAN_EXTEND', (id, b) => adminBilling.extendExpiry(id, b.days));
-// { amount: 1..100000, reason } — this cycle only
-customerBillingAction('bonus-quota', 'QUOTA_BONUS', (id, b) => adminBilling.addBonusClassifications(id, b.amount));
+// { amount?: 1..100000 (classifications, this cycle only), draftCredits?: 1..10000, reason }
+customerBillingAction('bonus-quota', 'QUOTA_BONUS', (id, b) =>
+  adminBilling.addBonusQuota(id, { amount: b.amount, draftCredits: b.draftCredits })
+);
 // { reason }
 customerBillingAction('reset-trial', 'TRIAL_RESET', (id) => adminBilling.resetTrial(id));
 
@@ -1684,6 +1818,12 @@ router.get('/payments', async (req, res) => {
       prisma.order.count({ where }),
     ]);
     const ids = orders.map((o) => o.cashfreeOrderId);
+    const packPools = new Map(
+      (await prisma.addonPack.findMany({ where: { code: { in: [...new Set(orders.map((o) => o.addonCode).filter(Boolean))] } }, select: { code: true, pool: true } })).map((p) => [p.code, p.pool])
+    );
+    // What the order bought, as the payments table labels it.
+    const itemKind = (o) =>
+      o.planCode ? 'plan' : o.addonCode === 'extra_ig_account' ? 'extra_ig_account' : packPools.get(o.addonCode) === 'DRAFT' ? 'draft_pack' : 'reply_pack';
     const [attempts, refunds, users] = await Promise.all([
       prisma.paymentAttempt.findMany({ where: { cashfreeOrderId: { in: ids } }, orderBy: { createdAt: 'desc' }, select: { cashfreeOrderId: true, status: true, paymentGroup: true, failureReason: true, createdAt: true } }),
       prisma.refund.findMany({ where: { cashfreeOrderId: { in: ids } }, select: { cashfreeOrderId: true, refundId: true, amount: true, status: true, createdAt: true } }),
@@ -1693,6 +1833,7 @@ router.get('/payments', async (req, res) => {
     res.json({
       payments: orders.map((o) => ({
         ...o,
+        itemKind: itemKind(o),
         customerEmail: email.get(o.tenantId) || null, // null once the account is deleted
         attempts: attempts.filter((a) => a.cashfreeOrderId === o.cashfreeOrderId).map((a) => ({ ...a, failureReason: a.failureReason ? String(a.failureReason).slice(0, 120) : null })),
         refunds: refunds.filter((r) => r.cashfreeOrderId === o.cashfreeOrderId),
@@ -1797,7 +1938,7 @@ router.get('/metrics', async (req, res) => {
     const since = new Date(now - days * 24 * 60 * 60 * 1000);
     const daily = (rows) => rows.map((r) => ({ day: r.day.toISOString().slice(0, 10), count: Number(r.count) }));
 
-    const [signups, dms, classified, active1, active7, active30, igActive, trialUsers, converted] = await Promise.all([
+    const [signups, dms, classified, active1, active7, active30, igActive, trialUsers, converted, drafts] = await Promise.all([
       prisma.$queryRaw`SELECT date_trunc('day', "created_at") AS day, COUNT(*) AS count FROM "users" WHERE "created_at" >= ${since} GROUP BY 1 ORDER BY 1`,
       prisma.$queryRaw`SELECT date_trunc('day', "created_at") AS day, COUNT(*) AS count FROM "messages" WHERE "direction" = 'inbound' AND "created_at" >= ${since} GROUP BY 1 ORDER BY 1`,
       prisma.$queryRaw`SELECT date_trunc('day', "created_at") AS day, COUNT(*) AS count FROM "ai_analyses" WHERE "created_at" >= ${since} GROUP BY 1 ORDER BY 1`,
@@ -1807,6 +1948,8 @@ router.get('/metrics', async (req, res) => {
       prisma.instagramAccount.count({ where: { connectionStatus: 'CONNECTED' } }),
       prisma.$queryRaw`SELECT COUNT(DISTINCT "tenant_id") AS count FROM "credit_ledger" WHERE "source" = 'trial_grant'`,
       prisma.$queryRaw`SELECT COUNT(DISTINCT l."tenant_id") AS count FROM "credit_ledger" l JOIN "orders" o ON o."tenant_id" = l."tenant_id" AND o."status" = 'PAID' AND o."plan_code" IS NOT NULL WHERE l."source" = 'trial_grant'`,
+      // Successful manual AI drafts (every saved draft, billing on or off).
+      prisma.$queryRaw`SELECT date_trunc('day', "created_at") AS day, COUNT(*) AS count FROM "reply_generations" WHERE "created_at" >= ${since} GROUP BY 1 ORDER BY 1`,
     ]);
     const trials = Number(trialUsers[0]?.count || 0);
     const paid = Number(converted[0]?.count || 0);
@@ -1815,6 +1958,7 @@ router.get('/metrics', async (req, res) => {
       signupsPerDay: daily(signups),
       dmsPerDay: daily(dms),
       classifiedPerDay: daily(classified),
+      draftsPerDay: daily(drafts),
       activeUsers: { last24h: active1, last7d: active7, last30d: active30 },
       trialToPaid: { trials, converted: paid, rate: trials ? paid / trials : 0 },
       activeInstagramAccounts: igActive,

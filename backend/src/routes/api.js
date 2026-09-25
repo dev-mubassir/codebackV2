@@ -22,6 +22,8 @@ const { getOrCreateBusinessProfile } = require('../services/businessProfileServi
 const { normalizeCategory } = require('../lib/constants');
 const { emitToUser } = require('../lib/socket');
 const { createRateLimiter } = require('../lib/rateLimit');
+const { isBillingEnabled } = require('../lib/billingFlags');
+const entitlementService = require('../services/entitlementService');
 
 // All API routes require authentication
 // The canonical chain. requireWorkspace resolves the caller's owned
@@ -491,8 +493,46 @@ router.get('/conversations/:id/ai-analysis', async (req, res) => {
 // POST /api/conversations/:id/generate-reply
 // On-demand AI reply draft. NEVER sends anything — only returns text for
 // the creator to review, edit, and (separately) send via POST .../reply.
+//
+// DRAFT CREDITS (billing on only). Each SUCCESSFUL draft costs exactly one
+// draft credit — never a reply credit; auto-replies spend those. The credit
+// is reserved before the AI call and given back (a compensating ledger row)
+// if the call fails or anything after it throws, so a failed draft costs
+// nothing. The client sends a per-click Idempotency-Key: the reservation and
+// the saved draft both carry it (unique), so a double-click or a retried
+// request returns the same draft and charges once.
+//
+// Billing off: exactly as before — no gate, no ledger, no counter.
 // ============================================
+const DRAFT_KEY_RE = /^[A-Za-z0-9_-]{8,80}$/;
+
+/** The client's per-click key, or null when absent/invalid (then there is nothing to deduplicate against). */
+function readDraftKey(req) {
+  const raw = req.get('Idempotency-Key') || (req.body && req.body.idempotencyKey);
+  return typeof raw === 'string' && DRAFT_KEY_RE.test(raw) ? raw : null;
+}
+
+/** What the inbox counter shows after this request. */
+async function draftCreditsPayload(tenantId) {
+  if (!isBillingEnabled()) return null;
+  const st = await entitlementService.draftCreditStatus(tenantId);
+  return { remaining: st.remaining, unlimited: st.unlimited, allowed: st.allowed, reason: st.reason };
+}
+
+const DRAFT_BLOCKED = {
+  not_entitled: { code: 'DRAFT_NOT_ENTITLED', error: 'AI drafts need an active plan or trial.' },
+  exhausted: { code: 'DRAFT_CREDITS_EXHAUSTED', error: 'You have no draft credits left. Buy more on the billing page.' },
+};
+
 router.post('/conversations/:id/generate-reply', async (req, res) => {
+  const billing = isBillingEnabled();
+  // Without a client key there is nothing to deduplicate: a fresh server key
+  // still ties the reservation to its refund.
+  const clientKey = readDraftKey(req);
+  const key = clientKey || `srv_${require('crypto').randomUUID().replace(/-/g, '')}`;
+  let reserved = false;
+  let delivered = false;
+
   try {
     const { id } = req.params;
     const { instructions } = req.body || {};
@@ -503,6 +543,32 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
     });
     if (!conversation) {
       return res.status(404).json({ error: 'That conversation no longer exists.' });
+    }
+
+    if (billing) {
+      // A retry of a draft that already succeeded: the same draft, no charge.
+      if (clientKey) {
+        const prior = await prisma.replyGeneration.findUnique({
+          where: { userId_idempotencyKey: { userId: req.userId, idempotencyKey: clientKey } },
+        });
+        if (prior) {
+          delivered = true;
+          return res.json({
+            id: prior.id, text: prior.generatedText, model: prior.model, createdAt: prior.createdAt,
+            duplicate: true, draftCredits: await draftCreditsPayload(req.userId),
+          });
+        }
+      }
+
+      const reservation = await entitlementService.reserveDraftCredit(req.userId, key);
+      if (reservation.outcome === 'duplicate') {
+        // Same key, still generating (the first request has not saved yet).
+        return res.status(409).json({ code: 'DRAFT_IN_PROGRESS', error: 'That draft is already being written.' });
+      }
+      if (DRAFT_BLOCKED[reservation.outcome]) {
+        return res.status(402).json({ ...DRAFT_BLOCKED[reservation.outcome], draftCredits: await draftCreditsPayload(req.userId) });
+      }
+      reserved = reservation.outcome === 'reserved';
     }
 
     const [recentMessages, preferences, businessProfile, brandDeal] = await Promise.all([
@@ -524,27 +590,66 @@ router.post('/conversations/:id/generate-reply', async (req, res) => {
     });
 
     if (result.failed || !result.text) {
+      if (reserved) {
+        await entitlementService.refundDraftCredit(req.userId, key, 'ai_failed');
+        reserved = false;
+      }
       return res.status(502).json({
         error: "Couldn't draft a reply just now — write your own in the box above.",
         details: result.errorMessage || 'The AI provider did not return a draft.',
+        draftCredits: await draftCreditsPayload(req.userId),
       });
     }
 
-    const saved = await prisma.replyGeneration.create({
-      data: {
-        conversationId: id,
-        userId: req.userId,
-        contextRef: `messages:${recentMessages.length};category:${conversation.category || 'other'}`,
-        instructions: typeof instructions === 'string' ? instructions.slice(0, 500) : null,
-        generatedText: result.text,
-        model: result.model,
-      },
-    });
+    let saved;
+    try {
+      saved = await prisma.replyGeneration.create({
+        data: {
+          conversationId: id,
+          userId: req.userId,
+          contextRef: `messages:${recentMessages.length};category:${conversation.category || 'other'}`,
+          instructions: typeof instructions === 'string' ? instructions.slice(0, 500) : null,
+          generatedText: result.text,
+          model: result.model,
+          idempotencyKey: billing ? clientKey : null,
+        },
+      });
+    } catch (err) {
+      // Same key saved concurrently (only reachable on an unlimited plan, which
+      // reserves nothing): answer with the draft that won.
+      if (err.code !== 'P2002' || !clientKey) throw err;
+      saved = await prisma.replyGeneration.findUnique({
+        where: { userId_idempotencyKey: { userId: req.userId, idempotencyKey: clientKey } },
+      });
+    }
+    delivered = true;
 
-    res.json({ id: saved.id, text: saved.generatedText, model: saved.model, createdAt: saved.createdAt });
+    res.json({
+      id: saved.id,
+      text: saved.generatedText,
+      model: saved.model,
+      createdAt: saved.createdAt,
+      draftCredits: await draftCreditsPayload(req.userId),
+    });
   } catch (error) {
     console.error('[API] Error generating reply:', error.message);
-    res.status(500).json({ error: "Couldn't draft a reply just now — write your own in the box above." });
+    // Give the credit back BEFORE answering, so the customer's counter is
+    // already right when they read it.
+    if (reserved && !delivered) {
+      reserved = false;
+      await entitlementService
+        .refundDraftCredit(req.userId, key, 'not_delivered')
+        .catch((err) => console.error('[API] Could not refund a draft credit:', err.message));
+    }
+    if (!res.headersSent) res.status(500).json({ error: "Couldn't draft a reply just now — write your own in the box above." });
+  } finally {
+    // Anything that stopped the draft reaching the customer after the credit
+    // was reserved gives it back. Never throws out of the handler.
+    if (reserved && !delivered) {
+      await entitlementService
+        .refundDraftCredit(req.userId, key, 'not_delivered')
+        .catch((err) => console.error('[API] Could not refund a draft credit:', err.message));
+    }
   }
 });
 

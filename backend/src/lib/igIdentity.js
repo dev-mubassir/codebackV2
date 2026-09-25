@@ -138,6 +138,8 @@ const ENTITLEMENT_CONNECT_FIELDS = {
   replyCreditsCurrent: true,
   // Needed to write the trial grant's ledger row with a true balanceAfter.
   replyCreditsBanked: true,
+  draftCreditsCurrent: true,
+  draftCreditsBanked: true,
 };
 
 function trialEndDate(from = new Date()) {
@@ -250,6 +252,7 @@ async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
   // A NONE row should hold nothing. If it ever did, the trial grant below
   // replaces that balance, and the replacement is recorded.
   const priorCurrent = entitlement?.replyCreditsCurrent ?? 0;
+  const priorDraft = (entitlement?.draftCreditsCurrent ?? 0) + (entitlement?.draftCreditsBanked ?? 0);
   // The TRIAL plan's limits as they are at grant time (Gate 6): a later
   // admin edit to the TRIAL plan applies to new trials only.
   const trialPlan = await tx.plan.findUnique({ where: { code: 'TRIAL' } });
@@ -257,6 +260,9 @@ async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
   // the fallback for a database without the row.
   const trialCredits = trialPlan?.autoReplyCreditsPerCycle ?? TRIAL_AUTO_REPLY_CREDITS;
   const trialDays = trialPlan?.cycleLengthDays ?? TRIAL_DAYS;
+  // Draft credits: the TRIAL plan's own number; without the row, the 1/4 rule
+  // applied to the fallback reply allowance. null on the row = unlimited (no balance held).
+  const trialDraftCredits = trialPlan ? trialPlan.draftCreditsPerCycle ?? 0 : Math.floor(TRIAL_AUTO_REPLY_CREDITS / 4);
   const trialFields = {
     planCode: 'TRIAL',
     status: 'TRIALING',
@@ -269,6 +275,11 @@ async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
     termIgAccountLimit: trialPlan?.igAccountLimit ?? null,
     termsSnapshotAt: trialPlan ? now : null,
     bonusClassificationsCycle: 0,
+    draftCreditsCurrent: trialDraftCredits,
+    draftCreditsBanked: 0,
+    termDraftCreditsPerCycle: trialPlan ? trialPlan.draftCreditsPerCycle ?? null : trialDraftCredits,
+    termDraftBankCap: trialPlan ? trialPlan.draftBankCap ?? null : trialDraftCredits,
+    draftTermsAt: now,
   };
 
   if (entitlement) {
@@ -305,6 +316,30 @@ async function grantTrialInTx(tx, { userId, igUserIdHash, entitlement }) {
       type: 'GRANT',
       source: 'trial_grant',
       balanceAfter: granted.replyCreditsCurrent + granted.replyCreditsBanked,
+    },
+  });
+  // The draft pool, the same way. Sources are prefixed "draft:" so nothing
+  // that counts 'trial_grant' rows (trial-to-paid metrics) counts these.
+  if (priorDraft > 0) {
+    await tx.creditLedger.create({
+      data: {
+        tenantId: userId,
+        delta: -priorDraft,
+        type: 'EXPIRE',
+        pool: 'DRAFT',
+        source: 'draft:expire:trial_grant_replaced_balance',
+        balanceAfter: 0,
+      },
+    });
+  }
+  await tx.creditLedger.create({
+    data: {
+      tenantId: userId,
+      delta: trialDraftCredits,
+      type: 'GRANT',
+      pool: 'DRAFT',
+      source: 'draft:trial_grant',
+      balanceAfter: granted.draftCreditsCurrent + granted.draftCreditsBanked,
     },
   });
 

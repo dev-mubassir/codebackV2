@@ -502,6 +502,7 @@ describe('GET /api/billing/summary — trial terms', () => {
     days: row.cycleLengthDays,
     classificationLimit: row.classificationCapCycle,
     autoReplyCredits: row.autoReplyCreditsPerCycle,
+    draftCredits: row.draftCreditsPerCycle,
   });
 
   it('tells a tenant with no entitlement what connecting would get them', async () => {

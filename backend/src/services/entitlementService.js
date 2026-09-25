@@ -78,8 +78,28 @@ function termsFrom(plan, now = new Date()) {
     termAutoReplyBankCap: plan?.autoReplyBankCap ?? null,
     termIgAccountLimit: plan?.igAccountLimit ?? null,
     termsSnapshotAt: now,
+    // Draft terms carry their own marker — see Entitlement.draftTermsAt.
+    termDraftCreditsPerCycle: plan?.draftCreditsPerCycle ?? null,
+    termDraftBankCap: plan?.draftBankCap ?? null,
+    draftTermsAt: plan ? now : null,
   };
 }
+
+/**
+ * The draft-credit terms that govern this tenant: { perCycle, bankCap }.
+ * perCycle null = unlimited. The snapshot when there is one (draftTermsAt),
+ * else the live plan; no plan at all fails closed (0, never unlimited).
+ */
+function draftTerms(entitlement, plan) {
+  if (entitlement && entitlement.draftTermsAt) {
+    return { perCycle: entitlement.termDraftCreditsPerCycle, bankCap: entitlement.termDraftBankCap };
+  }
+  if (!plan) return { perCycle: 0, bankCap: 0 };
+  return { perCycle: plan.draftCreditsPerCycle ?? null, bankCap: plan.draftBankCap ?? null };
+}
+
+const draftBalance = (e) => (e ? e.draftCreditsBanked + e.draftCreditsCurrent : 0);
+const replyBalance = (e) => (e ? e.replyCreditsBanked + e.replyCreditsCurrent : 0);
 
 /**
  * The limits that govern this tenant: the snapshot when there is one, else
@@ -285,6 +305,153 @@ async function spendReplyCredit(tenantId) {
   });
 }
 
+// ============================================
+// DRAFT CREDITS — the manual "Draft AI reply" button's own pool. Same shape
+// and rules as reply credits (FIFO banked-first, bank cap at renewal/roll,
+// every change a ledger row with pool DRAFT), and never mixed with them:
+// auto-replies spend REPLY only (spendReplyCredit), drafts spend DRAFT only.
+//
+// Called only while billing is enforced — routes/api.js skips all of this
+// when isBillingEnabled() is false, and drafts are then free as before.
+// ============================================
+
+const DRAFT_STATUSES = ['TRIALING', 'ACTIVE']; // same rule as canAutoReply: GRACE stops paid actions
+
+/**
+ * May this tenant draft right now, and with how many credits left?
+ * @returns {Promise<{allowed:boolean, reason:'ok'|'not_entitled'|'exhausted', unlimited:boolean,
+ *   remaining:number, current:number, banked:number, perCycle:number|null}>}
+ */
+async function draftCreditStatus(tenantId, db = prisma) {
+  const e = await db.entitlement.findUnique({ where: { userId: tenantId } });
+  return draftStatusOf(e, e && !e.draftTermsAt ? await getPlan(e.planCode, db) : null);
+}
+
+function draftStatusOf(e, plan) {
+  const base = { current: e?.draftCreditsCurrent ?? 0, banked: e?.draftCreditsBanked ?? 0, remaining: draftBalance(e) };
+  if (!e || !DRAFT_STATUSES.includes(effectiveStatus(e))) {
+    return { ...base, allowed: false, reason: 'not_entitled', unlimited: false, perCycle: null };
+  }
+  const terms = draftTerms(e, plan);
+  if (terms.perCycle == null) return { ...base, allowed: true, reason: 'ok', unlimited: true, perCycle: null };
+  const allowed = base.remaining > 0;
+  return { ...base, allowed, reason: allowed ? 'ok' : 'exhausted', unlimited: false, perCycle: terms.perCycle };
+}
+
+const DRAFT_SPEND_KEY = (key) => `draft:${key}`;
+const DRAFT_REFUND_KEY = (key) => `draft_refund:${key}`;
+
+/**
+ * Reserve ONE draft credit before the AI call, keyed on the client's
+ * per-click idempotency key.
+ *
+ * Under a row lock (SELECT ... FOR UPDATE), so two concurrent drafts at a
+ * balance of 1 cannot both pass the check. The ledger row carries the key and
+ * (tenantId, idempotencyKey) is unique: a double-click or retried request
+ * collides (P2002), the whole transaction rolls back, and the caller is told
+ * 'duplicate' — nothing is charged twice.
+ *
+ * FIFO like reply credits: banked (older) before current. The row's note
+ * records which, so a refund puts the credit back where it came from.
+ *
+ * @returns {Promise<{outcome:'reserved'|'unlimited'|'duplicate'|'exhausted'|'not_entitled', balanceAfter?:number}>}
+ */
+async function reserveDraftCredit(tenantId, idempotencyKey) {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM entitlements WHERE user_id = ${tenantId} FOR UPDATE`;
+      const e = await tx.entitlement.findUnique({ where: { userId: tenantId } });
+      const status = draftStatusOf(e, e && !e.draftTermsAt ? await getPlan(e.planCode, tx) : null);
+      if (status.reason === 'not_entitled') return { outcome: 'not_entitled' };
+      if (status.unlimited) return { outcome: 'unlimited' };
+      if (!status.allowed) return { outcome: 'exhausted', balanceAfter: 0 };
+
+      const fromBanked = e.draftCreditsBanked > 0;
+      const updated = await tx.entitlement.update({
+        where: { userId: tenantId },
+        data: fromBanked ? { draftCreditsBanked: { decrement: 1 } } : { draftCreditsCurrent: { decrement: 1 } },
+      });
+      const balanceAfter = draftBalance(updated);
+      await tx.creditLedger.create({
+        data: {
+          tenantId,
+          delta: -1,
+          type: 'SPEND',
+          pool: 'DRAFT',
+          source: 'draft:spend',
+          balanceAfter,
+          idempotencyKey: DRAFT_SPEND_KEY(idempotencyKey),
+          note: fromBanked ? 'from banked' : 'from current',
+        },
+      });
+      return { outcome: 'reserved', balanceAfter };
+    });
+  } catch (err) {
+    if (err.code === 'P2002') return { outcome: 'duplicate' };
+    throw err;
+  }
+}
+
+/**
+ * Give back a reserved draft credit — the AI call failed, or something after
+ * it threw before the draft reached the customer. A compensating GRANT row
+ * (append-only ledger; the spend row stays). Idempotent on the same key: a
+ * second refund collides and is a no-op. A key with no spend row refunds
+ * nothing.
+ *
+ * @returns {Promise<{refunded:boolean, balanceAfter?:number}>}
+ */
+async function refundDraftCredit(tenantId, idempotencyKey, reason = 'ai_failed') {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM entitlements WHERE user_id = ${tenantId} FOR UPDATE`;
+      const spend = await tx.creditLedger.findUnique({
+        where: { tenantId_idempotencyKey: { tenantId, idempotencyKey: DRAFT_SPEND_KEY(idempotencyKey) } },
+      });
+      if (!spend) return { refunded: false };
+      const toBanked = spend.note === 'from banked';
+      const updated = await tx.entitlement.update({
+        where: { userId: tenantId },
+        data: toBanked ? { draftCreditsBanked: { increment: 1 } } : { draftCreditsCurrent: { increment: 1 } },
+      });
+      const balanceAfter = draftBalance(updated);
+      await tx.creditLedger.create({
+        data: {
+          tenantId,
+          delta: 1,
+          type: 'GRANT',
+          pool: 'DRAFT',
+          source: `draft:refund:${reason}`,
+          balanceAfter,
+          idempotencyKey: DRAFT_REFUND_KEY(idempotencyKey),
+          note: toBanked ? 'to banked' : 'to current',
+        },
+      });
+      return { refunded: true, balanceAfter };
+    });
+  } catch (err) {
+    if (err.code === 'P2002') return { refunded: false };
+    throw err;
+  }
+}
+
+/**
+ * Admin bonus: add draft credits to THIS cycle's pool (they bank at the next
+ * roll like any other current credit). Ledger row source draft:admin_bonus.
+ */
+async function grantBonusDraftCredits(tenantId, amount, { tx: outerTx } = {}) {
+  return inTransaction(outerTx, async (tx) => {
+    const updated = await tx.entitlement.update({
+      where: { userId: tenantId },
+      data: { draftCreditsCurrent: { increment: amount } },
+    });
+    await tx.creditLedger.create({
+      data: { tenantId, delta: amount, type: 'GRANT', pool: 'DRAFT', source: 'draft:admin_bonus', balanceAfter: draftBalance(updated) },
+    });
+    return updated;
+  });
+}
+
 /**
  * How much of the ending cycle's unspent credit pool survives into the next
  * one, capped at the plan's bank cap. Shared by grantPlan's renewal path and
@@ -462,6 +629,27 @@ async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit,
       discard = { amount: priorBalance, reason: 'expire:cold_start_forfeit' };
     }
 
+    // THE DRAFT POOL, by the same rule: warm grants carry the balance into the
+    // draft bank capped at the larger draft bank cap; a cold start forfeits.
+    const priorDraft = draftBalance(existing);
+    let carriedDraftBank = 0;
+    let draftDiscard = null;
+    if (isWarmRenewal) {
+      const oldDraftPlan = existing.draftTermsAt ? null : existing.planCode === planCode ? plan : await getPlan(existing.planCode, tx);
+      const draftCarryCap = Math.max(plan.draftBankCap ?? 0, draftTerms(existing, oldDraftPlan).bankCap ?? 0);
+      carriedDraftBank = Math.min(priorDraft, draftCarryCap);
+      if (priorDraft > carriedDraftBank) {
+        draftDiscard = {
+          amount: priorDraft - carriedDraftBank,
+          reason: existing.planCode === planCode ? 'draft:expire:renewal_bank_cap' : 'draft:expire:plan_change_bank_cap',
+        };
+      }
+    } else if (priorDraft > 0) {
+      draftDiscard = { amount: priorDraft, reason: 'draft:expire:cold_start_forfeit' };
+    }
+    // Unlimited (null) holds no balance: the gate never looks at it.
+    const grantDraftCredits = plan.draftCreditsPerCycle ?? 0;
+
     const grantCredits = plan.autoReplyCreditsPerCycle ?? 0;
     const extraIgAccounts = isWarmRenewal ? existing.extraIgAccounts : 0;
 
@@ -476,6 +664,8 @@ async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit,
       cycleStartedAt: now,
       replyCreditsCurrent: grantCredits,
       replyCreditsBanked: carriedBank,
+      draftCreditsCurrent: grantDraftCredits,
+      draftCreditsBanked: carriedDraftBank,
       classificationCountCycle: 0,
       extraIgAccounts,
       // The terms bought with THIS grant (Gate 6), and no leftover bonus.
@@ -508,6 +698,29 @@ async function grantPlan(tenantId, planCode, region, { tx: outerTx, afterCommit,
         type: 'GRANT',
         source: ledgerSource || `plan_grant:${planCode.toLowerCase()}`,
         balanceAfter: updated.replyCreditsBanked + updated.replyCreditsCurrent,
+      },
+    });
+
+    if (draftDiscard) {
+      await tx.creditLedger.create({
+        data: {
+          tenantId,
+          delta: -draftDiscard.amount,
+          type: 'EXPIRE',
+          pool: 'DRAFT',
+          source: draftDiscard.reason,
+          balanceAfter: priorDraft - draftDiscard.amount,
+        },
+      });
+    }
+    await tx.creditLedger.create({
+      data: {
+        tenantId,
+        delta: grantDraftCredits,
+        type: 'GRANT',
+        pool: 'DRAFT',
+        source: `draft:${ledgerSource || `plan_grant:${planCode.toLowerCase()}`}`,
+        balanceAfter: draftBalance(updated),
       },
     });
 
@@ -544,10 +757,16 @@ async function grantAddon(tenantId, addonCode, { tx: outerTx } = {}) {
   const pack = await (outerTx || prisma).addonPack.findUnique({ where: { code: addonCode } });
   if (!pack) throw new Error(`entitlementService.grantAddon: unknown addon code "${addonCode}"`);
 
+  // A DRAFT pack tops up the draft pool, never reply credits — same
+  // current-cycle rule, same ledger, its own pool.
+  const isDraft = pack.pool === 'DRAFT';
+
   return inTransaction(outerTx, async (tx) => {
     const updated = await tx.entitlement.update({
       where: { userId: tenantId },
-      data: { replyCreditsCurrent: { increment: pack.creditAmount } },
+      data: isDraft
+        ? { draftCreditsCurrent: { increment: pack.creditAmount } }
+        : { replyCreditsCurrent: { increment: pack.creditAmount } },
     });
 
     await tx.creditLedger.create({
@@ -555,8 +774,9 @@ async function grantAddon(tenantId, addonCode, { tx: outerTx } = {}) {
         tenantId,
         delta: pack.creditAmount,
         type: 'GRANT',
-        source: `addon:${addonCode}`,
-        balanceAfter: updated.replyCreditsBanked + updated.replyCreditsCurrent,
+        pool: isDraft ? 'DRAFT' : 'REPLY',
+        source: isDraft ? `draft:addon:${addonCode}` : `addon:${addonCode}`,
+        balanceAfter: isDraft ? draftBalance(updated) : replyBalance(updated),
       },
     });
 
@@ -584,12 +804,18 @@ async function rollCycle(tenantId) {
 
     const plan = await getPlan(entitlement.planCode, tx);
     const { banked, discarded } = computeBankRollover(entitlement, plan);
+    // The draft pool rolls by the same rule with its own bank cap.
+    const draftPool = draftBalance(entitlement);
+    const draftBanked = Math.min(draftPool, draftTerms(entitlement, plan).bankCap ?? 0);
+    const draftDiscarded = draftPool - draftBanked;
 
     const updated = await tx.entitlement.update({
       where: { userId: tenantId },
       data: {
         replyCreditsBanked: banked,
         replyCreditsCurrent: 0,
+        draftCreditsBanked: draftBanked,
+        draftCreditsCurrent: 0,
         classificationCountCycle: 0,
         bonusClassificationsCycle: 0, // an admin bonus is for one cycle
         cycleStartedAt: new Date(),
@@ -605,6 +831,16 @@ async function rollCycle(tenantId) {
         // the neutral source.
         source: discarded > 0 ? 'expire:cycle_bank_cap' : 'cycle_rollover',
         balanceAfter: updated.replyCreditsBanked + updated.replyCreditsCurrent,
+      },
+    });
+    await tx.creditLedger.create({
+      data: {
+        tenantId,
+        delta: -draftDiscarded,
+        type: draftDiscarded > 0 ? 'EXPIRE' : 'ROLLOVER',
+        pool: 'DRAFT',
+        source: draftDiscarded > 0 ? 'draft:expire:cycle_bank_cap' : 'draft:cycle_rollover',
+        balanceAfter: draftBalance(updated),
       },
     });
 
@@ -635,27 +871,61 @@ const sameInstant = (a, b) => Boolean(a && b && new Date(a).getTime() === new Da
  * Orders fulfilled before creditsAheadAtGrant was recorded fall back to all
  * spends since payment, and say so in `measure`.
  */
-async function creditsUsedFromOrder(order, { db = prisma } = {}) {
+/**
+ * The credit pool an order's credits went into: a pack's own pool (the
+ * snapshot records it; older orders are looked up), REPLY for a plan's
+ * primary credits, null for the extra-IG-account slot.
+ */
+async function orderPool(order, db = prisma) {
+  if (order.planCode) return 'REPLY';
+  if (!order.addonCode || order.addonCode === 'extra_ig_account') return null;
+  if (order.grantSnapshot?.pool) return order.grantSnapshot.pool;
+  return (await db.addonPack.findUnique({ where: { code: order.addonCode } }))?.pool ?? 'REPLY';
+}
+
+/**
+ * `pool` picks which of the order's credits to measure: by default the
+ * order's own pool; 'DRAFT' on a PLAN order measures the draft credits the
+ * plan granted (snapshot grantedDraftCredits — 0 for plan orders paid before
+ * draft credits existed, whose drafts came from the backfill, not the order).
+ * Spends are counted from that pool only.
+ */
+async function creditsUsedFromOrder(order, { db = prisma, pool } = {}) {
   const snap = order.grantSnapshot || {};
-  let granted = snap.grantedCredits;
+  const ownPool = await orderPool(order, db);
+  const measuredPool = pool || ownPool || 'REPLY';
+  const planDraft = Boolean(order.planCode) && measuredPool === 'DRAFT';
+
+  let granted = planDraft ? snap.grantedDraftCredits : snap.grantedCredits;
   if (granted == null) {
-    if (order.planCode) granted = (await getPlan(order.planCode, db))?.autoReplyCreditsPerCycle ?? 0;
+    if (planDraft) granted = 0;
+    else if (order.planCode) granted = (await getPlan(order.planCode, db))?.autoReplyCreditsPerCycle ?? 0;
     else if (order.addonCode && order.addonCode !== 'extra_ig_account') {
       granted = (await db.addonPack.findUnique({ where: { code: order.addonCode } }))?.creditAmount ?? 0;
     } else granted = 0;
   }
 
-  const hasAhead = typeof snap.creditsAheadAtGrant === 'number';
-  const ahead = hasAhead ? snap.creditsAheadAtGrant : 0;
+  const aheadValue = planDraft ? snap.draftCreditsAheadAtGrant : snap.creditsAheadAtGrant;
+  const hasAhead = typeof aheadValue === 'number';
+  const ahead = hasAhead ? aheadValue : 0;
   const spend = order.paidAt
     ? await db.creditLedger.aggregate({
-        where: { tenantId: order.tenantId, type: 'SPEND', createdAt: { gte: order.paidAt } },
+        where: { tenantId: order.tenantId, type: 'SPEND', pool: measuredPool, createdAt: { gte: order.paidAt } },
         _sum: { delta: true },
       })
     : { _sum: { delta: 0 } };
-  const spentSincePayment = -(spend._sum.delta ?? 0);
+  // A draft spend refunded after a failed AI call was never used.
+  const refunds =
+    measuredPool === 'DRAFT' && order.paidAt
+      ? await db.creditLedger.aggregate({
+          where: { tenantId: order.tenantId, pool: 'DRAFT', source: { startsWith: 'draft:refund:' }, createdAt: { gte: order.paidAt } },
+          _sum: { delta: true },
+        })
+      : { _sum: { delta: 0 } };
+  const spentSincePayment = Math.max(0, -(spend._sum.delta ?? 0) - (refunds._sum.delta ?? 0));
 
   return {
+    pool: measuredPool,
     granted,
     creditsAheadAtGrant: hasAhead ? ahead : null,
     spentSincePayment,
@@ -829,29 +1099,31 @@ async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null }
     summary.validity.validUntilAfter = ('validUntil' in data ? data.validUntil : e.validUntil)?.toISOString() ?? null;
   }
 
-  if (order.addonCode === 'extra_ig_account') {
-    data.extraIgAccounts = Math.max(0, e.extraIgAccounts - 1);
-    summary.extraIgAccounts = { before: e.extraIgAccounts, after: data.extraIgAccounts };
-  } else {
-    // Only what is LEFT of this purchase's own credits can be taken back:
-    // granted minus what was consumed from it (FIFO — see creditsUsedFromOrder).
-    // Taking back more would eat credits from purchases behind it in the queue.
-    const usage = await creditsUsedFromOrder(order, { db: tx });
+  /**
+   * Only what is LEFT of this purchase's own credits in `pool` can be taken
+   * back: granted minus what was consumed from it (FIFO — see
+   * creditsUsedFromOrder). Taking back more would eat credits from purchases
+   * behind it in the queue.
+   */
+  const revokePool = async (pool) => {
+    const usage = await creditsUsedFromOrder(order, { db: tx, pool });
     const granted = usage.granted;
-    const balance = e.replyCreditsCurrent + e.replyCreditsBanked;
+    const [curKey, bankKey] = pool === 'DRAFT' ? ['draftCreditsCurrent', 'draftCreditsBanked'] : ['replyCreditsCurrent', 'replyCreditsBanked'];
+    const balance = e[curKey] + e[bankKey];
     const removed = Math.min(granted - usage.usedFromOrder, balance);
-    const fromCurrent = Math.min(removed, e.replyCreditsCurrent);
+    const fromCurrent = Math.min(removed, e[curKey]);
     const fromBanked = removed - fromCurrent;
     const shortfall = granted - removed;
-    data.replyCreditsCurrent = e.replyCreditsCurrent - fromCurrent;
-    data.replyCreditsBanked = e.replyCreditsBanked - fromBanked;
+    data[curKey] = e[curKey] - fromCurrent;
+    data[bankKey] = e[bankKey] - fromBanked;
 
     await tx.creditLedger.create({
       data: {
         tenantId,
         delta: -removed,
         type: 'EXPIRE',
-        source: 'expire:refund',
+        pool,
+        source: pool === 'DRAFT' ? 'draft:expire:refund' : 'expire:refund',
         balanceAfter: balance - removed,
         note:
           `refund${refundId ? ` ${refundId}` : ''} of order ${order.cashfreeOrderId}: granted ${granted}, ` +
@@ -859,7 +1131,8 @@ async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null }
           (shortfall > 0 ? `, shortfall ${shortfall} (already spent; balance clamped at zero)` : ''),
       },
     });
-    summary.credits = {
+    return {
+      pool,
       granted,
       usedFromOrder: usage.usedFromOrder,
       removed,
@@ -868,6 +1141,18 @@ async function revokeOrderGrant(order, { tx, now = new Date(), refundId = null }
       balanceBefore: balance,
       balanceAfter: balance - removed,
     };
+  };
+
+  if (order.addonCode === 'extra_ig_account') {
+    data.extraIgAccounts = Math.max(0, e.extraIgAccounts - 1);
+    summary.extraIgAccounts = { before: e.extraIgAccounts, after: data.extraIgAccounts };
+  } else {
+    summary.credits = await revokePool((await orderPool(order, tx)) || 'REPLY');
+    // A plan also granted draft credits; take back what is left of those too.
+    // Plan orders paid before draft credits existed recorded none.
+    if (order.planCode && typeof snap?.grantedDraftCredits === 'number') {
+      summary.draftCredits = await revokePool('DRAFT');
+    }
   }
 
   // Honest status from the resulting dates.
@@ -907,5 +1192,14 @@ module.exports = {
   rollCycle,
   revokeOrderGrant,
   creditsUsedFromOrder,
+  orderPool,
   recordInstagramSlotUsage,
+  // Draft credits
+  DRAFT_STATUSES,
+  draftTerms,
+  draftStatusOf,
+  draftCreditStatus,
+  reserveDraftCredit,
+  refundDraftCredit,
+  grantBonusDraftCredits,
 };

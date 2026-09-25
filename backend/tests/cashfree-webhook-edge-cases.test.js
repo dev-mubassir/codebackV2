@@ -118,14 +118,18 @@ async function tenantWithOrder({ planCode = 'STARTER', addonCode = null, created
 const orderStatus = async (order) => (await prisma.order.findUnique({ where: { id: order.id } })).status;
 const attemptsFor = (order) =>
   prisma.paymentAttempt.findMany({ where: { cashfreeOrderId: order.cashfreeOrderId }, orderBy: { createdAt: 'asc' } });
-const grants = (tenantId) => prisma.creditLedger.findMany({ where: { tenantId, type: 'GRANT' } });
-const ledgerCount = (tenantId) => prisma.creditLedger.count({ where: { tenantId } });
+// Reply-pool rows only; every grant also writes a DRAFT-pool row (draft credits).
+const grants = (tenantId) => prisma.creditLedger.findMany({ where: { tenantId, type: 'GRANT', pool: 'REPLY' } });
+const ledgerCount = (tenantId) => prisma.creditLedger.count({ where: { tenantId, pool: 'REPLY' } });
 
 async function expectBalanced(tenantId) {
   const e = await prisma.entitlement.findUnique({ where: { userId: tenantId } });
   const held = e ? e.replyCreditsCurrent + e.replyCreditsBanked : 0;
-  const sum = (await prisma.creditLedger.aggregate({ where: { tenantId }, _sum: { delta: true } }))._sum.delta ?? 0;
+  const sum = (await prisma.creditLedger.aggregate({ where: { tenantId, pool: 'REPLY' }, _sum: { delta: true } }))._sum.delta ?? 0;
   expect(sum, 'ledger sum must equal the held balance').toBe(held);
+  const draftHeld = e ? e.draftCreditsCurrent + e.draftCreditsBanked : 0;
+  const draftSum = (await prisma.creditLedger.aggregate({ where: { tenantId, pool: 'DRAFT' }, _sum: { delta: true } }))._sum.delta ?? 0;
+  expect(draftSum, 'DRAFT ledger sum must equal the held draft balance').toBe(draftHeld);
   return e;
 }
 
@@ -478,7 +482,7 @@ describe('Gate 9.6 — retry storm', () => {
     expect(statuses.every((s) => s === 200), `every delivery acknowledged, got ${statuses.join(',')}`).toBe(true);
     expect(await orderStatus(order)).toBe('PAID');
     expect(await attemptsFor(order), 'one attempt row for one attempt').toHaveLength(1);
-    const rows = await prisma.creditLedger.findMany({ where: { tenantId } });
+    const rows = await prisma.creditLedger.findMany({ where: { tenantId, pool: 'REPLY' } });
     expect(rows, 'exactly one ledger row').toHaveLength(1);
     expect(rows[0].type).toBe('GRANT');
     const e = await expectBalanced(tenantId);

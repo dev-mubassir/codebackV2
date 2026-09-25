@@ -46,21 +46,23 @@ async function catalogue() {
   });
 }
 
-async function ledgerSum(tenantId) {
-  const r = await prisma.creditLedger.aggregate({ where: { tenantId }, _sum: { delta: true } });
+async function ledgerSum(tenantId, pool = 'REPLY') {
+  const r = await prisma.creditLedger.aggregate({ where: { tenantId, pool }, _sum: { delta: true } });
   return r._sum.delta ?? 0;
 }
 
-/** THE invariant. Returns the entitlement for follow-on assertions. */
+/** THE invariant, per pool (reply credits and draft credits). Returns the entitlement for follow-on assertions. */
 async function expectBalanced(tenantId, after) {
   const e = await prisma.entitlement.findUnique({ where: { userId: tenantId } });
   const balance = e ? e.replyCreditsCurrent + e.replyCreditsBanked : 0;
   expect(await ledgerSum(tenantId), `ledger sum must equal the held balance after: ${after}`).toBe(balance);
+  const draftBalance = e ? e.draftCreditsCurrent + e.draftCreditsBanked : 0;
+  expect(await ledgerSum(tenantId, 'DRAFT'), `DRAFT ledger sum must equal the held draft balance after: ${after}`).toBe(draftBalance);
   return e;
 }
 
 const expireRows = (tenantId) =>
-  prisma.creditLedger.findMany({ where: { tenantId, type: 'EXPIRE' }, orderBy: { createdAt: 'asc' } });
+  prisma.creditLedger.findMany({ where: { tenantId, type: 'EXPIRE', pool: 'REPLY' }, orderBy: { createdAt: 'asc' } });
 
 beforeEach(async () => {
   await resetDb();

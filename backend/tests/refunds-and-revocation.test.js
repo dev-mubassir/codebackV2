@@ -102,8 +102,11 @@ async function spend(tenantId, n) {
 async function expectBalanced(tenantId, after = '') {
   const e = await prisma.entitlement.findUnique({ where: { userId: tenantId } });
   const held = e ? e.replyCreditsCurrent + e.replyCreditsBanked : 0;
-  const sum = (await prisma.creditLedger.aggregate({ where: { tenantId }, _sum: { delta: true } }))._sum.delta ?? 0;
+  const sum = (await prisma.creditLedger.aggregate({ where: { tenantId, pool: 'REPLY' }, _sum: { delta: true } }))._sum.delta ?? 0;
   expect(sum, `ledger sum must equal the held balance ${after}`).toBe(held);
+  const draftHeld = e ? e.draftCreditsCurrent + e.draftCreditsBanked : 0;
+  const draftSum = (await prisma.creditLedger.aggregate({ where: { tenantId, pool: 'DRAFT' }, _sum: { delta: true } }))._sum.delta ?? 0;
+  expect(draftSum, 'DRAFT ledger sum must equal the held draft balance').toBe(draftHeld);
   expect(held, 'a balance is never negative').toBeGreaterThanOrEqual(0);
   return e;
 }

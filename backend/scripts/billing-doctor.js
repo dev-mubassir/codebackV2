@@ -149,14 +149,24 @@ async function main() {
       // against — silently stops adding up, and nothing else notices. So sum
       // every tenant's ledger and compare it with the balance the entitlement
       // actually holds. CLASSIFY rows carry delta 0 and change nothing.
+      // Checked PER POOL: reply credits and draft credits each have their own
+      // balance and their own ledger rows (credit_ledger.pool).
       const drift = await prisma.$queryRawUnsafe(`
-        SELECT e.user_id AS tenant,
+        SELECT e.user_id AS tenant, 'REPLY' AS pool,
                e.reply_credits_current + e.reply_credits_banked AS balance,
                COALESCE(SUM(l.delta), 0)::int AS ledger
           FROM entitlements e
-          LEFT JOIN credit_ledger l ON l.tenant_id = e.user_id
+          LEFT JOIN credit_ledger l ON l.tenant_id = e.user_id AND l.pool = 'REPLY'
          GROUP BY e.user_id, e.reply_credits_current, e.reply_credits_banked
-        HAVING e.reply_credits_current + e.reply_credits_banked <> COALESCE(SUM(l.delta), 0)`);
+        HAVING e.reply_credits_current + e.reply_credits_banked <> COALESCE(SUM(l.delta), 0)
+        UNION ALL
+        SELECT e.user_id AS tenant, 'DRAFT' AS pool,
+               e.draft_credits_current + e.draft_credits_banked AS balance,
+               COALESCE(SUM(l.delta), 0)::int AS ledger
+          FROM entitlements e
+          LEFT JOIN credit_ledger l ON l.tenant_id = e.user_id AND l.pool = 'DRAFT'
+         GROUP BY e.user_id, e.draft_credits_current, e.draft_credits_banked
+        HAVING e.draft_credits_current + e.draft_credits_banked <> COALESCE(SUM(l.delta), 0)`);
       const entitlementCount = await prisma.entitlement.count();
 
       if (drift.length === 0) {
@@ -168,7 +178,7 @@ async function main() {
           add(
             FAIL,
             '  -> drift',
-            `tenant ${String(d.tenant).slice(0, 8)}: balance ${d.balance}, ledger sum ${d.ledger} — ${Math.abs(gap)} credit(s) ${gap > 0 ? 'held with no ledger row' : 'recorded but not held'}`
+            `tenant ${String(d.tenant).slice(0, 8)} (${d.pool}): balance ${d.balance}, ledger sum ${d.ledger} — ${Math.abs(gap)} credit(s) ${gap > 0 ? 'held with no ledger row' : 'recorded but not held'}`
           );
         }
         if (drift.length > 5) add(FAIL, '  -> drift', `…and ${drift.length - 5} more`);

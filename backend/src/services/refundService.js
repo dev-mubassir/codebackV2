@@ -64,7 +64,13 @@ const round1 = (n) => Math.round(n * 10) / 10;
  */
 async function evaluatePolicy(order, now = new Date(), db = prisma) {
   const snap = order.grantSnapshot || {};
-  const kind = order.planCode ? 'plan' : order.addonCode === 'extra_ig_account' ? 'extra_ig_account' : 'reply_pack';
+  const kind = order.planCode
+    ? 'plan'
+    : order.addonCode === 'extra_ig_account'
+      ? 'extra_ig_account'
+      : (await entitlementService.orderPool(order, db)) === 'DRAFT'
+        ? 'draft_pack'
+        : 'reply_pack';
   const daysSincePayment = order.paidAt ? (now.getTime() - order.paidAt.getTime()) / DAY_MS : null;
 
   // The purchase's OWN credits (FIFO: credits already held spend first).
@@ -90,7 +96,8 @@ async function evaluatePolicy(order, now = new Date(), db = prisma) {
     if (cycleEndsAt && now.getTime() >= new Date(cycleEndsAt).getTime()) {
       reasons.push(`The paid period ended on ${new Date(cycleEndsAt).toISOString()}.`);
     }
-  } else if (kind === 'reply_pack' && creditsUsedFromPurchase > 0) {
+  } else if ((kind === 'reply_pack' || kind === 'draft_pack') && creditsUsedFromPurchase > 0) {
+    // Same rule for both packs: a top-up is refundable only if entirely unused.
     reasons.push(`${creditsUsedFromPurchase} of this top-up's credits used; a top-up is refundable only if entirely unused.`);
   } else if (kind === 'extra_ig_account' && order.slotUsedAt) {
     reasons.push(`An Instagram account was connected using this slot on ${order.slotUsedAt.toISOString()}.`);
@@ -104,6 +111,7 @@ async function evaluatePolicy(order, now = new Date(), db = prisma) {
     daysSincePayment: daysSincePayment == null ? null : round1(daysSincePayment),
     paidAt: order.paidAt?.toISOString() ?? null,
     creditsGranted,
+    creditPool: kind === 'extra_ig_account' ? null : usage.pool,
     creditsAheadAtGrant: usage.creditsAheadAtGrant,
     creditsSpentSincePayment: usage.spentSincePayment,
     creditsUsedFromPurchase,

@@ -124,6 +124,12 @@ const { hashIgUserId } = require('../src/lib/igIdentity');
             data: { tenantId: a.userId, delta: -balance, type: 'EXPIRE', source: 'expire:dev_reset_trial', balanceAfter: 0 },
           });
         }
+        const draftBalance = e.draftCreditsCurrent + e.draftCreditsBanked;
+        if (draftBalance > 0) {
+          await tx.creditLedger.create({
+            data: { tenantId: a.userId, delta: -draftBalance, type: 'EXPIRE', pool: 'DRAFT', source: 'draft:expire:dev_reset_trial', balanceAfter: 0 },
+          });
+        }
         await tx.entitlement.delete({ where: { userId: a.userId } });
         console.log(`  Deleted the entitlement for user ${a.userId.slice(0, 8)}${balance > 0 ? ` (EXPIRE row written for ${balance} credits)` : ''}.`);
       });

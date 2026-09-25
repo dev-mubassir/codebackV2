@@ -48,8 +48,12 @@ async function adminAgent({ stepUp = true } = {}) {
 
 const ledgerMatchesBalance = async (userId) => {
   const e = await prisma.entitlement.findUnique({ where: { userId } });
-  const sum = await prisma.creditLedger.aggregate({ where: { tenantId: userId }, _sum: { delta: true } });
-  return (sum._sum.delta || 0) === (e ? e.replyCreditsCurrent + e.replyCreditsBanked : 0);
+  const sum = await prisma.creditLedger.aggregate({ where: { tenantId: userId, pool: 'REPLY' }, _sum: { delta: true } });
+  const draftSum = await prisma.creditLedger.aggregate({ where: { tenantId: userId, pool: 'DRAFT' }, _sum: { delta: true } });
+  return (
+    (sum._sum.delta || 0) === (e ? e.replyCreditsCurrent + e.replyCreditsBanked : 0) &&
+    (draftSum._sum.delta || 0) === (e ? e.draftCreditsCurrent + e.draftCreditsBanked : 0)
+  );
 };
 
 describe('plans', () => {

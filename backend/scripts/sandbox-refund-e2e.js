@@ -271,7 +271,7 @@ async function run() {
 
   // 6. Revocation and ledger.
   const e = await prisma.entitlement.findUnique({ where: { userId: user.id } });
-  const ledger = await prisma.creditLedger.findMany({ where: { tenantId: user.id }, orderBy: { createdAt: 'asc' } });
+  const ledger = await prisma.creditLedger.findMany({ where: { tenantId: user.id, pool: 'REPLY' }, orderBy: { createdAt: 'asc' } });
   const sum = ledger.reduce((s, r) => s + r.delta, 0);
   const held = e ? e.replyCreditsCurrent + e.replyCreditsBanked : 0;
   section('7. entitlement and ledger', {

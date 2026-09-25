@@ -430,11 +430,13 @@ model ReplyGeneration {
   generatedText  String   @map("generated_text")
   model          String?
   wasSent        Boolean  @default(false) @map("was_sent") // set true if this exact draft was later sent (best-effort audit trail)
+  idempotencyKey String?  @map("idempotency_key") // the client's per-click key; a retry returns this row instead of drafting (and charging) again
   createdAt      DateTime @default(now()) @map("created_at")
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, idempotencyKey])
   @@index([conversationId, createdAt])
   @@index([userId])
   @@map("reply_generations")
@@ -980,6 +982,14 @@ enum CreditLedgerType {
   CLASSIFY // a recorded classification event, not a credit movement — delta is always 0. See CreditLedger's messageId note.
 }
 
+// Which balance a credit row or pack belongs to. REPLY = auto-reply credits
+// (the original pool); DRAFT = credits for the manual "Draft AI reply" button.
+// The two never mix: a spend, grant or expiry moves exactly one pool.
+enum CreditPool {
+  REPLY
+  DRAFT
+}
+
 // "Has a successful payment or not." A failed or abandoned ATTEMPT is not an
 // order state — it is a PaymentAttempt row — because Cashfree lets a customer
 // retry on the same order. See migration 20260915190000_payment_attempts_order_state.
@@ -1068,6 +1078,11 @@ model Entitlement {
 
   extraIgAccounts Int @default(0) @map("extra_ig_accounts") // recurring add-on count; folded into next renewal's price
 
+  // DRAFT CREDITS — the second pool, same FIFO/bank rules as the reply pool
+  // above (banked drains first). See entitlementService's draft functions.
+  draftCreditsCurrent Int @default(0) @map("draft_credits_current")
+  draftCreditsBanked  Int @default(0) @map("draft_credits_banked")
+
   // THE TERMS BOUGHT (Gate 6). Copied from the Plan at every grant (purchase,
   // renewal, trial, admin grant), so an admin editing a plan changes what NEW
   // purchases get — never what an existing customer already bought. NULL
@@ -1078,6 +1093,13 @@ model Entitlement {
   termAutoReplyBankCap              Int?      @map("term_auto_reply_bank_cap")
   termIgAccountLimit                Int?      @map("term_ig_account_limit")
   termsSnapshotAt                   DateTime? @map("terms_snapshot_at")
+  // Draft terms bought. Their OWN marker rather than termsSnapshotAt: code
+  // from before draft credits stamps termsSnapshotAt without these, and a
+  // null term would then read as "unlimited". NULL draftTermsAt = fall back
+  // to the live plan. termDraftCreditsPerCycle NULL (with draftTermsAt set) = unlimited.
+  termDraftCreditsPerCycle          Int?      @map("term_draft_credits_per_cycle")
+  termDraftBankCap                  Int?      @map("term_draft_bank_cap")
+  draftTermsAt                      DateTime? @map("draft_terms_at")
   // Admin-granted extra classifications for THIS cycle only; reset to 0 by
   // every grant and cycle roll.
   bonusClassificationsCycle         Int       @default(0) @map("bonus_classifications_cycle")
@@ -1152,12 +1174,19 @@ model CreditLedger {
   messageId    String?          @map("message_id") // set only for type=CLASSIFY; the idempotency key
   delta        Int // positive = credited, negative = spent
   type         CreditLedgerType
-  source       String // e.g. "plan_grant:starter", "addon:reply_credits_500", "auto_reply_spend", "cycle_rollover", "classification"
+  // Which balance this row moves; balanceAfter is that pool's balance. Every
+  // row written before draft credits existed is REPLY (the column default).
+  pool         CreditPool       @default(REPLY)
+  source       String // e.g. "plan_grant:starter", "addon:reply_credits_500", "auto_reply_spend", "cycle_rollover", "classification"; draft rows are prefixed "draft:"
   balanceAfter Int              @map("balance_after")
   note         String? // detail for the row; a refund revocation records granted / removed / shortfall here
+  // Draft spends and their refunds only: the client's per-click key, so a
+  // double-click or a retried request can never charge twice (P2002).
+  idempotencyKey String?        @map("idempotency_key")
   createdAt    DateTime         @default(now()) @map("created_at")
 
   @@unique([tenantId, messageId, type])
+  @@unique([tenantId, idempotencyKey])
   @@index([tenantId, createdAt])
   @@map("credit_ledger")
 }
@@ -1298,6 +1327,8 @@ model Plan {
   igAccountLimit                Int?    @map("ig_account_limit") // null = custom (Enterprise)
   autoReplyCreditsPerCycle      Int?    @map("auto_reply_credits_per_cycle") // credits per cycle; for TRIAL, the trial grant (lib/igIdentity.js) reads this too (Gate 6)
   autoReplyBankCap              Int?    @map("auto_reply_bank_cap") // max banked (rolled-over) credits; excess discarded at renewal
+  draftCreditsPerCycle          Int?    @map("draft_credits_per_cycle") // manual AI drafts per cycle; null = unlimited. Seeded at floor(reply credits / 4)
+  draftBankCap                  Int?    @map("draft_bank_cap") // max banked draft credits; seeded at floor(reply bank cap / 4)
   classificationCapCycle        Int?    @map("classification_cap_cycle") // internal burst guard only — never advertised on marketing pages
   classificationThrottlePerHour Int?    @map("classification_throttle_per_hour")
   cycleLengthDays               Int     @default(30) @map("cycle_length_days") // 30-day purchases only — no multi-month packs by design
@@ -1349,10 +1380,16 @@ model PlanPrice {
 // and persists for as long as the plan is active).
 // ============================================
 model AddonPack {
-  id           String  @id @default(uuid())
-  code         String  @unique // e.g. "reply_credits_500"
-  creditAmount Int     @map("credit_amount")
-  isActive     Boolean @default(true) @map("is_active")
+  id           String     @id @default(uuid())
+  code         String     @unique // e.g. "reply_credits_500", "draft_credits_125"
+  creditAmount Int        @map("credit_amount")
+  // LEGACY visibility, read only by code from before draft credits. Kept in
+  // step with isListed for REPLY packs and always false for DRAFT packs, so
+  // that older code (the deploy window, or a rollback) can never list or sell
+  // a draft pack as reply credits.
+  isActive     Boolean    @default(true) @map("is_active")
+  isListed     Boolean    @default(false) @map("is_listed") // what current code reads: shown and sellable
+  pool         CreditPool @default(REPLY) // which balance the pack tops up
 
   prices AddonPackPrice[]
 
