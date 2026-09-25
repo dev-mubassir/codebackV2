@@ -4,14 +4,10 @@ Branch: `draft-credits` (from master `cd3d133`). Autonomous run; one owner stop 
 
 ## RESUME HERE
 
-Phases 0–4 DONE. Phase 5 step 1 DONE: master fast-forwarded locally to the draft-credits commits (NOT pushed).
-WAITING FOR THE OWNER: DB backup + `backend/scripts/prod-migrate.ps1`. The only new migration is
-`20260927090000_draft_credits` (additive; see its header). After the owner says "migrated" with the status
-output: verify it lists that migration as applied, push master, then Phase 6 (poll api.siffty.com/health,
-read-only Northflank logs, landing page check, public /api/billing/plans if billing is on).
-
-Local dev DB already has the migration applied (backup of the pre-migration dev DB was taken to the session
-scratchpad). Local tunnel/dev servers were stopped after testing.
+ALL PHASES DONE (2026-09-25). Production migrated by the owner (29/29 applied), master pushed (`df58eb6`),
+Phase 6 verified: new backend live ~2 min after push, /health 200, public /api/billing/plans serves draft terms
+and draft pack prices equal to the seed, siffty.com bundle contains the draft lines and add-on prices, no new
+runtime errors in the first 10 minutes. Remaining: the owner's manual checklist (real UPI purchase + refund).
 
 ## Phase 0 — state check (done)
 
@@ -85,6 +81,9 @@ ledger row, whether billing is on or off.
   the new code is deployed — it is a manual script, not a runtime path.
 
 ## Phase log
+
+- **Phase 5/6** — owner ran prod-migrate.ps1 after a backup; master pushed `cd3d133..df58eb6`; production
+  verified as above. No fix-forward or revert needed.
 
 - **Phase 2 (backend)** — schema + migration `20260927090000_draft_credits`; entitlementService draft pool
   (terms, reserve/refund with row lock + idempotency key, grantPlan/grantAddon/rollCycle/revoke per pool,
