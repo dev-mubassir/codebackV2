@@ -661,6 +661,9 @@ export const admin = {
     payments: 'Payments',
     accounts: 'Connected accounts',
     support: 'Support lookup',
+    metrics: 'Business metrics',
+    controls: 'Kill switches & alerts',
+    announcements: 'Announcements',
     settings: 'Settings',
   },
 
@@ -771,6 +774,79 @@ export const admin = {
     },
     notPurchasable: 'New plan codes are shown but cannot be bought at checkout until checkout is extended.',
     badFeatures: 'Features must be a JSON object.',
+  },
+
+  controls: {
+    lead: 'Changes apply within 30 seconds. Kill switches and the session timeout ask for your password again; every change needs a reason and is audited.',
+    groups: { flag: 'Kill switches', session: 'Customer sessions', alert: 'Alert thresholds' },
+    labels: {
+      ai_classification_enabled: 'AI classification',
+      signups_enabled: 'New signups',
+      maintenance_mode: 'Maintenance mode',
+      enforce_subscriptions: 'Enforce subscriptions (billing)',
+      user_session_idle_minutes: 'Customer idle sign-out (minutes)',
+      alert_ai_error_rate_pct: 'AI error rate above (%) over 15 min',
+      alert_ai_daily_cost_usd: 'AI cost per day above (USD)',
+      alert_user_usage_multiplier: "One customer's AI use above (x their 7-day average)",
+      alert_no_webhook_hours: 'No Meta webhooks for (hours)',
+      alert_db_ping_ms: 'Database ping above (ms)',
+    },
+    hints: {
+      ai_classification_enabled: 'Off: new DMs are stored but not sent to any AI provider and get no auto-reply. Turning it back on re-queues the last 24 hours.',
+      signups_enabled: 'Off: email and Google signups are refused. Existing customers can still sign in.',
+      maintenance_mode: 'On: customers see a "back soon" page. Webhooks, jobs and this panel keep running.',
+      enforce_subscriptions: 'Unset, it follows the BILLING_ENABLED environment variable.',
+    },
+    on: 'On',
+    off: 'Off',
+    turnOn: 'Turn on',
+    turnOff: 'Turn off',
+    save: 'Save',
+    reset: 'Reset to default',
+    sourceDefault: 'default',
+    sourceAdmin: 'set by an admin',
+    defaultIs: 'Default:',
+    requeued: (n) => `${n} skipped message(s) re-queued for AI.`,
+    alertsTitle: 'Recent alerts',
+    alertsEmpty: 'No alert has been sent.',
+    alertsNote: 'Alerts are checked every 5 minutes and emailed to every admin, at most once an hour per type.',
+  },
+
+  metricsPage: {
+    range: 'Period',
+    days: (n) => `Last ${n} days`,
+    signups: 'Signups',
+    dms: 'DMs received',
+    classified: 'DMs classified',
+    active24h: 'Active today',
+    active7d: 'Active this week',
+    active30d: 'Active this month',
+    igAccounts: 'Instagram accounts connected',
+    trialToPaid: 'Trial to paid',
+    trialToPaidHint: (paid, trials) => `${paid} of ${trials} trial customers paid`,
+    perDay: 'Per day',
+    day: 'Day',
+    total: 'Total',
+    empty: 'Nothing in this period.',
+  },
+
+  announcements: {
+    lead: 'A banner at the top of the customer app, inside the time window you set. Plain text only.',
+    newTitle: 'New announcement',
+    message: 'Message',
+    type: 'Type',
+    types: { info: 'Info', warning: 'Warning', critical: 'Critical' },
+    startsAt: 'Starts',
+    endsAt: 'Ends',
+    create: 'Publish announcement',
+    status: 'Status',
+    live: 'Live',
+    scheduled: 'Scheduled',
+    ended: 'Ended',
+    off: 'Off',
+    turnOff: 'Turn off',
+    turnOn: 'Turn on',
+    empty: 'No announcements yet.',
   },
 
   coupons: {
@@ -1054,6 +1130,7 @@ export const errors = {
     no_code: 'Instagram sign-in was cancelled before it finished. Try connecting again if that was a mistake.',
     account_already_connected: 'That Instagram account is already connected to another Siffty account.',
     oauth_failed: "Couldn't connect that Instagram account. Try connecting again.",
+    signups_closed: 'New signups are paused right now. If you already have an account, log in instead.',
 
     // ---- Previously rendered as NOTHING AT ALL ----
     //
@@ -1398,3 +1475,15 @@ const copy = {
 };
 
 export default copy;
+
+// ---- Announcement banner and maintenance page (admin rebuild, Gate 7) ----
+
+export const announcementBanner = {
+  dismiss: 'Dismiss',
+};
+
+export const maintenance = {
+  title: 'Siffty is being updated',
+  body: 'We are making some changes and will be back in a few minutes. Your Instagram messages are still being received and saved.',
+  retry: 'Try again',
+};

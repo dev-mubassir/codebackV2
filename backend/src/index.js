@@ -35,6 +35,7 @@ const dataDeletionRoutes = require('./routes/dataDeletion');
 const billingRoutes = require('./routes/billing');
 const cashfreeWebhookRoutes = require('./routes/cashfreeWebhooks');
 const contactRoutes = require('./routes/contact');
+const announcementRoutes = require('./routes/announcements');
 
 const { setIO } = require('./lib/socket');
 const { assertMigrationsCurrent } = require('./lib/migrationGuard');
@@ -43,6 +44,8 @@ const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
 const { skipOnAdminPaths, buildAdminSessionMiddleware, buildAdminStore } = require('./lib/adminSession');
 const { userSessionGuard, socketSessionIsLive, startIdleSocketSweep } = require('./lib/sessionIdle');
 const { publicHealthHandler } = require('./lib/health');
+const { maintenanceGuard } = require('./lib/maintenance');
+const { startSettingsRefresher } = require('./lib/settings');
 const { captureRequestContext, installConsoleErrorCapture } = require('./lib/errorRing');
 
 // The last 100 backend errors, sanitised, for the admin health page.
@@ -362,6 +365,10 @@ app.use(originGuard);
 // See lib/sessionIdle.js.
 app.use(skipOnAdminPaths(userSessionGuard()));
 
+// Maintenance mode (Gate 7 kill switch): customer /api and /auth answer 503;
+// webhooks, data deletion, health, the admin panel and jobs keep running.
+app.use(maintenanceGuard);
+
 // JSON body parser. Meta's webhook signature is an HMAC over the bytes on the
 // wire, so the raw body is captured here via `verify` — body-parser hands us
 // the exact Buffer it is about to parse, before any decoding.
@@ -416,6 +423,10 @@ startWorkers();
 // request (a tab left open). Not recorded as a job run — at once a minute it
 // would drown the job history; its failures are logged.
 startIdleSocketSweep({ store: sessionStore });
+
+// Keep the settings cache (kill switches, thresholds) current for the
+// synchronous readers, e.g. isBillingEnabled (Gate 7).
+startSettingsRefresher();
 
 // Handle Socket.io connections
 io.on('connection', async (socket) => {
@@ -491,6 +502,10 @@ app.use('/data-deletion', dataDeletionRoutes);
 // BILLING_ENABLED — support cannot depend on a billing flag. Mounted before
 // /api, whose blanket requireAuth would otherwise 401 a logged-out visitor.
 app.use('/api/contact', contactRoutes);
+
+// The announcement banner feed (Gate 7). Public, like contact: mounted before
+// /api's blanket requireAuth.
+app.use('/api/announcements', announcementRoutes);
 
 // Admin panel routes (must be mounted before /api), on the ADMIN session:
 // separate cookie, separate table, SameSite=Strict, Path=/api/admin.

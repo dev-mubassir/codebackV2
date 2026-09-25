@@ -217,6 +217,14 @@ async function callAI({ jobType = 'unknown', tenantId = null, prompt, isJson = t
     return { ...out, ...target };
   }
 
+  // KILL SWITCH (Gate 7): no customer AI call while AI is turned off. The
+  // admin model test (target set, above) still works, so a provider can be
+  // checked before AI is turned back on.
+  const { getSetting } = require('../settings');
+  if (!(await getSetting('ai_classification_enabled'))) {
+    throw Object.assign(new Error('AI is turned off by an admin'), { code: 'AI_DISABLED' });
+  }
+
   const config = await getAiConfig();
   const useFallback = config.fallbackEnabled && fallbackActive();
   const chosen = useFallback ? config.fallback : config.active;

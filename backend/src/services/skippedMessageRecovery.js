@@ -59,10 +59,12 @@ function recentSkippedWhere(tenantId, now) {
 async function remainingClassifications(tenantId) {
   const entitlement = await entitlementService.getEntitlement(tenantId);
   if (!entitlement || !entitlementService.LIVE_STATUSES.includes(entitlement.effectiveStatus)) return 0;
-  const plan = entitlement.planCode ? await prisma.plan.findUnique({ where: { code: entitlement.planCode } }) : null;
-  if (!plan) return 0;
-  if (plan.classificationCapCycle == null) return UNCAPPED_RECOVERY_LIMIT;
-  return Math.max(0, plan.classificationCapCycle - entitlement.classificationCountCycle);
+  // The terms the customer bought (Gate 6), plus any admin bonus this cycle.
+  const plan = entitlement.termsSnapshotAt ? null : entitlement.planCode ? await prisma.plan.findUnique({ where: { code: entitlement.planCode } }) : null;
+  if (!entitlement.termsSnapshotAt && !plan) return 0;
+  const cap = entitlementService.effectiveTerms(entitlement, plan).classificationCapCycle;
+  if (cap == null) return UNCAPPED_RECOVERY_LIMIT;
+  return Math.max(0, cap + (entitlement.bonusClassificationsCycle || 0) - entitlement.classificationCountCycle);
 }
 
 /**

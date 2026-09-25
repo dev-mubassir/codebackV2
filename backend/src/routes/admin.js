@@ -33,6 +33,7 @@ const { runModelTest, findPassingTest } = require('../lib/ai/modelTest');
 const { deleteUserAccount } = require('../services/accountDeletion');
 const adminBilling = require('../services/adminBilling');
 const coupons = require('../services/coupons');
+const settings = require('../lib/settings');
 const { effectiveStatus } = require('../services/entitlementService');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession, destroyUserSessions } = require('../lib/session');
@@ -1688,6 +1689,225 @@ router.get('/payments', async (req, res) => {
   } catch (error) {
     console.error('[Admin] Payments list error:', error.message);
     res.status(500).json({ error: "Couldn't load payments. Refresh to try again." });
+  }
+});
+
+// ============================================
+// 7. SETTINGS / KILL SWITCHES, METRICS, ANNOUNCEMENTS (Gate 7)
+// ============================================
+
+// Kill switches and the customer session timeout are security-relevant:
+// step-up. Alert thresholds only change what the admin is told: reason only.
+const STEP_UP_GROUPS = new Set(['flag', 'session']);
+
+/** Messages skipped while AI was off, re-queued when it comes back (last 24h, bounded). */
+async function requeueAiDisabled() {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const rows = await prisma.message.findMany({
+    where: { aiStatus: 'skipped', aiSkipReason: 'ai_disabled', createdAt: { gte: since } },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+    take: 2000,
+  });
+  if (!rows.length) return 0;
+  await prisma.message.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { aiStatus: 'pending', aiSkipReason: null, aiRecoveredAt: new Date() } });
+  const { enqueueMessageAnalysis } = require('../jobs');
+  for (const r of rows) await enqueueMessageAnalysis(r.id, { jobKey: 'ai-reenabled' });
+  return rows.length;
+}
+
+// GET /api/admin/settings/flags — every setting: value, default, source.
+router.get('/settings/flags', async (req, res) => {
+  try {
+    const list = await settings.listSettings();
+    res.json(list.map((x) => ({ ...x, requiresStepUp: STEP_UP_GROUPS.has(x.group) })));
+  } catch (error) {
+    console.error('[Admin] Settings list error:', error.message);
+    res.status(500).json({ error: "Couldn't load settings. Refresh to try again." });
+  }
+});
+
+/** Step-up only for flag/session keys; resolved per request from the key. */
+function stepUpForKey(req, res, next) {
+  const def = settings.DEFINITIONS[req.params.key];
+  if (!def) return res.status(404).json({ error: 'No such setting.' });
+  return STEP_UP_GROUPS.has(def.group) ? requireStepUp(req, res, next) : next();
+}
+
+async function afterSettingChange(key, before, after) {
+  if (key === 'ai_classification_enabled' && before === false && after === true) {
+    return { requeued: await requeueAiDisabled() };
+  }
+  return {};
+}
+
+// PUT /api/admin/settings/flags/:key — { value, reason }
+router.put('/settings/flags/:key', stepUpForKey, async (req, res) => {
+  if (!onlyFields(req, res, ['value', 'reason'])) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  const key = req.params.key;
+  try {
+    const { before, after } = await settings.setSetting(key, req.body.value, req.admin.id);
+    await recordAdminAudit(req, { action: 'SETTING_CHANGE', targetType: 'SETTING', targetId: key, reason, before: { value: before }, after: { value: after } });
+    const extra = await afterSettingChange(key, before, after);
+    res.json({ key, value: after, ...extra });
+  } catch (error) {
+    if (error.code === 'INVALID_SETTING') return res.status(400).json({ error: 'That value is not allowed for this setting.', code: 'INVALID' });
+    console.error('[Admin] Setting change error:', error.message);
+    res.status(500).json({ error: "Couldn't change that setting. Try again." });
+  }
+});
+
+// DELETE /api/admin/settings/flags/:key — { reason }: back to the default.
+router.delete('/settings/flags/:key', stepUpForKey, async (req, res) => {
+  if (!onlyFields(req, res, ['reason'])) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  const key = req.params.key;
+  try {
+    const { before, after } = await settings.resetSetting(key);
+    await recordAdminAudit(req, { action: 'SETTING_RESET', targetType: 'SETTING', targetId: key, reason, before: { value: before }, after: { value: after } });
+    const extra = await afterSettingChange(key, before, after);
+    res.json({ key, value: after, ...extra });
+  } catch (error) {
+    console.error('[Admin] Setting reset error:', error.message);
+    res.status(500).json({ error: "Couldn't reset that setting. Try again." });
+  }
+});
+
+// GET /api/admin/metrics?days=30 — business metrics. Counts only.
+router.get('/metrics', async (req, res) => {
+  try {
+    const days = clampInt(req.query.days, { min: 7, max: 365, fallback: 30 });
+    const now = Date.now();
+    const since = new Date(now - days * 24 * 60 * 60 * 1000);
+    const daily = (rows) => rows.map((r) => ({ day: r.day.toISOString().slice(0, 10), count: Number(r.count) }));
+
+    const [signups, dms, classified, active1, active7, active30, igActive, trialUsers, converted] = await Promise.all([
+      prisma.$queryRaw`SELECT date_trunc('day', "created_at") AS day, COUNT(*) AS count FROM "users" WHERE "created_at" >= ${since} GROUP BY 1 ORDER BY 1`,
+      prisma.$queryRaw`SELECT date_trunc('day', "created_at") AS day, COUNT(*) AS count FROM "messages" WHERE "direction" = 'inbound' AND "created_at" >= ${since} GROUP BY 1 ORDER BY 1`,
+      prisma.$queryRaw`SELECT date_trunc('day', "created_at") AS day, COUNT(*) AS count FROM "ai_analyses" WHERE "created_at" >= ${since} GROUP BY 1 ORDER BY 1`,
+      prisma.user.count({ where: { lastSeenAt: { gte: new Date(now - 24 * 60 * 60 * 1000) } } }),
+      prisma.user.count({ where: { lastSeenAt: { gte: new Date(now - 7 * 24 * 60 * 60 * 1000) } } }),
+      prisma.user.count({ where: { lastSeenAt: { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) } } }),
+      prisma.instagramAccount.count({ where: { connectionStatus: 'CONNECTED' } }),
+      prisma.$queryRaw`SELECT COUNT(DISTINCT "tenant_id") AS count FROM "credit_ledger" WHERE "source" = 'trial_grant'`,
+      prisma.$queryRaw`SELECT COUNT(DISTINCT l."tenant_id") AS count FROM "credit_ledger" l JOIN "orders" o ON o."tenant_id" = l."tenant_id" AND o."status" = 'PAID' AND o."plan_code" IS NOT NULL WHERE l."source" = 'trial_grant'`,
+    ]);
+    const trials = Number(trialUsers[0]?.count || 0);
+    const paid = Number(converted[0]?.count || 0);
+    res.json({
+      days,
+      signupsPerDay: daily(signups),
+      dmsPerDay: daily(dms),
+      classifiedPerDay: daily(classified),
+      activeUsers: { last24h: active1, last7d: active7, last30d: active30 },
+      trialToPaid: { trials, converted: paid, rate: trials ? paid / trials : 0 },
+      activeInstagramAccounts: igActive,
+    });
+  } catch (error) {
+    console.error('[Admin] Metrics error:', error.message);
+    res.status(500).json({ error: "Couldn't load metrics. Refresh to try again." });
+  }
+});
+
+// ---- Announcements ----
+
+const ANNOUNCEMENT_TYPES = new Set(['info', 'warning', 'critical']);
+
+function readAnnouncementBody(req, res, { creating }) {
+  const b = req.body || {};
+  if (!onlyFields(req, res, ['message', 'type', 'startsAt', 'endsAt', 'isActive', 'reason'])) return null;
+  const data = {};
+  if (b.message !== undefined || creating) {
+    if (typeof b.message !== 'string' || b.message.trim().length < 3 || b.message.length > 500) return badRequest(res, 'Message: 3 to 500 characters of plain text.');
+    data.message = b.message.trim();
+  }
+  if (b.type !== undefined) {
+    if (!ANNOUNCEMENT_TYPES.has(b.type)) return badRequest(res, 'Type: info, warning or critical.');
+    data.type = b.type;
+  }
+  for (const f of ['startsAt', 'endsAt']) {
+    if (b[f] === undefined && !creating) continue;
+    const d = typeof b[f] === 'string' ? new Date(b[f]) : null;
+    if (!d || Number.isNaN(d.getTime())) return badRequest(res, `${f} must be a date.`);
+    data[f] = d;
+  }
+  if (b.isActive !== undefined) {
+    if (typeof b.isActive !== 'boolean') return badRequest(res, 'isActive must be true or false.');
+    data.isActive = b.isActive;
+  }
+  return data;
+}
+
+router.get('/announcements', async (req, res) => {
+  try {
+    res.json(await prisma.announcement.findMany({ orderBy: { startsAt: 'desc' }, take: 100 }));
+  } catch (error) {
+    console.error('[Admin] Announcements list error:', error.message);
+    res.status(500).json({ error: "Couldn't load announcements. Refresh to try again." });
+  }
+});
+
+// POST /api/admin/announcements — { message, type, startsAt, endsAt, reason }
+router.post('/announcements', async (req, res) => {
+  const data = readAnnouncementBody(req, res, { creating: true });
+  if (!data) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  if (data.endsAt <= data.startsAt) return res.status(400).json({ error: 'The end must be after the start.', code: 'INVALID' });
+  try {
+    const row = await prisma.$transaction(async (tx) => {
+      const a = await tx.announcement.create({ data: { ...data, createdBy: req.admin.id } });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'ANNOUNCEMENT_CREATE', targetType: 'ANNOUNCEMENT', targetId: a.id, reason, after: a }) });
+      return a;
+    });
+    res.status(201).json(row);
+  } catch (error) {
+    console.error('[Admin] Announcement create error:', error.message);
+    res.status(500).json({ error: "Couldn't create that announcement. Try again." });
+  }
+});
+
+// PUT /api/admin/announcements/:id — edit / turn off. Reason + audit.
+router.put('/announcements/:id', async (req, res) => {
+  const data = readAnnouncementBody(req, res, { creating: false });
+  if (!data) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const before = await prisma.announcement.findUnique({ where: { id: req.params.id } });
+    if (!before) return res.status(404).json({ error: 'That announcement does not exist.' });
+    const startsAt = data.startsAt || before.startsAt;
+    const endsAt = data.endsAt || before.endsAt;
+    if (endsAt <= startsAt) return res.status(400).json({ error: 'The end must be after the start.', code: 'INVALID' });
+    const after = await prisma.$transaction(async (tx) => {
+      const a = await tx.announcement.update({ where: { id: before.id }, data });
+      await tx.adminAuditLog.create({ data: buildAuditRow(req, { action: 'ANNOUNCEMENT_UPDATE', targetType: 'ANNOUNCEMENT', targetId: a.id, reason, before, after: a }) });
+      return a;
+    });
+    res.json(after);
+  } catch (error) {
+    console.error('[Admin] Announcement update error:', error.message);
+    res.status(500).json({ error: "Couldn't update that announcement. Try again." });
+  }
+});
+
+// GET /api/admin/alerts — the last alerts sent (audit rows), for the panel.
+router.get('/alerts', async (req, res) => {
+  try {
+    res.json(
+      await prisma.adminAuditLog.findMany({
+        where: { action: { in: ['ALERT_SENT', 'AI_FALLBACK_ACTIVATED'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: { action: true, targetId: true, after: true, createdAt: true },
+      })
+    );
+  } catch (error) {
+    console.error('[Admin] Alerts list error:', error.message);
+    res.status(500).json({ error: "Couldn't load alerts. Refresh to try again." });
   }
 });
 

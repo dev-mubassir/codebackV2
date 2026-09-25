@@ -1438,3 +1438,23 @@ model CouponRedemption {
   @@index([couponId])
   @@map("coupon_redemptions")
 }
+
+// ============================================
+// Site-wide announcement banner (Gate 7). The customer app shows the active
+// ones (isActive, startsAt <= now < endsAt). Plain text only — rendered as
+// text, never HTML. Admin-managed, audited.
+// ============================================
+model Announcement {
+  id        String   @id @default(uuid())
+  message   String
+  type      String   @default("info") // info | warning | critical
+  startsAt  DateTime @map("starts_at")
+  endsAt    DateTime @map("ends_at")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy String?  @map("created_by") // AdminUser id
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, startsAt, endsAt])
+  @@map("announcements")
+}

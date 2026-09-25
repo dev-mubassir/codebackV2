@@ -53,6 +53,18 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Maintenance mode (Gate 7): the customer API answers 503 MAINTENANCE.
+    if (
+      typeof window !== 'undefined' &&
+      error.response?.status === 503 &&
+      error.response.data?.code === 'MAINTENANCE' &&
+      !window.location.pathname.startsWith('/admin') &&
+      window.location.pathname !== '/maintenance'
+    ) {
+      window.location.href = '/maintenance';
+      return Promise.reject(error);
+    }
+
     const reason = typeof window !== 'undefined' ? isAdminSignOut(error) : null;
     if (
       reason &&
@@ -510,6 +522,47 @@ export async function activateAdminAiModel(body) {
 export async function rollbackAdminAiModel(reason) {
   const { data } = await api.post('/api/admin/ai/rollback', { reason });
   return data;
+}
+
+// ---- Admin: kill switches, metrics, announcements, alerts (Gate 7) ----
+
+export async function getAdminFlags() {
+  const { data } = await api.get('/api/admin/settings/flags');
+  return data;
+}
+export async function updateAdminFlag(key, value, reason) {
+  const { data } = await api.put(`/api/admin/settings/flags/${encodeURIComponent(key)}`, { value, reason });
+  return data;
+}
+export async function resetAdminFlag(key, reason) {
+  const { data } = await api.delete(`/api/admin/settings/flags/${encodeURIComponent(key)}`, { data: { reason } });
+  return data;
+}
+export async function getAdminMetrics(days = 30) {
+  const { data } = await api.get(`/api/admin/metrics?days=${days}`);
+  return data;
+}
+export async function getAdminAlerts() {
+  const { data } = await api.get('/api/admin/alerts');
+  return data;
+}
+export async function getAdminAnnouncements() {
+  const { data } = await api.get('/api/admin/announcements');
+  return data;
+}
+export async function createAdminAnnouncement(body) {
+  const { data } = await api.post('/api/admin/announcements', body);
+  return data;
+}
+export async function updateAdminAnnouncement(id, body) {
+  const { data } = await api.put(`/api/admin/announcements/${id}`, body);
+  return data;
+}
+
+/** The customer-app banner feed. Public; a failure is simply "no banner". */
+export async function getActiveAnnouncements() {
+  const { data } = await api.get('/api/announcements/active');
+  return Array.isArray(data) ? data : [];
 }
 
 export async function getAdminSettings() {

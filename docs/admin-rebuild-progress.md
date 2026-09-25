@@ -16,7 +16,7 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 | 4 Multi-provider AI | done | 07befb1 |
 | 5 User management | done | f4804a4 |
 | 6 Plans, quotas, coupons | done | (see git log: feat(billing-admin)) |
-| 7 Kill switches, settings, alerts, announcements | pending | |
+| 7 Kill switches, settings, alerts, announcements | done | (see git log: feat(admin-ops)) |
 | 8 Hardening + UI polish + final report | pending | |
 
 ## Decisions and deviations (owner-approved unless marked NEW)
@@ -85,6 +85,19 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - BILLING_ENABLED differences: OFF → entitlement gates are not enforced, so plan edits / grants / bonus quota change data but not behaviour until billing is on; POST /api/billing/trial/claim (and its coupon) and GET /api/billing/plans 404. Signup coupon redemption, admin plans/coupons/payments pages work either way. ON → everything enforced as described.
 - Known flake (same root cause as the trial-claim race below): "a double-submit over HTTP grants exactly one" failed once under full-suite load, 0/6 in isolation with and without this gate's change. Left active, not skipped.
 
+### Gate 7 decisions (NEW)
+- Settings reuse `app_settings` + lib/settings.js (no separate FeatureFlag table). Keys and defaults (= today's behaviour with no rows): ai_classification_enabled true, signups_enabled true, maintenance_mode false, enforce_subscriptions = `BILLING_ENABLED === 'true'` evaluated at every read while no row exists, user_session_idle_minutes 30; alert thresholds alert_ai_error_rate_pct 20, alert_ai_daily_cost_usd 5, alert_user_usage_multiplier 5, alert_no_webhook_hours 6, alert_db_ping_ms 500.
+- Cache: 30s, refreshed in the background at boot + every 30s. FIXED during self-review: writes are now write-through and refreshes expire instead of clearing, so the synchronous reader (`isBillingEnabled`) never sees the env default between a write and the next refresh.
+- Admin editor: GET/PUT/DELETE /api/admin/settings/flags[/:key]. Kill switches + session timeout = step-up + reason + audit (SETTING_CHANGE / SETTING_RESET). Alert thresholds = reason + audit only (they change what the admin is told, not what customers get).
+- AI off: new messages are marked skipped (`aiSkipReason = 'ai_disabled'`), no provider call, no auto-reply; `callAI` also refuses (AI_DISABLED, not billable) for summary/reply paths. The admin model test still works. Turning AI back on re-queues ai_disabled messages from the last 24h (max 2000) with `aiRecoveredAt` set, so the existing "auto-reply only if under 1h old" rule applies.
+- Signups off: POST /auth/register 403 SIGNUPS_CLOSED; Google new-user → `?error=signups_closed` (copy added). Existing users sign in normally.
+- Maintenance: 503 `{code:'MAINTENANCE'}` + Retry-After 600 on customer /api and /auth (incl. login and /auth/me). Exempt: /api/admin, /api/contact, /api/announcements, /auth/logout. Untouched by design: Meta webhooks, data-deletion callbacks, Cashfree webhook, /health, all jobs. Fails OPEN if settings can't be read. Frontend: the API client sends customer pages to /maintenance (noindex).
+- Alerts: job `admin_alerts` every 5 min (not at boot). Checks: AI error rate over 15 min (≥10 calls, admin tests excluded), estimated AI cost today (UTC), one customer's 24h calls > X × their prior 7-day daily average (≥50 calls), no Meta delivery for N hours while ≥1 account is CONNECTED, DB ping, any job failure in the last 10 min, AI fallback activated. Cooldown 1h per type, read from the audit log (ALERT_SENT rows, survives restarts); the fallback email the router already sends counts as sent. Emails go to every admin through the admin bucket (routine tier). Recent alerts listed on /admin/controls.
+- Metrics (GET /api/admin/metrics?days=7..365): signups/day, inbound DMs/day, classifications/day, active customers (lastSeenAt 24h/7d/30d), connected IG accounts, trial→paid = tenants with a `trial_grant` ledger row that also have a PAID plan order. Counts only.
+- Announcements: table `announcements` (migration 20260926120000, additive). Admin create/edit/turn off (reason + audit, never deleted). Public GET /api/announcements/active (max 3 live, plain text, 60s cache, [] on error) → banner at the top of the customer app shell, dismissible per id in localStorage.
+- BILLING_ENABLED behaviour: with no enforce_subscriptions row the env var decides exactly as before. Setting the row overrides it at runtime (within 30s); resetting returns to the env var. `/api/billing/plans` and trial claim follow the same flag.
+- FIXED a Gate 6 miss: skippedMessageRecovery now counts remaining classifications from the snapshotted terms + bonus.
+
 ## Skipped / TEMP tests
 
 - `admin-session.test.js` H10, `scopes-and-admin.test.js` M10 ×2, `authz-and-limits.test.js` F1/F5 — old admin behaviour, replaced by `admin-auth.test.js`.
@@ -105,6 +118,9 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - Admin customers: filters (plan/status/dates) narrow the list; "Details" opens /admin/users/[id]; Sign out everywhere (reason); Delete (reason + password) returns to the list and the customer is gone.
 - Admin Plans (/admin/plans): create (starts hidden), edit, save asks reason + password; Coupons (/admin/coupons): create, turn off/on, influencer report; Payments (/admin/payments): list + status filter; customer detail "Plan controls": grant/extend/bonus/reset-trial each ask reason + password.
 - Register page: `/register?code=XYZ` prefills the code field; an invalid code shows the error and creates no account.
+- Admin Kill switches (/admin/controls): each switch asks reason + password; maintenance on → a customer tab goes to "Siffty is being updated" and back after turning it off; signups off → register shows the closed message; AI off then on shows "N re-queued"; threshold save asks only for a reason.
+- Admin Metrics (/admin/metrics): period selector changes the numbers.
+- Admin Announcements: publish one → it shows at the top of the customer app within a minute; Dismiss hides it on that browser; Turn off removes it.
 - Customer idle: with `user_session_idle_minutes = 5`, the warning appears about 3 minutes in; "Stay signed in" in one tab closes the warning in the other; both tabs go to login after 5 minutes.
 
 ## Trial-claim race — findings (read-only; NOT fixed, owner decides)
@@ -148,5 +164,5 @@ need their own retry handling. Not recommended.
 
 ## RESUME HERE
 
-1. Gate 7 — FeatureFlag/settings (reuse app_settings + lib/settings.js, 30s cache): ai_classification_enabled (default true), signups_enabled (true), maintenance_mode (false), enforce_subscriptions (default = current BILLING_ENABLED env at runtime), user_session_idle_minutes (exists). Wire each (classification in messageAnalysisJob; signups in /auth/register + Google new-user; maintenance → customer API 503 except auth/me? + webhooks keep working; enforce_subscriptions → isBillingEnabled()). Admin editor (step-up + reason + audit for flags). Alert cron every 5 min with editable thresholds + 1h cooldown per type (adminOpsAlert). Business metrics page. Announcement banner (admin sets message/type/start/end; user app shows it).
-2. Then Gate 8 + final report.
+1. Gate 8 — admin noindex (server layout wrapper around the client layout), security headers on admin routes (backend /api/admin + frontend /admin via next.config headers), confirm no admin link in the customer app, CSRF review (adminOriginGuard on every admin mutation), full suite, ADMIN.md completion, stale docs, commit.
+2. Final report.

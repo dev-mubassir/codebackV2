@@ -24,6 +24,7 @@ import { buildNavItems } from '@/app/components/navItems';
 import { logout } from '@/lib/api';
 import { broadcastSession } from '@/lib/sessionChannel';
 import SessionGuard from '@/app/components/SessionGuard';
+import AnnouncementBanner from '@/app/components/AnnouncementBanner';
 import { nav as navCopy } from '@/content/copy';
 import s from './AppShell.module.css';
 
@@ -171,6 +172,8 @@ export default function AppShell({
             </span>
           </div>
         </header>
+
+        <AnnouncementBanner />
 
         {isFull ? (
           <div className={s.contentFull}>{children}</div>

@@ -550,7 +550,7 @@ async function analyzeConversation({
       // likely still billed for those attempts, so this counts. The one
       // exception is a chain that was empty to begin with (no keys
       // configured): no network call happened, so nothing is charged.
-      billable: error.code !== 'NO_PROVIDERS_CONFIGURED',
+      billable: error.code !== 'NO_PROVIDERS_CONFIGURED' && error.code !== 'AI_DISABLED',
       errorMessage: error.message,
     };
     const scored = computePriorityScore(fallback, preferences);

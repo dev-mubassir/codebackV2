@@ -30,6 +30,7 @@ const { notifyBrandDeal, notifyHighPriority, notifyImportantCustomer, emitAnalys
 const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
 const { emitToUser } = require('../lib/socket');
+const { getSetting } = require('../lib/settings');
 
 const SUMMARY_MESSAGE_INTERVAL = 5; // regenerate summary every N new messages
 
@@ -282,6 +283,17 @@ async function processMessageAnalysis(job) {
       console.log(`[messageAnalysisJob] Skipped ${messageId}: ${gate} for user ${userId}.`);
       return;
     }
+  }
+
+  // KILL SWITCH (Gate 7): with AI classification turned off, nothing is sent
+  // to a provider and no automatic reply goes out. The DM is already stored
+  // and visible; it is marked skipped with its own reason, and re-queued
+  // (last 24h) when an admin turns AI back on (routes/admin.js settings).
+  if (!(await getSetting('ai_classification_enabled'))) {
+    await prisma.message
+      .update({ where: { id: message.id }, data: { aiStatus: 'skipped', aiSkipReason: 'ai_disabled' } })
+      .catch((err) => console.error(`[messageAnalysisJob] Could not mark ${messageId} skipped:`, err.message));
+    return;
   }
 
   await prisma.message.update({ where: { id: message.id }, data: { aiStatus: 'processing' } }).catch(() => {});

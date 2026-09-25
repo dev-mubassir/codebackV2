@@ -41,6 +41,7 @@ const { refreshExpiringAccountAvatars } = require('../lib/accountAvatar');
 const sessionIdle = require('../lib/sessionIdle');
 const { deleteUserAccount } = require('../services/accountDeletion');
 const coupons = require('../services/coupons');
+const { getSetting } = require('../lib/settings');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -161,6 +162,11 @@ function sanitizeUser(user) {
 // ============================================
 router.post('/register', registerLimiter, async (req, res) => {
   try {
+    // KILL SWITCH (Gate 7). Existing accounts keep signing in normally.
+    if (!(await getSetting('signups_enabled'))) {
+      return res.status(403).json({ error: 'New sign-ups are paused right now. Please try again later.', code: 'SIGNUPS_CLOSED' });
+    }
+
     const { name, email, password, confirmPassword, couponCode } = req.body || {};
 
     if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -913,6 +919,10 @@ router.get('/google/callback', async (req, res) => {
       console.log(`[Auth] Linked Google identity to existing user ${localUser.id}`);
       return res.redirect(`${frontendUrl()}/dashboard`);
     }
+
+    // KILL SWITCH (Gate 7): a Google sign-in that would CREATE an account is
+    // refused while sign-ups are paused; existing accounts are unaffected.
+    if (!(await getSetting('signups_enabled'))) return fail('signups_closed');
 
     // 3. Brand new user. passwordHash stays null — they can add one later via
     // /auth/set-password.

@@ -29,6 +29,7 @@ import cookieParser from 'cookie-parser';
 import security from '../../src/lib/security.js';
 import adminSession from '../../src/lib/adminSession.js';
 import sessionIdle from '../../src/lib/sessionIdle.js';
+import maintenance from '../../src/lib/maintenance.js';
 import authRoutes from '../../src/routes/auth.js';
 import errorHandlers from '../../src/middleware/errorHandlers.js';
 
@@ -73,6 +74,7 @@ export function buildTestApp({ mount = {}, admin = null } = {}) {
   app.use(originGuard);
   // Identical to src/index.js: idle/absolute session limits, after originGuard.
   app.use(skipOnAdminPaths(userSessionGuard()));
+  app.use(maintenance.maintenanceGuard);
 
   // Identical to src/index.js. `verify` hands us the exact bytes body-parser
   // is about to parse, which is what the webhook HMAC must be computed over.

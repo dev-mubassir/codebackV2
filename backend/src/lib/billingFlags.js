@@ -27,7 +27,11 @@
  * 403 — so a disabled route gives no signal that billing exists.
  */
 function isBillingEnabled() {
-  return process.env.BILLING_ENABLED === 'true';
+  // Gate 7: the admin kill switch `enforce_subscriptions` (lib/settings.js).
+  // With no admin value it defaults to BILLING_ENABLED, read at call time —
+  // so behaviour is exactly as before until an admin changes it. Required
+  // lazily: settings -> prisma must not load while this module initialises.
+  return require('./settings').getSettingSync('enforce_subscriptions') === true;
 }
 
 /** Gates the "official Instagram Graph API" half of the Gate 6 trust badge. Defaults false. */
