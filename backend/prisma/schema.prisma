@@ -1067,6 +1067,10 @@ model Entitlement {
 
   validUntil DateTime? @map("valid_until")
   graceUntil DateTime? @map("grace_until") // validUntil + 3 days for paid plans; NULL for TRIAL (no grace stage)
+  // When the "trial ends tomorrow" email was claimed for sending — the once-only
+  // marker for jobs/trialJob.js, so no restart, second instance or overlapping
+  // sweep can send it twice. NULL until then; never set for paid plans.
+  trialWarningSentAt DateTime? @map("trial_warning_sent_at")
 
   replyCreditsCurrent Int @default(0) @map("reply_credits_current")
   replyCreditsBanked  Int @default(0) @map("reply_credits_banked")

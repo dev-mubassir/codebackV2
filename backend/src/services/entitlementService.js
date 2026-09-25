@@ -797,10 +797,18 @@ async function grantAddon(tenantId, addonCode, { tx: outerTx } = {}) {
  * that DO need an actual write: the bank cap and the classification count,
  * neither of which resets itself just because time passed.
  */
-async function rollCycle(tenantId) {
+async function rollCycle(tenantId, { ifCycleStartedBefore } = {}) {
   return prisma.$transaction(async (tx) => {
+    // Row lock for the whole roll. Two sweeps (two instances, or a sweep and a
+    // renewal) used to read the same row, both compute a rollover, and both
+    // write it — a second EXPIRE/ROLLOVER ledger pair for one boundary. The
+    // second one now waits here and sees the first one's result.
+    await tx.$executeRaw`SELECT 1 FROM "entitlements" WHERE "user_id" = ${tenantId} FOR UPDATE`;
     const entitlement = await tx.entitlement.findUnique({ where: { userId: tenantId } });
     if (!entitlement) return null;
+    // The sweep passes its cutoff: if the cycle was restamped while we waited
+    // for the lock, this boundary has already been rolled — do nothing.
+    if (ifCycleStartedBefore && entitlement.cycleStartedAt > ifCycleStartedBefore) return null;
 
     const plan = await getPlan(entitlement.planCode, tx);
     const { banked, discarded } = computeBankRollover(entitlement, plan);

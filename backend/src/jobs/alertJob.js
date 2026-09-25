@@ -142,13 +142,32 @@ async function checkAiFallback(now) {
 
 const CHECKS = [checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback];
 
-async function recentlySent(type, now) {
+async function recentlySent(type, now, db = prisma) {
   const since = new Date(now - COOLDOWN_MS);
   const where =
     type === 'ai_fallback'
       ? { OR: [{ action: 'ALERT_SENT', targetId: type }, { action: 'AI_FALLBACK_ACTIVATED' }], createdAt: { gte: since } }
       : { action: 'ALERT_SENT', targetId: type, createdAt: { gte: since } };
-  return (await prisma.adminAuditLog.count({ where })) > 0;
+  return (await db.adminAuditLog.count({ where })) > 0;
+}
+
+const ALERT_LOCK_NAMESPACE = 726355; // the scheduler uses 726354
+
+/**
+ * Claim the right to send `alert`: check the cooldown and write the ALERT_SENT
+ * row as ONE step, under a per-type transaction lock. Checking and writing
+ * separately let two concurrent runs both see "not sent yet" and both mail
+ * the admins. Resolves true if this caller should send.
+ */
+async function claimAlert(alert, now) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ALERT_LOCK_NAMESPACE}::int, hashtext(${`alert:${alert.type}`}))`;
+    if (await recentlySent(alert.type, now, tx)) return false;
+    await tx.adminAuditLog.create({
+      data: { action: 'ALERT_SENT', targetType: 'SYSTEM', targetId: alert.type, after: { title: alert.title, facts: alert.facts } },
+    });
+    return true;
+  });
 }
 
 /**
@@ -169,13 +188,10 @@ async function runAlertChecks({ now = Date.now() } = {}) {
     }
     if (!alert) continue;
     triggered += 1;
-    if (await recentlySent(alert.type, now)) {
+    if (!(await claimAlert(alert, now))) {
       suppressed += 1;
       continue;
     }
-    await prisma.adminAuditLog.create({
-      data: { action: 'ALERT_SENT', targetType: 'SYSTEM', targetId: alert.type, after: { title: alert.title, facts: alert.facts } },
-    });
     if ((await sendAdminOpsAlert(alert)) > 0) sent += 1;
   }
   return { triggered, sent, suppressed };

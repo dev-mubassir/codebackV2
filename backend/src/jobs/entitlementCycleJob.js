@@ -57,8 +57,8 @@ async function sweepElapsedCycles({ now = new Date() } = {}) {
 
     for (const entitlement of due) {
       try {
-        await entitlementService.rollCycle(entitlement.userId);
-        rolled += 1;
+        const result = await entitlementService.rollCycle(entitlement.userId, { ifCycleStartedBefore: cutoff });
+        if (result) rolled += 1;
       } catch (err) {
         console.error(`[EntitlementCycle] Failed to roll cycle for tenant ${entitlement.userId}:`, err.message);
       }
