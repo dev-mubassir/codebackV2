@@ -48,10 +48,14 @@ const ORIGIN = 'https://app.test.local';
 let app;
 let paymentSeq = 50000;
 
+// The SEEDED prices (migration 20260914055207_seed_billing_catalogue). These
+// upserts write the shared test database, so a price here that differs from
+// the seed leaks into every later file — it once made landing-pricing-seed
+// fail with PRO at ₹1,499 against the page's (correct) ₹1,299.
 async function catalogue() {
   const plans = {
     STARTER: ['Starter', 1, 500, 500, 10000, 500, 30, 49900],
-    PRO: ['Pro', 2, 2000, 2000, 50000, 2000, 30, 149900],
+    PRO: ['Pro', 2, 2000, 2000, 50000, 2000, 30, 129900],
   };
   for (const [code, [name, ig, rc, bank, cap, thr, days, price]] of Object.entries(plans)) {
     const data = { name, igAccountLimit: ig, autoReplyCreditsPerCycle: rc, autoReplyBankCap: bank, classificationCapCycle: cap, classificationThrottlePerHour: thr, cycleLengthDays: days, isActive: true };
@@ -460,11 +464,11 @@ describe('11c — a full refund revokes the purchase, exactly once', () => {
   it('an upgrade refunded with nothing after it: back to the previous plan and its dates', async () => {
     const { user } = await createUser({ withTrial: false });
     const starter = await paidOrder(user.id, { planCode: 'STARTER' });
-    const pro = await paidOrder(user.id, { planCode: 'PRO', amount: 149900 });
+    const pro = await paidOrder(user.id, { planCode: 'PRO', amount: 129900 });
     cashfreeAcceptsRefunds();
     const row = await refund(await adminAgent(), pro);
 
-    await deliverRefundWebhook({ orderId: pro.cashfreeOrderId, refundId: row.refundId, status: 'SUCCESS', amountMinor: 149900 });
+    await deliverRefundWebhook({ orderId: pro.cashfreeOrderId, refundId: row.refundId, status: 'SUCCESS', amountMinor: 129900 });
 
     const e = await expectBalanced(user.id);
     expect(e.planCode).toBe('STARTER');
@@ -476,7 +480,7 @@ describe('11c — a full refund revokes the purchase, exactly once', () => {
   it('an earlier order under a later stacked purchase: validity shifts back one cycle, the current plan stays', async () => {
     const { user } = await createUser({ withTrial: false });
     const starter = await paidOrder(user.id, { planCode: 'STARTER' });
-    await paidOrder(user.id, { planCode: 'PRO', amount: 149900 });
+    await paidOrder(user.id, { planCode: 'PRO', amount: 129900 });
     const before = await prisma.entitlement.findUnique({ where: { userId: user.id } });
     cashfreeAcceptsRefunds();
     const row = await refund(await adminAgent(), starter);
