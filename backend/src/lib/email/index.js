@@ -381,6 +381,10 @@ module.exports = {
    * are the bucket's own critical tier: 3 of the 10 are held back for them.
    * kind: 'login' | 'lockout'.
    */
+  /** ADMIN bucket, routine tier — operational alerts (lib/adminAlerts.js). */
+  sendAdminOpsAlert: (to, { title, lead, facts }) =>
+    deliver(to, 'adminOpsAlert', templates.adminOpsAlert({ title, lead, facts })),
+
   sendAdminSecurityAlert: (to, { kind, facts }) =>
     deliver(to, kind === 'lockout' ? 'adminLockoutAlert' : 'adminLoginAlert', templates.adminSecurityAlert({ kind, facts })),
 

@@ -731,6 +731,12 @@ export const admin = {
     },
     jobs: { name: 'Job', lastRun: 'Last run', status: 'Status', ok: 'OK', failed: 'Failed', running: 'Running' },
     tokens: { account: 'Account', expires: 'Expires', status: 'Status', reconnect: 'need reconnecting' },
+    refresh: {
+      title: 'Token auto-refresh failures (7 days)',
+      lastOk: 'Last successful refresh',
+      failedAt: 'Failed',
+      code: 'Error code',
+    },
     errors: { when: 'When', where: 'Where', what: 'Message' },
   },
 

@@ -69,7 +69,8 @@ async function webhookStats(now) {
 
 async function tokenStats(now) {
   const soon = new Date(now + 7 * DAY_MS);
-  const [expiringSoon, needsReconnect] = await Promise.all([
+  const weekAgo = new Date(now - 7 * DAY_MS);
+  const [expiringSoon, needsReconnect, refreshFailures, lastRefresh] = await Promise.all([
     prisma.instagramAccount.findMany({
       where: { connectionStatus: 'CONNECTED', tokenExpiresAt: { lte: soon } },
       orderBy: { tokenExpiresAt: 'asc' },
@@ -77,8 +78,25 @@ async function tokenStats(now) {
       select: { id: true, igUsername: true, tokenExpiresAt: true, tokenStatus: true },
     }),
     prisma.instagramAccount.count({ where: { connectionStatus: 'CONNECTED', tokenStatus: { not: 'VALID' } } }),
+    // Auto-refresh failures in the last 7 days (Gate 3B). Safe codes only.
+    prisma.instagramAccount.findMany({
+      where: { tokenRefreshFailedAt: { gte: weekAgo } },
+      orderBy: { tokenRefreshFailedAt: 'desc' },
+      take: 50,
+      select: { id: true, igUsername: true, tokenRefreshFailedAt: true, tokenRefreshError: true, tokenStatus: true },
+    }),
+    prisma.instagramAccount.findFirst({
+      where: { tokenRefreshedAt: { not: null } },
+      orderBy: { tokenRefreshedAt: 'desc' },
+      select: { tokenRefreshedAt: true },
+    }),
   ]);
-  return { expiringWithin7Days: expiringSoon, needsReconnect };
+  return {
+    expiringWithin7Days: expiringSoon,
+    needsReconnect,
+    refreshFailures,
+    lastSuccessfulRefreshAt: lastRefresh ? lastRefresh.tokenRefreshedAt : null,
+  };
 }
 
 /**

@@ -489,6 +489,25 @@ const templates = {
     };
   },
 
+  /**
+   * Operational alert to the admins (lib/adminAlerts.js): token refresh
+   * failures, and the Gate 7 threshold alerts. `facts` are counts, ids,
+   * handles and codes; every value is still escaped and flattened.
+   */
+  adminOpsAlert({ title, lead, facts = [] }) {
+    const lines = facts.map((f) => oneLine(f, 300));
+    return {
+      subject: `[Siffty admin] ${oneLine(title, 120)}`,
+      text: `${lead}\n\n${lines.join('\n')}\n\nOpen the admin Health page for details.\n`,
+      html: wrap(
+        escapeHtml(title),
+        `<p style="margin:0;font-size:15px;line-height:1.5;">${escapeHtml(lead)}</p>
+         <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${lines.map((l) => `<li><code>${escapeHtml(l)}</code></li>`).join('')}</ul>
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">Open the admin Health page for details.</p>`
+      ),
+    };
+  },
+
   trialEnding({ daysLeft, dashboardUrl }) {
     const when = daysLeft <= 0 ? 'has ended' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
     return {

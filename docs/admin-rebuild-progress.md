@@ -11,8 +11,8 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 | 1 Admin login security | done | 3252d6c, e0c13e3 |
 | 2 User idle timeout | done | c76745c |
 | Trial-claim investigation (read-only) | done — findings below, not fixed | — |
-| 3 Health + AI monitoring | done | (this commit — see git log) |
-| 3B IG token auto-refresh | pending | |
+| 3 Health + AI monitoring | done | 4d763ca |
+| 3B IG token auto-refresh | done | (see git log: feat(instagram)) |
 | 4 Multi-provider AI | pending | |
 | 5 User management | pending | |
 | 6 Plans, quotas, coupons | pending | |
@@ -37,6 +37,16 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - Public `/health` now pings the DB (2s bound) and returns only `{status:"ok"}` or 503 `{status:"error"}` (timestamp removed).
 - `POST /api/admin/health/ai-test`: fixed prompt, no customer data, 5/min limit, audit row `AI_TEST`, answers a safe error code only. Not step-up (not destructive).
 - Dev scripts in `backend/scripts/` (test-ai-keys etc.) still call providers directly — developer tools, not app paths.
+
+### Gate 3B decisions (NEW)
+- Meta endpoint VERIFIED (developers.facebook.com Instagram Platform refresh_access_token, fetched 2026-09-25): GET graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=…; token must be long-lived, >= 24h old, not expired; needs instagram_business_basic; refreshed token valid 60 days; response {access_token, token_type, expires_in}. Matches the existing lib/instagram.js helper.
+- Daily job `instagram_token_refresh` (+ at boot): CONNECTED + VALID + expiry in (now, now+10d]. Token age isn't stored; a token within 10 days of a 60-day expiry is >= 50 days old, and the window is also capped at now+59d, so the 24h rule holds.
+- Transient failure -> stays VALID, retried daily (up to 10 tries in the window). Meta "dead" (code 190 etc.) -> NEEDS_RECONNECT + the existing one-time customer email.
+- New columns on instagram_accounts: token_refreshed_at, token_refresh_failed_at, token_refresh_error (a safe code: META_<n>, HTTP_<n>, NETWORK, BAD_RESPONSE). Migration 20260925150000 (additive).
+- flagExpiredTokens() is now SCHEDULED (same daily job, after refresh) rather than replaced — it is what tells the customer about a token that expired anyway.
+- Admin failure alert = ONE digest per run to every admin through the admin email bucket, new routine type `adminOpsAlert` (cannot use the 3 lockout-reserved sends). Gate 7 reuses lib/adminAlerts.js.
+- The admin "Refresh access" button now uses the same lib/tokenRefresh.js function.
+- Local note: `prisma generate` hit EPERM because the owner's dev server holds the engine DLL; the client code generated, and I copied schema.prisma into node_modules/.prisma/client to finish the step. Run a clean `npx prisma generate` next time the dev server is stopped.
 
 ## Skipped / TEMP tests
 
@@ -97,5 +107,5 @@ need their own retry handling. Not recommended.
 
 ## RESUME HERE
 
-1. Gate 3B — Instagram token auto-refresh (see spec in chat / summary: daily job via recordJobRun, refresh tokens ≥24h old, not expired, within 10 days of tokenExpiresAt; schedule or replace flagExpiredTokens; admin alert on failure through the admin email bucket; health page shows failures; tests).
-2. Then Gates 4 → 8 in order.
+1. Gate 4 — multi-provider AI switching (adapters Gemini/OpenAI/Anthropic via plain fetch/axios, allowlist in lib/ai/models.js, AiConfig table w/ cache, 10 synthetic sample DMs, test/activate (step-up + reason + audit)/rollback, fallback after 5 consecutive failures + email + log, per-call timeout + retries, drop xAI). Mock HTTP in tests.
+2. Then Gates 5 → 8.

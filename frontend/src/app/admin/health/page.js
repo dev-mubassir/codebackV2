@@ -198,6 +198,34 @@ export default function AdminHealthPage() {
           </section>
 
           <section className={styles.panel}>
+            <div className={styles.panelHeader}>
+              <h2 className={styles.panelTitle}>{h.refresh.title}</h2>
+              <span className={styles.panelMeta}>
+                {h.refresh.lastOk}: {tokens.lastSuccessfulRefreshAt ? formatDateTime(tokens.lastSuccessfulRefreshAt) : h.never}
+              </span>
+            </div>
+            <div className={styles.tableScroll}>
+              <table className={`${styles.table} ${styles.tableCompact}`}>
+                <thead>
+                  <tr><th>{h.tokens.account}</th><th>{h.refresh.failedAt}</th><th>{h.refresh.code}</th><th>{h.tokens.status}</th></tr>
+                </thead>
+                <tbody>
+                  {(tokens.refreshFailures || []).length === 0 ? (
+                    <tr><td colSpan="4" className={styles.cellEmpty}>{h.none}</td></tr>
+                  ) : tokens.refreshFailures.map((a) => (
+                    <tr key={a.id}>
+                      <td>@{a.igUsername || a.id}</td>
+                      <td>{formatDateTime(a.tokenRefreshFailedAt)}</td>
+                      <td className={styles.cellMono}>{a.tokenRefreshError}</td>
+                      <td><Badge tone={a.tokenStatus === 'VALID' ? 'warning' : 'danger'}>{a.tokenStatus}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className={styles.panel}>
             <div className={styles.panelHeader}><h2 className={styles.panelTitle}>{h.sections.errors}</h2></div>
             <div className={styles.tableScroll}>
               <table className={`${styles.table} ${styles.tableCompact}`}>

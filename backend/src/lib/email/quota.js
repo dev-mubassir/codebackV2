@@ -127,7 +127,7 @@ const CRITICAL_TYPES = new Set([
  * So neither pool can drain the other. Worst case for the provider is
  * DEFAULT_DAILY_CAP + ADMIN_DAILY_CAP = 90, still under Resend's 100/day.
  */
-const ADMIN_TYPES = new Set(['adminLoginAlert', 'adminLockoutAlert']);
+const ADMIN_TYPES = new Set(['adminLoginAlert', 'adminLockoutAlert', 'adminOpsAlert']);
 const ADMIN_DAILY_CAP = 10;
 // Of those 10, the last 3 are for lockout alerts only — the same
 // reserve idea as the customer pool. A day of routine sign-in alerts (or an

@@ -18,6 +18,7 @@ const { sendRenewalReminders } = require('./renewalReminderJob');
 const { isBillingEnabled } = require('../lib/billingFlags');
 const { recordJobRun } = require('./jobRuns');
 const { rollupAiUsage } = require('./aiUsageJob');
+const { runTokenMaintenance } = require('./tokenRefreshJob');
 
 // Every scheduled run is recorded in job_runs (./jobRuns.js) for the admin
 // health page and the Gate 7 alert cron. `track` keeps each job's existing
@@ -33,6 +34,7 @@ const BILLING_RECONCILIATION_INTERVAL_MS = 24 * 60 * 60 * 1000; // nightly
 const ENTITLEMENT_CYCLE_INTERVAL_MS = 60 * 60 * 1000;  // hourly: a cycle boundary should not sit unrolled for long
 const RENEWAL_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000; // 4x/day: day-27/29/expiry/grace windows only need day resolution
 const AI_USAGE_ROLLUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily: roll up ai_call_logs, purge raw rows > 30 days
+const TOKEN_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily: refresh IG tokens within 10 days of expiry
 let started = false;
 let sweepTimer = null;
 let retentionTimer = null;
@@ -42,6 +44,7 @@ let billingReconciliationTimer = null;
 let entitlementCycleTimer = null;
 let renewalReminderTimer = null;
 let aiUsageTimer = null;
+let tokenRefreshTimer = null;
 
 function startWorkers() {
   const jobSystem = getJobSystem(QUEUE_NAME, { concurrency: 3 });
@@ -173,6 +176,16 @@ function startWorkers() {
     runAiUsage();
     aiUsageTimer = setInterval(runAiUsage, AI_USAGE_ROLLUP_INTERVAL_MS);
     if (typeof aiUsageTimer.unref === 'function') aiUsageTimer.unref();
+
+    // Instagram long-lived token refresh + expired-token flagging (Gate 3B).
+    // Not behind BILLING_ENABLED: a dead token stops DMs for everyone.
+    const runTokens = () =>
+      track('instagram_token_refresh', runTokenMaintenance)().catch((err) =>
+        console.error('[Jobs] Instagram token maintenance failed:', err.message)
+      );
+    runTokens();
+    tokenRefreshTimer = setInterval(runTokens, TOKEN_REFRESH_INTERVAL_MS);
+    if (typeof tokenRefreshTimer.unref === 'function') tokenRefreshTimer.unref();
 
     started = true;
     console.log(`[Jobs] AI processing worker started (mode: ${jobSystem.mode}).`);

@@ -168,6 +168,11 @@ model InstagramAccount {
   connectionStatus String    @default("CONNECTED") @map("connection_status") // "CONNECTED", "DISCONNECTED"
   disconnectedAt   DateTime? @map("disconnected_at")
   lastWebhookAt    DateTime? @map("last_webhook_at")
+  // Long-lived token auto-refresh (Gate 3B, lib/tokenRefresh.js). The error
+  // is a safe code only (e.g. META_190, NETWORK) — never Meta's message text.
+  tokenRefreshedAt     DateTime? @map("token_refreshed_at")
+  tokenRefreshFailedAt DateTime? @map("token_refresh_failed_at")
+  tokenRefreshError    String?   @map("token_refresh_error")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 

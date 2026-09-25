@@ -22,7 +22,8 @@ const express = require('express');
 const router = express.Router();
 const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
-const { readAccountToken, writeAccountToken } = require('../lib/crypto');
+const { readAccountToken } = require('../lib/crypto');
+const { refreshAccountToken } = require('../lib/tokenRefresh');
 const aiService = require('../services/aiService');
 const { getAIStats } = aiService;
 const { collectHealth } = require('../lib/health');
@@ -770,40 +771,28 @@ router.post('/accounts/:id/refresh-token', async (req, res) => {
     const account = await findAccountOr404(req, res);
     if (!account) return undefined;
 
-    let refreshed;
-    try {
-      refreshed = await instagram.refreshLongLivedToken(readAccountToken(account));
-    } catch (metaError) {
-      // Logged server-side only. Meta's error text never reaches the browser.
-      console.error('[Admin] Token refresh rejected by Meta:', metaError.message);
-      const tokenDead = instagram.isTokenInvalidError(metaError);
-      if (tokenDead) {
-        await prisma.instagramAccount
-          .update({ where: { id: account.id }, data: { tokenStatus: 'NEEDS_RECONNECT' } })
-          .catch((e) => console.error('[Admin] Could not flag account:', e.message));
-      }
+    // The same refresh the daily job runs (lib/tokenRefresh.js): it stores
+    // the new token encrypted, records failures as a safe code, and marks a
+    // dead token NEEDS_RECONNECT. Meta's error text never reaches the browser.
+    const result = await refreshAccountToken(account);
+    if (!result.ok) {
       await recordAdminAudit(req, {
         action: 'TOKEN_REFRESH_FAILED',
         targetType: 'INSTAGRAM_ACCOUNT',
         targetId: account.id,
         reason,
         before: { tokenStatus: account.tokenStatus },
-        after: { tokenStatus: tokenDead ? 'NEEDS_RECONNECT' : account.tokenStatus },
+        after: { tokenStatus: result.tokenDead ? 'NEEDS_RECONNECT' : account.tokenStatus, errorCode: result.errorCode },
       });
       return res.status(502).json({
-        error: tokenDead
+        error: result.tokenDead
           ? 'Meta rejected this token. The customer needs to reconnect.'
           : "Couldn't refresh access with Meta. Try again later.",
-        code: tokenDead ? 'TOKEN_INVALID' : 'META_UNAVAILABLE',
+        code: result.tokenDead ? 'TOKEN_INVALID' : 'META_UNAVAILABLE',
       });
     }
 
-    const tokenExpiresAt = new Date(Date.now() + refreshed.expires_in * 1000);
-    const updated = await prisma.instagramAccount.update({
-      where: { id: account.id },
-      data: { ...writeAccountToken(refreshed.access_token), tokenExpiresAt, tokenStatus: 'VALID' },
-      select: ACCOUNT_ADMIN_SELECT,
-    });
+    const updated = await prisma.instagramAccount.findUnique({ where: { id: account.id }, select: ACCOUNT_ADMIN_SELECT });
 
     await recordAdminAudit(req, {
       action: 'TOKEN_REFRESH',
