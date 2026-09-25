@@ -55,6 +55,16 @@ const {
 } = require('../lib/adminSession');
 const { requireAdmin, requireStepUp, adminOriginGuard, trackAdminActivity } = require('../middleware/adminAuth');
 
+// Gate 8: every admin API answer — including the 404 a non-admin gets and the
+// login endpoint — is never cached and never indexed. The global
+// securityHeaders (X-Frame-Options DENY, CSP default-src 'none', nosniff,
+// no-referrer, HSTS in production) already apply on top of this.
+router.use((req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  next();
+});
+
 // ============================================
 // Shared helpers
 // ============================================

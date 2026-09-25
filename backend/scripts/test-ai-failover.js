@@ -1,3 +1,10 @@
+// OBSOLETE since the admin rebuild (Gate 4): AI_PROVIDER, Grok/xAI and the
+// silent multi-provider chain are gone. The active provider/model and the
+// optional fallback are set in the admin panel (/admin/ai), and
+// tests/ai-providers.test.js covers retries and fallback without real calls.
+// Kept for history; it exits immediately.
+console.log('scripts/test-ai-failover.js is obsolete — see the comment at the top.');
+process.exit(0);
 require('dotenv').config();
 const aiService = require('../src/services/aiService');
 

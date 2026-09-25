@@ -54,8 +54,7 @@ the one secret here that cannot be recovered by regenerating it.
 |---|---|---|
 | `NODE_ENV=production` | Enables secure cookies, HSTS, and every fail-closed gate. | **Undocumented previously and easy to miss.** Without it the app runs with production safeguards relaxed and only prints a warning. |
 | `INSTAGRAM_APP_SECRET` | Verifies webhook signatures and Meta `signed_request` payloads. | Server exits if unset in production. |
-| `ADMIN_PASSWORD_HASH` | bcrypt hash of the admin password. | Required if `ADMIN_USERNAME` is set. Generate: `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 12))" 'your-password'` |
-| `ADMIN_PASSWORD` | **Must be UNSET.** | The server refuses to start if this is present in production. An admin session can impersonate any tenant, so a plaintext password in an env var is a master key to every customer's DMs. |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_PASSWORD_HASH`, `ADMIN_EMAILS` | **No longer used — delete.** | Admins live in `admin_users` and are created with `scripts/create-admin.js` (ADMIN.md). The server warns at boot while any is set. |
 
 ---
 
@@ -133,10 +132,8 @@ that works correctly.
 |---|---|
 | `SESSION_SECRET_PREVIOUS` | Outgoing session secret during a rotation. |
 | `REDIS_URL` | Session store and job queue. **Currently unused** — sessions are Postgres-backed and the queue is in-process. The Redis path remains in the code, dormant, and is preferred if set. |
-| `AI_PROVIDER` | Defaults to `gemini`. |
 | `GEMINI_API_KEY` | AI classification. Absent, the app degrades gracefully: messages still arrive and persist, classification falls back to `other`. |
-| `OPENAI_API_KEY`, `GROK_API_KEY`, `XAI_API_KEY` | Failover providers in `aiService.js`. |
-| `ADMIN_USERNAME`, `ADMIN_EMAILS` | Admin panel access. `ADMIN_EMAILS` now matches only **verified** email addresses — Instagram usernames are no longer accepted, because a handle is mutable and externally controlled. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Optional. A provider shows as "not configured" in the admin AI page until its key is set; the active provider/model is chosen in the admin panel. `AI_PROVIDER`, `GROK_API_KEY`, `XAI_API_KEY` are no longer read — delete them. |
 
 ---
 

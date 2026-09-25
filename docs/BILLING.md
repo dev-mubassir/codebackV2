@@ -587,16 +587,24 @@ below use values from the real Cashfree **sandbox** run on 15 September 2026:
 order `sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8`, a ₹499 Starter purchase
 (`49900` paise). Amounts in requests are always in paise (INR) or cents (USD).
 
-**0. Log in once and keep the cookie.** `curl` sends no `Origin` header, so the
-CSRF origin guard lets it through. Use your own admin username and password;
-never paste them into a shared file.
+**0. Log in once, keep the cookie, confirm your password.** Since the admin
+rebuild (see ADMIN.md), every admin request needs an allowlisted `Origin`
+header (the app's URL), login is by email, and a refund also needs the
+password re-entered within the last 5 minutes (step-up). The password is read
+with `read -s` so it never lands in your shell history or on screen.
 
 ```bash
 BACKEND=https://api.citykirana.in
-curl -s -c admin.cookies -H 'Content-Type: application/json' \
-  -X POST "$BACKEND/api/admin/login" \
-  -d '{"username":"YOUR_ADMIN_USERNAME","password":"YOUR_ADMIN_PASSWORD"}'
+FRONTEND=https://app.citykirana.in   # must be on the CORS allowlist
+read -r -p 'Admin email: ' ADMIN_EMAIL; read -r -s -p 'Password: ' ADMIN_PW; echo
+BODY=$(printf '{"email":"%s","password":"%s"}' "$ADMIN_EMAIL" "$ADMIN_PW")
+curl -s -c admin.cookies -H 'Content-Type: application/json' -H "Origin: $FRONTEND"   -X POST "$BACKEND/api/admin/login" -d "$BODY"
+curl -s -b admin.cookies -c admin.cookies -H 'Content-Type: application/json' -H "Origin: $FRONTEND"   -X POST "$BACKEND/api/admin/step-up" -d "$(printf '{"password":"%s"}' "$ADMIN_PW")"
+unset ADMIN_PW BODY
 ```
+
+Repeat the step-up call if more than 5 minutes pass. Delete `admin.cookies`
+when you are done.
 
 **1. Check eligibility.** Always first: it returns the verdict, the numbers it
 was decided on, earlier refunds, and what is still refundable.
@@ -643,7 +651,7 @@ curl -s -b admin.cookies \
 refundable; pass it for a partial refund (which revokes nothing and alerts).
 
 ```bash
-curl -s -b admin.cookies -H 'Content-Type: application/json' \
+curl -s -b admin.cookies -H 'Content-Type: application/json' -H "Origin: $FRONTEND" \
   -X POST "$BACKEND/api/admin/billing/orders/sfy_8b75332b-1ff0-40ab-8342-b8627fe2aad8/refunds" \
   -d '{"reason":"Customer asked within 7 days; nothing used"}'
 ```
@@ -672,7 +680,7 @@ curl -s -b admin.cookies -H 'Content-Type: application/json' \
 A partial refund of ₹100:
 
 ```bash
-curl -s -b admin.cookies -H 'Content-Type: application/json' \
+curl -s -b admin.cookies -H 'Content-Type: application/json' -H "Origin: $FRONTEND" \
   -X POST "$BACKEND/api/admin/billing/orders/sfy_ORDER_ID/refunds" \
   -d '{"reason":"Partial goodwill for a day of downtime","amount":10000}'
 ```
@@ -698,7 +706,7 @@ To issue it anyway, send both fields. Both are stored on the refund row with the
 policy check:
 
 ```bash
-curl -s -b admin.cookies -H 'Content-Type: application/json' \
+curl -s -b admin.cookies -H 'Content-Type: application/json' -H "Origin: $FRONTEND" \
   -X POST "$BACKEND/api/admin/billing/orders/sfy_ORDER_ID/refunds" \
   -d '{"reason":"Customer asked on day 3","overridePolicy":true,"overrideReason":"Auto-replies were misfiring on our side for two days"}'
 ```

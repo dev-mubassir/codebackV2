@@ -56,14 +56,13 @@ The platform serves **any Instagram business or creator**:
 Additional platform hardening across auth, session, transport, and admin surfaces (`backend/src/lib/security.js`, `backend/src/lib/rateLimit.js`):
 
 1. **Session-only identity (no query-param auth)**: `requireAuth` and `/auth/*` derive identity **exclusively** from `req.session.userId`. A previous `?user_id=` debug fallback that let any request act as any account by id has been removed everywhere.
-2. **Admin credentials from environment only, hashed in production**: `POST /api/admin/login` has **no hardcoded default**. Production requires `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH` (bcrypt); plaintext `ADMIN_PASSWORD` is ignored at runtime and the server **refuses to boot** if it is set while `NODE_ENV=production`. Constant-time comparison, rate-limited, `503` when unconfigured. First-user auto-promotion to `ADMIN` was removed.
-   This is weighted above a normal credential because an admin session can impersonate any tenant (`POST /api/admin/users/:id/impersonate`), so one leaked environment variable is silent read access to every tenant's customer DMs. Impersonation **start and end** are both audit-logged against the target tenant id — the exit record previously logged the admin's own id, making it impossible to pair a start with its end and bound which tenant was accessed.
+2. **Admin accounts (admin rebuild, 2026-09)**: Admins are `admin_users` rows created by `backend/scripts/create-admin.js` (see ADMIN.md) — no admin credential lives in the environment. Separate admin session (`siffty.admin.sid`, 30 min idle / 8 h absolute), Argon2id, lockout, password re-entry for destructive actions, a written reason and an audit row for every change, and a generic 404 to anyone who is not an admin. There is no impersonation and no DM viewer.
 3. **No secret leakage in responses**: Admin user endpoints (`/users`, `/users/:id`, `/support/search`, `/stats`, login) strip `passwordHash` via `sanitizeUser`. Access tokens are never returned.
 4. **Strict CORS allowlist**: Credentialed cross-origin requests are honored only for `FRONTEND_URL` / `BACKEND_URL` / `ALLOWED_ORIGINS` (plus localhost in dev). Unknown origins receive no `Access-Control-Allow-Origin` header — the old reflect-any-origin behavior is gone.
 5. **CSRF defense-in-depth**: `originGuard` rejects state-changing requests (`POST/PUT/PATCH/DELETE`) whose Origin/Referer is present but not allowlisted; the session cookie is `SameSite=lax` (override via `COOKIE_SAMESITE`).
 6. **Security headers on every response**: `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `Strict-Transport-Security` (production).
 7. **Rate limiting**: In-memory fixed-window limiter on `/auth/login`, `/auth/register`, and `/api/admin/login`; message pagination `take` is clamped to ≤ 100.
-8. **Fail-closed secrets**: In production the server refuses to boot if `SESSION_SECRET` is unset/default, `INSTAGRAM_APP_SECRET` is unset, plaintext `ADMIN_PASSWORD` is present, or `ADMIN_USERNAME` is set without `ADMIN_PASSWORD_HASH`. Token encryption prefers a dedicated `TOKEN_ENCRYPTION_KEY` and never derives the key from a public default in production.
+8. **Fail-closed secrets**: In production the server refuses to boot if `SESSION_SECRET` is unset/default or `INSTAGRAM_APP_SECRET` is unset. Token encryption prefers a dedicated `TOKEN_ENCRYPTION_KEY` and never derives the key from a public default in production.
 9. **Webhook secret required**: Signature verification rejects requests when `INSTAGRAM_APP_SECRET` is empty instead of computing an attacker-known empty-key HMAC.
 
 ---
@@ -159,7 +158,7 @@ Runs against a throwaway PostgreSQL and applies `prisma migrate deploy` in setup
 | `tests/admin-session.test.js` | Admin elevation rotates the session id without logging the regular user out |
 | `tests/auto-reply-concurrency.test.js` | Two racing jobs send one reply, not two; atomic analysis writes; stalled-analysis sweeper |
 | `tests/data-deletion.test.js` | `signed_request` verification, forged/tampered rejection, cascade deletion, 30-day retention |
-| `tests/scopes-and-admin.test.js` | Requested scopes, admin hash enforcement, impersonation auditability |
+| `tests/scopes-and-admin.test.js` | Requested scopes (old admin checks skipped; see `admin-auth.test.js`, `admin-hardening.test.js`) |
 | `tests/auto-reply-fail-closed.test.js` | A missing/unsaved `BusinessProfile` never resolves to an auto-sending mode; asserted as a pure function and end to end, plus the inverse |
 
 Needs a Postgres instance (`TEST_DATABASE_URL` to override):
@@ -218,7 +217,6 @@ Changing any of these mid-review can invalidate it. Flag every change so the dem
 - **Prompt injection**: customer DM text reaches the model with only `"` escaped; output shape is validated but provenance is not.
 - **Unbounded queries** on `GET /api/conversations` and `/api/analytics/summary`.
 - **Nested `<button>` in the inbox conversation list.** The per-row delete button sits inside the row button, which React reports as a hydration error on every inbox load. Pre-dates the copy work; clicks still function.
-- **The admin impersonation banner never renders.** `setImpersonating` is never called and `GET /api/admin/me` returns no impersonation flag, so an admin viewing a tenant's data sees no indicator. Owned by the admin-hardening task.
 - **`/admin` has no per-route `<title>`.** `admin/layout.js` is a client component and cannot export `metadata`; it inherits the root title. Needs a wrapper layout.
 - **`aiStats` is process-local.** The admin "Message processing" counters live in one process's memory, reset on every restart, and undercount across instances. The panel subtitle says so, but the numbers are not trustworthy for anything but a rough sanity check.
 - **`GET /api/admin/me` grants admin on a plain user session with `role === 'ADMIN'`,** a second authorisation path alongside the dedicated admin session. Reported, not changed.

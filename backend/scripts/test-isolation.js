@@ -251,35 +251,28 @@ async function main() {
   // ===============================
   console.log('\n--- TEST GROUP 2: Admin/User Session Isolation ---\n');
 
+  // Admin rebuild: admins are admin_users rows (scripts/create-admin.js) and
+  // log in by email. There is deliberately no credential here. httpJson sends
+  // no Origin header, and the admin API refuses every POST without an
+  // allowlisted one — that refusal is what this group checks.
   const adminSession = {};
-  r = await httpJson('POST', '/api/admin/login', {
-    username: process.env.ADMIN_USERNAME || 'Mubassir',
-    password: process.env.ADMIN_PASSWORD || 'Mubassir',
-  }, adminSession);
-  check('Admin login succeeds', r.status === 200 && r.data?.success === true, r.data);
+  r = await httpJson('POST', '/api/admin/login', { email: 'nobody@invalid.example', password: 'not-a-password' }, adminSession);
+  check('Admin login without an Origin header is refused (admin CSRF guard)', r.status === 403, r.status);
 
   // BUG 1: After admin login, /auth/me should NOT work (no userId set)
   r = await httpJson('GET', '/auth/me', null, adminSession);
   check('Admin session does NOT authenticate as regular user on /auth/me', r.status === 401, { status: r.status, data: r.data });
 
-  // Admin endpoints should still work
+  // Without an admin session every admin endpoint answers the generic 404.
   r = await httpJson('GET', '/api/admin/me', null, adminSession);
-  check('Admin /api/admin/me still works', r.status === 200 && r.data?.isAdmin === true, r.data);
-
-  r = await httpJson('GET', '/api/admin/stats', null, adminSession);
-  check('Admin /api/admin/stats still works', r.status === 200, r.status);
+  check('Admin /api/admin/me answers 404 to a non-admin', r.status === 404, r.status);
 
   // User A session via dev escape hatch
   const userASession = {};
   r = await httpJson('GET', `/auth/me?user_id=${userA.id}`, null, userASession);
   check('User A auth via ?user_id= dev escape hatch', r.status === 200 && r.data?.id === userA.id, r.data?.id);
 
-  // BUG 2: Admin logout cleanup
-  r = await httpJson('POST', '/api/admin/logout', null, adminSession);
-  check('Admin logout succeeds', r.status === 200 && r.data?.success === true, r.data);
-
-  r = await httpJson('GET', '/api/admin/me', null, adminSession);
-  check('After admin logout, not authenticated', r.data?.authenticated === false, r.data);
+  // Admin login/logout/session behaviour is covered by tests/admin-auth.test.js.
 
   // ===============================
   // TEST GROUP 3: Tenant Data Isolation

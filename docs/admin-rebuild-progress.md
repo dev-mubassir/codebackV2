@@ -15,9 +15,9 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 | 3B IG token auto-refresh | done | 14826bb |
 | 4 Multi-provider AI | done | 07befb1 |
 | 5 User management | done | f4804a4 |
-| 6 Plans, quotas, coupons | done | (see git log: feat(billing-admin)) |
-| 7 Kill switches, settings, alerts, announcements | done | (see git log: feat(admin-ops)) |
-| 8 Hardening + UI polish + final report | pending | |
+| 6 Plans, quotas, coupons | done | cee6f96 |
+| 7 Kill switches, settings, alerts, announcements | done | a1715c1 |
+| 8 Hardening + docs + final report | done | (see git log: chore(admin): Gate 8) |
 
 ## Decisions and deviations (owner-approved unless marked NEW)
 
@@ -98,6 +98,15 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - BILLING_ENABLED behaviour: with no enforce_subscriptions row the env var decides exactly as before. Setting the row overrides it at runtime (within 30s); resetting returns to the env var. `/api/billing/plans` and trial claim follow the same flag.
 - FIXED a Gate 6 miss: skippedMessageRecovery now counts remaining classifications from the snapshotted terms + bonus.
 
+### Gate 8 decisions (NEW)
+- Route group: the admin panel stays the `app/admin` segment with its OWN layout (it never renders the customer AppShell). A Next "route group" with a second root layout would add a second html/body tree for no security gain. The segment layout is now a SERVER layout (metadata: robots noindex/nofollow/nocache, referrer no-referrer) wrapping the client `_components/AdminShell.js`.
+- Headers: frontend `/admin` and `/admin/:path*` send X-Robots-Tag noindex, X-Frame-Options DENY, CSP frame-ancestors 'none', Referrer-Policy no-referrer, nosniff, Permissions-Policy (next.config.mjs). Cache-Control is left to Next for pages (the pages hold no data; all admin data comes from /api/admin). Every /api/admin answer (incl. the non-admin 404 and login) is Cache-Control no-store + X-Robots-Tag, on top of the global securityHeaders.
+- No robots.txt entry for /admin: listing it would advertise the path; noindex header + meta do the job.
+- CSRF: new test loops over EVERY non-GET admin route from the router itself (fully signed in + stepped up) and requires 403 without Origin and with a foreign Origin. SameSite=Strict + Path=/api/admin cookie remain the second layer.
+- Customer app: static test proves no link/redirect to /admin outside app/admin (lib/api.js only redirects admin pages back to the admin login).
+- Docs: ADMIN.md completed (env vars, AI keys, privacy reminder, kill switches/alerts, uptime monitor, 8-migration deploy table). README/CONTEXT/DEPLOYMENT: old ADMIN_* / impersonation / AI_PROVIDER text replaced. docs/BILLING.md refund curl flow updated (email login, Origin header, step-up, password via `read -s`). scripts/test-isolation.js: hardcoded default admin credential removed; the admin group now checks the Origin refusal. scripts/test-ai-failover.js marked obsolete (exits).
+- Local dev note: after moving the admin layout the running `next dev` served 404 for /admin until the files were touched (stale dev route table); not a code issue.
+
 ## Skipped / TEMP tests
 
 - `admin-session.test.js` H10, `scopes-and-admin.test.js` M10 ×2, `authz-and-limits.test.js` F1/F5 — old admin behaviour, replaced by `admin-auth.test.js`.
@@ -118,6 +127,7 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - Admin customers: filters (plan/status/dates) narrow the list; "Details" opens /admin/users/[id]; Sign out everywhere (reason); Delete (reason + password) returns to the list and the customer is gone.
 - Admin Plans (/admin/plans): create (starts hidden), edit, save asks reason + password; Coupons (/admin/coupons): create, turn off/on, influencer report; Payments (/admin/payments): list + status filter; customer detail "Plan controls": grant/extend/bonus/reset-trial each ask reason + password.
 - Register page: `/register?code=XYZ` prefills the code field; an invalid code shows the error and creates no account.
+- Admin pages: view-source shows `<meta name="robots" content="noindex, nofollow, nocache">`; response headers include X-Robots-Tag.
 - Admin Kill switches (/admin/controls): each switch asks reason + password; maintenance on → a customer tab goes to "Siffty is being updated" and back after turning it off; signups off → register shows the closed message; AI off then on shows "N re-queued"; threshold save asks only for a reason.
 - Admin Metrics (/admin/metrics): period selector changes the numbers.
 - Admin Announcements: publish one → it shows at the top of the customer app within a minute; Dismiss hides it on that browser; Turn off removes it.
@@ -164,5 +174,4 @@ need their own retry handling. Not recommended.
 
 ## RESUME HERE
 
-1. Gate 8 — admin noindex (server layout wrapper around the client layout), security headers on admin routes (backend /api/admin + frontend /admin via next.config headers), confirm no admin link in the customer app, CSRF review (adminOriginGuard on every admin mutation), full suite, ADMIN.md completion, stale docs, commit.
-2. Final report.
+All gates done. Next: owner review of the final report, then the deploy checklist in ADMIN.md. Open follow-ups: trial-claim race fix (above), privacy policy before activating OpenAI/Anthropic, legacy-admin cleanup migration after production sign-in is verified, clean `npx prisma generate` when the dev server is stopped.

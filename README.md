@@ -107,11 +107,11 @@ Three stored modes on `BusinessProfile.autoReplyMode`, and **only `smart` can ev
 ### 8. 🔒 Application Security Hardening
 - **Session-Only Authentication**: Identity is derived exclusively from the server-side session — no client-supplied `user_id` is ever trusted (a former debug fallback that allowed account takeover by id was removed).
 - **Session Regeneration on Every Privilege Transition**: Login, registration, OAuth completion, and admin elevation all issue a **new** session id via `lib/session.js`. Writing `userId` onto the session id the client already presented allowed session fixation — an attacker who planted a valid signed cookie rode the victim's login. Admin elevation deliberately carries an existing user session across the regeneration so opening the admin panel does not log a signed-in user out of the main app.
-- **Hardened Admin Access**: Admin credentials come only from the environment, with **no hardcoded defaults**, constant-time comparison, and login rate limiting. First-user auto-admin promotion was removed. In production `ADMIN_PASSWORD_HASH` (bcrypt) is mandatory and the server **refuses to boot** if plaintext `ADMIN_PASSWORD` is set at all — an admin session can impersonate any tenant, so that variable is effectively a master key to every customer's DMs. Impersonation start *and* end are both audit-logged against the target tenant id.
+- **Hardened Admin Access**: Admins are `admin_users` rows created by `backend/scripts/create-admin.js` (see ADMIN.md) — no admin credential lives in the environment. Separate admin session (`siffty.admin.sid`, 30 min idle / 8 h absolute), Argon2id, lockout, password re-entry for destructive actions, a written reason and an audit row for every change, and a generic 404 to anyone who is not an admin. There is no impersonation and no DM viewer.
 - **No Secret Leakage**: `passwordHash` and access tokens are stripped from all API responses (`sanitizeUser`).
 - **Strict CORS + CSRF Defense**: Credentialed requests are limited to an explicit origin allowlist (no wildcard reflection), a cross-origin request guard protects all state-changing routes, and session cookies use `SameSite=lax`.
 - **Security Headers & Rate Limiting**: CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and HSTS (production) on every response; in-memory rate limiting on auth and admin-login endpoints.
-- **Fail-Closed Secrets**: In production the server refuses to start with an unset/default `SESSION_SECRET`, a missing `INSTAGRAM_APP_SECRET`, a plaintext `ADMIN_PASSWORD`, or an `ADMIN_USERNAME` with no `ADMIN_PASSWORD_HASH`; token encryption uses a dedicated `TOKEN_ENCRYPTION_KEY` and never a public default.
+- **Fail-Closed Secrets**: In production the server refuses to start with an unset/default `SESSION_SECRET`, or a missing `INSTAGRAM_APP_SECRET`; token encryption uses a dedicated `TOKEN_ENCRYPTION_KEY` and never a public default.
 
 ### 9. 🔁 Concurrency & Duplicate-Send Protection
 - **Per-Conversation Auto-Reply Claim**: The auto-reply gate counts prior replies, awaits an AI call, then sends — a read-then-act sequence spanning an `await`. Workers take an atomic claim (`Conversation.autoReplyClaimedAt`, a conditional `updateMany`) before counting anything, so two concurrent analysis jobs can no longer both pass the consecutive/daily guards and **both send a DM to the same real customer**. Worker concurrency is 3, so this fired on a single instance. The claim expires after 2 minutes, so a crashed worker cannot wedge a conversation.
@@ -178,7 +178,7 @@ Every human-readable string comes from one place, and **no raw stored value reac
 | Variable | Notes |
 |---|---|
 | `NODE_ENV=production` | Enables secure cookies and the fail-closed gates. |
-| `ADMIN_PASSWORD_HASH` | bcrypt hash. **Plaintext `ADMIN_PASSWORD` must be unset — the server refuses to boot if it is present.** Generate with `node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 12))" 'your-password'`. |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_PASSWORD_HASH`, `ADMIN_EMAILS` | **No longer used — delete them.** The server logs a warning while any is set. Admins: see ADMIN.md. |
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | Frontend. Printed on `/privacy`, `/terms`, and `/data-deletion`, which Meta App Review opens directly. **The production build fails if it is unset** — it previously rendered the literal string `set NEXT_PUBLIC_SUPPORT_EMAIL` on those pages. Must be a mailbox a real person reads: deletion requests arrive there and the pages promise a reply within 30 days. |
 
 ### Recommended
@@ -214,7 +214,7 @@ cd backend && npm test    # 58 tests across 7 files
 | `tests/admin-session.test.js` | Admin elevation rotates the session id without logging the regular user out |
 | `tests/auto-reply-concurrency.test.js` | Two racing jobs send **one** reply, not two; atomic analysis writes; stalled-analysis sweeper |
 | `tests/data-deletion.test.js` | Meta `signed_request` verification, forged/tampered rejection, cascade deletion, 30-day retention |
-| `tests/scopes-and-admin.test.js` | Requested scopes, admin hash enforcement, impersonation auditability |
+| `tests/scopes-and-admin.test.js` | Requested scopes (old admin checks skipped; see `admin-auth.test.js`, `admin-hardening.test.js`) |
 | `tests/auto-reply-fail-closed.test.js` | A missing or unsaved `BusinessProfile` never resolves to an auto-sending mode — asserted as a pure function and end to end through the real send path, plus the inverse (an explicit `smart` tenant still sends, so the gate is not simply off) |
 
 The suite needs a PostgreSQL instance. Start a throwaway one with:

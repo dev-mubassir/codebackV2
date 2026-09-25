@@ -15,6 +15,23 @@ const nextConfig = {
       },
     ];
   },
+  // Admin panel (Gate 8): never indexed, never framed, never leaks its URL
+  // as a referrer. Only header-level rules — the admin data itself comes from
+  // /api/admin, which answers no-store with its own security headers.
+  async headers() {
+    const adminHeaders = [
+      { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+      { key: 'Referrer-Policy', value: 'no-referrer' },
+      { key: 'X-Content-Type-Options', value: 'nosniff' },
+      { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+    ];
+    return [
+      { source: '/admin', headers: adminHeaders },
+      { source: '/admin/:path*', headers: adminHeaders },
+    ];
+  },
   allowedDevOrigins: ['app.siffty.com', 'app.citykirana.in', 'localhost', 'local.codeback.test'],
 
   // Next's dev-tools badge is a dark circular "N" pinned to the bottom-left of
