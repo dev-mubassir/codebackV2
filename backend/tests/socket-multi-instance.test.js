@@ -112,6 +112,22 @@ describe('Socket.io across two instances', () => {
     expect(heardByBystander).toEqual([]);
   });
 
+  it('two users on two instances: an event for B reaches B, and A (on the other instance) receives nothing', async () => {
+    const [one, two] = await Promise.all([startNode('A', { redis: true }), startNode('B', { redis: true })]);
+    const userA = `user-a-${Date.now()}`;
+    const userB = `user-b-${Date.now()}`;
+    const clientA = await connectClient(one.port, userA);
+    const heardByA = [];
+    clientA.on('new_message', (p) => heardByA.push(p));
+    const clientB = await connectClient(two.port, userB);
+
+    // Emitted on instance one (where A is connected), addressed to B.
+    const received = await deliveredAcross(one.port, clientB, userB, { timeoutMs: 8000 });
+    expect(received.length).toBeGreaterThan(0);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(heardByA).toEqual([]);
+  });
+
   it('negative control: without Redis the event does NOT cross instances', async () => {
     const [a, b] = await Promise.all([startNode('A', { redis: false }), startNode('B', { redis: false })]);
     expect(a.adapter).toBe('memory');

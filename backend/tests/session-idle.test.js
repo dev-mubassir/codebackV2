@@ -236,8 +236,11 @@ describe('sockets', () => {
 
   it('refuses a new socket whose session is already idle', async () => {
     const now = Date.now();
-    const fresh = { request: { session: { userId: 'u', lastActivityAt: now, authenticatedAt: now } } };
-    const stale = { request: { session: { userId: 'u', lastActivityAt: now - 31 * MIN, authenticatedAt: now } } };
+    // A real user: the handshake also checks that the user behind the session
+    // still exists, is not suspended, and has not reset their password (F1).
+    const { user } = await createUser({});
+    const fresh = { request: { session: { userId: user.id, lastActivityAt: now, authenticatedAt: now } } };
+    const stale = { request: { session: { userId: user.id, lastActivityAt: now - 31 * MIN, authenticatedAt: now } } };
     expect(await sessionIdle.socketSessionIsLive(fresh)).toBe(true);
     expect(await sessionIdle.socketSessionIsLive(stale)).toBe(false);
     expect(await sessionIdle.socketSessionIsLive({ request: {} })).toBe(false);
@@ -345,7 +348,8 @@ describe('sweep against the REAL production store (connect-pg-simple)', () => {
     try {
       const liveSid = uniq('pg-live');
       const idleSid = uniq('pg-idle');
-      await put(liveSid, { cookie, userId: 'u-live', lastActivityAt: Date.now(), authenticatedAt: Date.now() });
+      const { user: liveUser } = await createUser({});
+      await put(liveSid, { cookie, userId: liveUser.id, lastActivityAt: Date.now(), authenticatedAt: Date.now() });
       await put(idleSid, { cookie, userId: 'u-idle', lastActivityAt: Date.now() - 31 * MIN, authenticatedAt: Date.now() });
 
       // What the store really returns for a missing sid: no error, no session.
