@@ -524,18 +524,19 @@ describe('privacy and the fixed bugs', () => {
 });
 
 describe('admin email bucket', () => {
-  it('caps admin alerts at 10/day without touching the shared cap or the degraded flag', async () => {
+  it('10/day, 3 held for lockouts; never touches the shared cap or the degraded flag', async () => {
     const quota = require('../src/lib/email/quota.js');
     alertSpy.mockRestore(); // exercise the real deliver() path (console transport in tests)
     mailer._resetQuota();
     mailer._resetHealth();
+    const send = (kind) => mailer.sendAdminSecurityAlert('owner@siffty.example', { kind, facts: { time: 'now' } });
 
-    for (let i = 0; i < 10; i += 1) {
-      await mailer.sendAdminSecurityAlert('owner@siffty.example', { kind: 'login', facts: { time: 'now' } });
-    }
-    await expect(
-      mailer.sendAdminSecurityAlert('owner@siffty.example', { kind: 'login', facts: { time: 'now' } })
-    ).rejects.toThrow(/quota/i);
+    for (let i = 0; i < 7; i += 1) await send('login');
+    await expect(send('login'), 'routine sign-in alerts stop at 7').rejects.toThrow(/quota/i);
+
+    // Positive control: the reserve is still there for a real attack warning.
+    for (let i = 0; i < 3; i += 1) await expect(send('lockout')).resolves.toBeTruthy();
+    await expect(send('lockout'), 'and the bucket as a whole stops at 10').rejects.toThrow(/quota/i);
 
     const stats = quota.stats();
     expect(stats.adminSentToday).toBe(10);
@@ -544,6 +545,44 @@ describe('admin email bucket', () => {
 
     // Positive control: customer critical mail still goes out.
     await expect(mailer.sendPasswordReset('someone@siffty.example', { url: 'https://x', expiresInMinutes: 30 })).resolves.toBeTruthy();
+  });
+});
+
+describe('login timing', () => {
+  it('an unknown email and a locked account answer about as slowly as a wrong password', async () => {
+    const { admin } = await createAdmin();
+    const locked = await createAdmin();
+    await prisma.adminUser.update({ where: { id: locked.admin.id }, data: { lockedUntil: new Date(Date.now() + 60000) } });
+    const timed = async (email) => {
+      const start = process.hrtime.bigint();
+      for (let i = 0; i < 3; i += 1) await login(request(app), email, 'some-wrong-password');
+      return Number(process.hrtime.bigint() - start) / 3e6;
+    };
+    // wrong-password first: each one also counts toward that admin's lockout,
+    // and 3 stays under the threshold.
+    const wrong = await timed(admin.email);
+    const unknown = await timed('nobody-at-all@test.codeback');
+    const lockedMs = await timed(locked.admin.email);
+    // Generous: catches a skipped verify (answers in a few ms), not noise.
+    expect(unknown).toBeGreaterThan(wrong * 0.5);
+    expect(lockedMs).toBeGreaterThan(wrong * 0.5);
+  });
+
+  it('the dummy verify costs about what a real wrong-password verify costs', async () => {
+    const { hashPassword, verifyPassword, burnEquivalentWork } = require('../src/lib/password.js');
+    const hash = await hashPassword('the-real-password-0000');
+    const time = async (fn) => {
+      const start = process.hrtime.bigint();
+      for (let i = 0; i < 5; i += 1) await fn();
+      return Number(process.hrtime.bigint() - start) / 5e6;
+    };
+    await burnEquivalentWork('warm'); // first call pays one-off setup
+    const real = await time(() => verifyPassword('wrong-guess', hash));
+    const dummy = await time(() => burnEquivalentWork('wrong-guess'));
+    // Generous bound: this guards against the dummy silently becoming a
+    // no-op (a hash that fails to parse returns in microseconds), not
+    // against scheduler noise.
+    expect(dummy).toBeGreaterThan(real * 0.5);
   });
 });
 

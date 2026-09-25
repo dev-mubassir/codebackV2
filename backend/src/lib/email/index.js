@@ -355,11 +355,12 @@ module.exports = {
 
   /**
    * ADMIN bucket (quota.js ADMIN_TYPES) — its own 10/day cap, outside the
-   * shared cap and never touching the critical reserve.
+   * shared cap and never touching the customer critical reserve. Lockouts
+   * are the bucket's own critical tier: 3 of the 10 are held back for them.
    * kind: 'login' | 'lockout'.
    */
   sendAdminSecurityAlert: (to, { kind, facts }) =>
-    deliver(to, 'adminSecurityAlert', templates.adminSecurityAlert({ kind, facts })),
+    deliver(to, kind === 'lockout' ? 'adminLockoutAlert' : 'adminLoginAlert', templates.adminSecurityAlert({ kind, facts })),
 
   sendDeletionConfirmation: (to, { igUsername, accountDeleted, confirmationCode, statusUrl }) =>
     deliver(

@@ -127,8 +127,14 @@ const CRITICAL_TYPES = new Set([
  * So neither pool can drain the other. Worst case for the provider is
  * DEFAULT_DAILY_CAP + ADMIN_DAILY_CAP = 90, still under Resend's 100/day.
  */
-const ADMIN_TYPES = new Set(['adminSecurityAlert']);
+const ADMIN_TYPES = new Set(['adminLoginAlert', 'adminLockoutAlert']);
 const ADMIN_DAILY_CAP = 10;
+// Of those 10, the last 3 are for lockout alerts only — the same
+// reserve idea as the customer pool. A day of routine sign-in alerts (or an
+// attacker who knows the password generating them) stops at 7 and can never
+// spend the sends a real attack warning needs.
+const ADMIN_CRITICAL_TYPES = new Set(['adminLockoutAlert']);
+const ADMIN_CRITICAL_RESERVE = 3;
 
 function dailyCap() {
   const raw = parseInt(process.env.EMAIL_DAILY_CAP || '', 10);
@@ -198,11 +204,12 @@ function check(type, recipient) {
   // lockouts is exactly the thing the owner needs to see, and the daily cap
   // already bounds it.
   if (ADMIN_TYPES.has(type)) {
-    if (adminSentToday >= ADMIN_DAILY_CAP) {
+    const limit = ADMIN_CRITICAL_TYPES.has(type) ? ADMIN_DAILY_CAP : ADMIN_DAILY_CAP - ADMIN_CRITICAL_RESERVE;
+    if (adminSentToday >= limit) {
       return {
         ok: false,
         reason: 'admin_daily_cap',
-        detail: `admin alert cap reached (${adminSentToday}/${ADMIN_DAILY_CAP})`,
+        detail: `admin alert cap reached for ${type} (${adminSentToday}/${limit})`,
       };
     }
     return { ok: true };
@@ -290,6 +297,8 @@ module.exports = {
   CRITICAL_TYPES,
   ADMIN_TYPES,
   ADMIN_DAILY_CAP,
+  ADMIN_CRITICAL_TYPES,
+  ADMIN_CRITICAL_RESERVE,
   PER_RECIPIENT_MAX,
   PER_RECIPIENT_MAX_BY_TYPE,
   DEFAULT_DAILY_CAP,
