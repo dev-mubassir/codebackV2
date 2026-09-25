@@ -12,8 +12,8 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 | 2 User idle timeout | done | c76745c |
 | Trial-claim investigation (read-only) | done — findings below, not fixed | — |
 | 3 Health + AI monitoring | done | 4d763ca |
-| 3B IG token auto-refresh | done | (see git log: feat(instagram)) |
-| 4 Multi-provider AI | pending | |
+| 3B IG token auto-refresh | done | 14826bb |
+| 4 Multi-provider AI | done | (see git log: feat(ai)) |
 | 5 User management | pending | |
 | 6 Plans, quotas, coupons | pending | |
 | 7 Kill switches, settings, alerts, announcements | pending | |
@@ -48,6 +48,19 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 - The admin "Refresh access" button now uses the same lib/tokenRefresh.js function.
 - Local note: `prisma generate` hit EPERM because the owner's dev server holds the engine DLL; the client code generated, and I copied schema.prisma into node_modules/.prisma/client to finish the step. Run a clean `npx prisma generate` next time the dev server is stopped.
 
+### Gate 4 decisions (NEW)
+- Adapters: Gemini, OpenAI, Anthropic only (xAI removed, owner decision). HTTP via axios (already a dependency, already used for Gemini/OpenAI; no new package; one mockable HTTP boundary). DEVIATION from the vendor recommendation (Anthropic's docs recommend the official SDK) in favour of the spec's "fewer dependencies".
+- Keys only from env (GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY), sent in headers only. Gemini's key moved from the URL query string to the `x-goog-api-key` header.
+- Allowlist + prices in lib/ai/models.js. Anthropic IDs/prices from the bundled Claude API reference: claude-haiku-4-5 $1/$5, claude-sonnet-5 $2/$10, claude-opus-5 $5/$25. Gemini/OpenAI prices UNVERIFIED list prices. Sonnet 5 / Opus 5 are called with `output_config.effort: low` (Haiku 4.5 rejects effort).
+- One strict classification schema (lib/ai/schema.js). BEHAVIOUR CHANGE: in production a schema-invalid or unparseable answer is now a FAILED call (logged SCHEMA_INVALID / UNPARSEABLE); the old code clamped and patched partial answers. The queue retries the job; the message stays visible either way.
+- BEHAVIOUR CHANGE: the old silent chain (4 Gemini models, then xAI, then OpenAI) is gone. Now: the active model, per-call timeout, 2 retries with backoff for transient errors only (network/timeout/408/429/5xx). The optional fallback (default OFF) switches after 5 consecutive failed calls for 30 minutes (in memory, single instance), emails admins (adminOpsAlert), and writes audit row AI_FALLBACK_ACTIVATED.
+- AiConfig table (single row 'active'; empty = default gemini/gemini-flash-lite-latest, i.e. previous production). Validated against the allowlist on write AND read. Cached 30s.
+- Test = 10 synthetic DMs + synthetic business (lib/ai/modelTest.js) with the exact production prompt (aiService.buildClassificationPrompt). Recorded as audit row AI_MODEL_TEST (verdicts only). Activation requires step-up + reason + a passing test of EXACTLY that provider/model within 30 minutes (and one for the fallback if it's enabled). Unexpected request fields (baseUrl, apiKey…) → 400.
+- Monthly cost comparison uses the last 30 days of production classification volume and tokens (tokenizer differences between providers are ignored — estimate).
+- No per-provider prompt adjustments were needed; one prompt for all.
+- PRIVACY POLICY: OpenAI and Anthropic must be listed in the privacy policy before either is activated in production (shown on the AI page too).
+- Env vars: ADD (optional) OPENAI_API_KEY, ANTHROPIC_API_KEY. DEAD, delete: AI_PROVIDER, GROK_API_KEY, XAI_API_KEY.
+
 ## Skipped / TEMP tests
 
 - `admin-session.test.js` H10, `scopes-and-admin.test.js` M10 ×2, `authz-and-limits.test.js` F1/F5 — old admin behaviour, replaced by `admin-auth.test.js`.
@@ -64,6 +77,7 @@ Mode: autonomous (owner instruction). At each gate end: self-review → full bac
 
 - Admin: sign in, every admin page loads, step-up dialog on CSV export, reason dialogs on suspend / refresh / resubscribe / mark-reconnect, change password.
 - Admin Health page (`/admin/health`): loads, refreshes every 30s, "Test AI" shows provider/model/latency; an unattended health page still times out after 30 idle minutes.
+- Admin AI page (`/admin/ai`): only providers with a key are selectable; "Test on 10 sample messages" shows per-sample results + cost; Activate asks for a reason and the password; Roll back works; with fallback enabled, the fallback model must be tested first.
 - Customer idle: with `user_session_idle_minutes = 5`, the warning appears about 3 minutes in; "Stay signed in" in one tab closes the warning in the other; both tabs go to login after 5 minutes.
 
 ## Trial-claim race — findings (read-only; NOT fixed, owner decides)
@@ -107,5 +121,5 @@ need their own retry handling. Not recommended.
 
 ## RESUME HERE
 
-1. Gate 4 — multi-provider AI switching (adapters Gemini/OpenAI/Anthropic via plain fetch/axios, allowlist in lib/ai/models.js, AiConfig table w/ cache, 10 synthetic sample DMs, test/activate (step-up + reason + audit)/rollback, fallback after 5 consecutive failures + email + log, per-call timeout + retries, drop xAI). Mock HTTP in tests.
-2. Then Gates 5 → 8.
+1. Gate 5 — user management: paginated list (search email/name; filter plan, status, signup date); user detail (profile, plan + expiry, quota used/remaining, IG accounts w/ connected date + token expiry, classification counts, last active, recent AI errors — NO DM content); actions with reason + audit: suspend/unsuspend (exists), force logout (new), delete user (step-up; extract services/accountDeletion.js from DELETE /auth/account + dataDeletion eraseInstagramUserData; also delete ai_call_logs for the tenant); tests incl. tenant isolation.
+2. Then Gates 6 → 8.

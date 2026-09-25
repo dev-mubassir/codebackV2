@@ -434,6 +434,28 @@ export async function runAdminAiTest() {
   return data;
 }
 
+// ---- Admin: AI provider (Gate 4) ----
+
+export async function getAdminAiConfig() {
+  const { data } = await api.get('/api/admin/ai/config');
+  return data;
+}
+
+export async function testAdminAiModel(provider, model) {
+  const { data } = await api.post('/api/admin/ai/test', { provider, model });
+  return data;
+}
+
+export async function activateAdminAiModel(body) {
+  const { data } = await api.post('/api/admin/ai/activate', body);
+  return data;
+}
+
+export async function rollbackAdminAiModel(reason) {
+  const { data } = await api.post('/api/admin/ai/rollback', { reason });
+  return data;
+}
+
 export async function getAdminSettings() {
   const { data } = await api.get('/api/admin/settings');
   return data;

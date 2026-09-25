@@ -47,6 +47,7 @@ const HEARTBEAT_MIN_GAP_MS = 60 * 1000;
 const NAV_ITEMS = [
   { label: t.nav.dashboard, path: '/admin', icon: 'dashboard' },
   { label: t.nav.health, path: '/admin/health', icon: 'zap' },
+  { label: t.nav.ai, path: '/admin/ai', icon: 'settings' },
   { label: t.nav.users, path: '/admin/users', icon: 'users' },
   { label: t.nav.accounts, path: '/admin/accounts', icon: 'instagram' },
   { label: t.nav.support, path: '/admin/support', icon: 'lifeBuoy' },

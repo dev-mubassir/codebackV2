@@ -27,6 +27,9 @@ const { refreshAccountToken } = require('../lib/tokenRefresh');
 const aiService = require('../services/aiService');
 const { getAIStats } = aiService;
 const { collectHealth } = require('../lib/health');
+const aiRouter = require('../lib/ai/router');
+const aiModels = require('../lib/ai/models');
+const { runModelTest, findPassingTest } = require('../lib/ai/modelTest');
 const { createRateLimiter } = require('../lib/rateLimit');
 const { startAuthenticatedSession, destroyUserSessions } = require('../lib/session');
 const { disconnectUserSockets } = require('../lib/socket');
@@ -538,6 +541,194 @@ router.post('/health/ai-test', aiTestLimiter, async (req, res) => {
   }
   await recordAdminAudit(req, { action: 'AI_TEST', targetType: 'SYSTEM', after: result });
   res.status(result.ok ? 200 : 502).json(result);
+});
+
+// ============================================
+// 3c. AI PROVIDER (Gate 4)
+//
+// Security-first: provider + model ONLY from the code allowlist
+// (lib/ai/models.js); keys ONLY from environment variables — no endpoint
+// accepts, stores or returns one; no base URL or free-text model anywhere.
+// Request bodies are checked field by field: an unexpected field (a
+// "baseUrl", an "apiKey") is a 400, not silently ignored.
+// ============================================
+
+/** Refuse any body field outside `allowed`. */
+function onlyFields(req, res, allowed) {
+  const extra = Object.keys(req.body || {}).filter((k) => !allowed.includes(k));
+  if (extra.length) {
+    res.status(400).json({ error: 'Unexpected field in the request.', code: 'UNEXPECTED_FIELD' });
+    return false;
+  }
+  return true;
+}
+
+function allowedTarget(provider, model) {
+  return aiModels.isAllowed(provider, model) ? { provider, model } : null;
+}
+
+// GET /api/admin/ai/config — current choice, fallback state, the allowlist
+// with "key configured: yes/no". Never a key.
+router.get('/ai/config', async (req, res) => {
+  try {
+    const config = await aiRouter.getAiConfig({ fresh: true });
+    let updatedByEmail = null;
+    if (config.updatedBy) {
+      const who = await prisma.adminUser.findUnique({ where: { id: config.updatedBy }, select: { email: true } });
+      updatedByEmail = who ? who.email : null;
+    }
+    res.json({
+      active: config.active,
+      fallback: config.fallback,
+      fallbackEnabled: config.fallbackEnabled,
+      previous: config.previous,
+      isDefault: config.isDefault,
+      updatedAt: config.updatedAt,
+      updatedBy: updatedByEmail,
+      fallbackState: aiRouter.fallbackState(),
+      providers: aiModels.catalogue(),
+    });
+  } catch (error) {
+    console.error('[Admin] AI config error:', error.message);
+    res.status(500).json({ error: "Couldn't load the AI settings. Refresh to try again." });
+  }
+});
+
+const aiModelTestLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  message: 'Wait a few minutes before running another model test.',
+});
+
+// POST /api/admin/ai/test — { provider, model }: the 10 synthetic samples.
+router.post('/ai/test', aiModelTestLimiter, async (req, res) => {
+  if (!onlyFields(req, res, ['provider', 'model'])) return undefined;
+  const target = allowedTarget(req.body.provider, req.body.model);
+  if (!target) return res.status(400).json({ error: 'Pick a provider and model from the list.', code: 'NOT_ALLOWED' });
+  if (!aiModels.keyConfigured(target.provider)) {
+    return res.status(400).json({ error: 'That provider has no API key configured.', code: 'NOT_CONFIGURED' });
+  }
+  try {
+    res.json(await runModelTest({ ...target, adminId: req.admin.id, req }));
+  } catch (error) {
+    console.error('[Admin] AI model test error:', error.message);
+    res.status(500).json({ error: "Couldn't run the model test. Try again." });
+  }
+});
+
+// POST /api/admin/ai/activate — step-up + reason + a PASSING test run.
+// body: { provider, model, testRunId, fallbackEnabled?, fallbackProvider?,
+//         fallbackModel?, fallbackTestRunId?, reason }
+router.post('/ai/activate', requireStepUp, async (req, res) => {
+  const fields = ['provider', 'model', 'testRunId', 'fallbackEnabled', 'fallbackProvider', 'fallbackModel', 'fallbackTestRunId', 'reason'];
+  if (!onlyFields(req, res, fields)) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  const b = req.body;
+
+  const target = allowedTarget(b.provider, b.model);
+  if (!target) return res.status(400).json({ error: 'Pick a provider and model from the list.', code: 'NOT_ALLOWED' });
+  if (!aiModels.keyConfigured(target.provider)) {
+    return res.status(400).json({ error: 'That provider has no API key configured.', code: 'NOT_CONFIGURED' });
+  }
+  if (b.fallbackEnabled !== undefined && typeof b.fallbackEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'fallbackEnabled must be true or false.' });
+  }
+
+  let fallback = null;
+  if (b.fallbackProvider !== undefined || b.fallbackModel !== undefined) {
+    fallback = allowedTarget(b.fallbackProvider, b.fallbackModel);
+    if (!fallback) return res.status(400).json({ error: 'Pick the fallback from the list.', code: 'NOT_ALLOWED' });
+  }
+  if (b.fallbackEnabled && !fallback) return res.status(400).json({ error: 'Choose a fallback model to enable fallback.' });
+
+  try {
+    if (!(await findPassingTest(b.testRunId, target))) {
+      return res.status(409).json({
+        error: 'Run the model test first. It must pass on all 10 samples, for this exact model, in the last 30 minutes.',
+        code: 'TEST_REQUIRED',
+      });
+    }
+    if (b.fallbackEnabled) {
+      if (!aiModels.keyConfigured(fallback.provider)) {
+        return res.status(400).json({ error: 'The fallback provider has no API key configured.', code: 'NOT_CONFIGURED' });
+      }
+      if (!(await findPassingTest(b.fallbackTestRunId, fallback))) {
+        return res.status(409).json({ error: 'The fallback model needs a passing test too.', code: 'TEST_REQUIRED' });
+      }
+    }
+
+    const before = await aiRouter.getAiConfig({ fresh: true });
+    const data = {
+      activeProvider: target.provider,
+      activeModel: target.model,
+      fallbackProvider: fallback ? fallback.provider : null,
+      fallbackModel: fallback ? fallback.model : null,
+      fallbackEnabled: Boolean(b.fallbackEnabled),
+      previousProvider: before.active.provider,
+      previousModel: before.active.model,
+      updatedBy: req.admin.id,
+    };
+    await prisma.$transaction([
+      prisma.aiConfig.upsert({ where: { id: 'active' }, create: { id: 'active', ...data }, update: data }),
+      prisma.adminAuditLog.create({
+        data: buildAuditRow(req, {
+          action: 'AI_PROVIDER_ACTIVATE',
+          targetType: 'AI_CONFIG',
+          targetId: 'active',
+          reason,
+          before: { active: before.active, fallback: before.fallback, fallbackEnabled: before.fallbackEnabled },
+          after: { active: target, fallback, fallbackEnabled: Boolean(b.fallbackEnabled), testRunId: b.testRunId },
+        }),
+      }),
+    ]);
+    aiRouter.clearAiConfigCache();
+    aiRouter._resetRouterState();
+    res.json({ success: true, active: target, fallback, fallbackEnabled: Boolean(b.fallbackEnabled) });
+  } catch (error) {
+    console.error('[Admin] AI activate error:', error.message);
+    res.status(500).json({ error: "Couldn't switch the AI model. Try again." });
+  }
+});
+
+// POST /api/admin/ai/rollback — { reason }: back to the previous model. Step-up.
+router.post('/ai/rollback', requireStepUp, async (req, res) => {
+  if (!onlyFields(req, res, ['reason'])) return undefined;
+  const reason = readReason(req, res);
+  if (!reason) return undefined;
+  try {
+    const current = await aiRouter.getAiConfig({ fresh: true });
+    if (!current.previous) return res.status(409).json({ error: 'There is no previous model to go back to.', code: 'NO_PREVIOUS' });
+    if (!aiModels.keyConfigured(current.previous.provider)) {
+      return res.status(400).json({ error: 'The previous provider no longer has an API key configured.', code: 'NOT_CONFIGURED' });
+    }
+    const data = {
+      activeProvider: current.previous.provider,
+      activeModel: current.previous.model,
+      previousProvider: current.active.provider,
+      previousModel: current.active.model,
+      updatedBy: req.admin.id,
+    };
+    await prisma.$transaction([
+      prisma.aiConfig.update({ where: { id: 'active' }, data }),
+      prisma.adminAuditLog.create({
+        data: buildAuditRow(req, {
+          action: 'AI_PROVIDER_ROLLBACK',
+          targetType: 'AI_CONFIG',
+          targetId: 'active',
+          reason,
+          before: { active: current.active },
+          after: { active: current.previous },
+        }),
+      }),
+    ]);
+    aiRouter.clearAiConfigCache();
+    aiRouter._resetRouterState();
+    res.json({ success: true, active: current.previous });
+  } catch (error) {
+    console.error('[Admin] AI rollback error:', error.message);
+    res.status(500).json({ error: "Couldn't roll back the AI model. Try again." });
+  }
 });
 
 // ============================================

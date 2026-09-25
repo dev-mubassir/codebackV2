@@ -601,6 +601,28 @@ model AppSetting {
 }
 
 // ============================================
+// The admin-selected AI provider/model (Gate 4). A single row, id 'active'.
+// No row = the code default (lib/ai/models.js DEFAULT_ACTIVE), i.e. exactly
+// what production ran before. Every value is validated against the code
+// allowlist on write AND on read; a key is never stored here (keys live only
+// in environment variables). previous* is what one-click rollback restores.
+// ============================================
+model AiConfig {
+  id               String   @id @default("active")
+  activeProvider   String   @map("active_provider")
+  activeModel      String   @map("active_model")
+  fallbackProvider String?  @map("fallback_provider")
+  fallbackModel    String?  @map("fallback_model")
+  fallbackEnabled  Boolean  @default(false) @map("fallback_enabled")
+  previousProvider String?  @map("previous_provider")
+  previousModel    String?  @map("previous_model")
+  updatedBy        String?  @map("updated_by") // AdminUser id
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_config")
+}
+
+// ============================================
 // One row per AI provider HTTP call (Gate 3). Metadata ONLY — never the
 // prompt, the message, or the model's answer. tenantId is a plain field (no
 // FK) so rows survive a user delete until the 30-day purge; account deletion

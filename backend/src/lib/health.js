@@ -122,7 +122,7 @@ async function collectHealth({ aiConfig, emailFailures }) {
     sockets: socketStats(),
     jobs,
     webhooks,
-    ai: { lastHour: ai1h, last24Hours: ai24h, active: aiConfig(), costsAreEstimates: true },
+    ai: { lastHour: ai1h, last24Hours: ai24h, active: await section(aiConfig), costsAreEstimates: true },
     email: emailFailures(),
     instagramTokens: tokens,
     recentErrors: recentErrors(),

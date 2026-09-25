@@ -12,6 +12,7 @@ import request from 'supertest';
 
 import { buildTestApp } from './helpers/app.js';
 import { prisma, resetDb, createUser, createAdmin, createAccount } from './helpers/db.js';
+import { VALID_CLASSIFICATION } from './helpers/ai.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios');
@@ -21,6 +22,7 @@ const { rollupAiUsage, utcDayStart } = require('../src/jobs/aiUsageJob.js');
 const { recordJobRun } = require('../src/jobs/jobRuns.js');
 const errorRing = require('../src/lib/errorRing.js');
 const { publicHealthHandler } = require('../src/lib/health.js');
+const aiRouter = require('../src/lib/ai/router.js');
 
 const ORIGIN = 'https://app.test.local';
 const FAKE_KEY = 'test-gemini-key-SHOULD-NEVER-APPEAR';
@@ -40,6 +42,8 @@ beforeEach(async () => {
   await prisma.aiUsageDaily.deleteMany({});
   await prisma.jobRun.deleteMany({});
   process.env.GEMINI_API_KEY = FAKE_KEY;
+  aiRouter._resetRouterState();
+  aiRouter._setBackoff([0, 0]);
 });
 
 afterEach(() => {
@@ -70,9 +74,7 @@ async function adminAgent() {
 describe('AI call logging (one central wrapper)', () => {
   it('logs provider, model, job type, tenant, latency, tokens and cost — never the message', async () => {
     const { user } = await createUser({});
-    vi.spyOn(axios, 'post').mockResolvedValue(
-      geminiOk(JSON.stringify({ category: 'pricing_inquiry', confidence: 0.9, summary: 'Asks the price.' }))
-    );
+    vi.spyOn(axios, 'post').mockResolvedValue(geminiOk(JSON.stringify(VALID_CLASSIFICATION)));
 
     const secretDm = 'what is the price of the blue kurta size M';
     await aiService.analyzeConversation({ messageText: secretDm, tenantId: user.id });
@@ -93,17 +95,17 @@ describe('AI call logging (one central wrapper)', () => {
     expect(JSON.stringify(row)).not.toContain('kurta');
   });
 
-  it('logs a failed call with a safe error code and HTTP status, never the key or message text', async () => {
+  it('logs a failed call (each retry) with a safe error code and HTTP status, never the key or message text', async () => {
     const err = Object.assign(new Error(`Request failed for https://x/?key=${FAKE_KEY}`), {
       response: { status: 429, data: { error: { status: 'RESOURCE_EXHAUSTED', message: `quota for key ${FAKE_KEY}` } } },
     });
     vi.spyOn(axios, 'post').mockRejectedValue(err);
 
     await aiService.summarizeConversation({ recentMessages: [{ direction: 'inbound', content: 'hello' }] });
-    await settle(async () => (await prisma.aiCallLog.count()) === 4); // one per Gemini model tried
+    await settle(async () => (await prisma.aiCallLog.count()) === 3); // 1 try + 2 retries (429 is transient)
 
     const rows = await prisma.aiCallLog.findMany();
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(3);
     for (const r of rows) {
       expect(r.success).toBe(false);
       expect(r.errorCode).toBe('RESOURCE_EXHAUSTED');
@@ -113,15 +115,20 @@ describe('AI call logging (one central wrapper)', () => {
     }
   });
 
-  it('an unparseable answer is a logged failure (it still cost tokens), and the next model is tried', async () => {
-    vi.spyOn(axios, 'post')
-      .mockResolvedValueOnce(geminiOk('not json at all'))
-      .mockResolvedValueOnce(geminiOk(JSON.stringify({ category: 'fan' })));
-    await aiService.analyzeConversation({ messageText: 'where do i buy this?' });
+  it('an unparseable or schema-invalid answer is a logged failure (it still cost tokens) and is not retried', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValueOnce(geminiOk('not json at all'));
+    const first = await aiService.analyzeConversation({ messageText: 'where do i buy this?' });
+    expect(first.failed).toBe(true);
+    expect(post).toHaveBeenCalledTimes(1);
+
+    post.mockResolvedValueOnce(geminiOk(JSON.stringify({ category: 'fan' }))); // missing required fields
+    const second = await aiService.analyzeConversation({ messageText: 'where do i buy this?' });
+    expect(second.failed).toBe(true);
+    expect(post).toHaveBeenCalledTimes(2);
+
     await settle(async () => (await prisma.aiCallLog.count()) === 2);
-    // Both rows can share a millisecond, so compare as a set, not by order.
     const rows = await prisma.aiCallLog.findMany();
-    expect(rows.map((r) => `${r.success}:${r.errorCode}`).sort()).toEqual(['false:UNPARSEABLE', 'true:null']);
+    expect(rows.map((r) => `${r.success}:${r.errorCode}`).sort()).toEqual(['false:SCHEMA_INVALID', 'false:UNPARSEABLE']);
   });
 });
 
@@ -208,6 +215,7 @@ describe('GET /api/admin/health', () => {
     expect(b.webhooks.received24h).toBe(1);
     expect(b.ai.lastHour).toHaveProperty('p95LatencyMs');
     expect(b.ai.active.primaryProvider).toBe('gemini');
+    expect(b.ai.active.keyConfigured).toBe(true);
     expect(b.email).toHaveProperty('failures24h');
     expect(b.instagramTokens.expiringWithin7Days.map((a) => a.id)).toContain(account.id);
 

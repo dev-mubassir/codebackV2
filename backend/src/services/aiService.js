@@ -7,8 +7,9 @@
  * Coaches, E-Commerce, Agencies, and more.
  */
 
-const axios = require('axios');
-const { recordAiCall } = require('../lib/ai/callLog');
+const router = require('../lib/ai/router');
+const { keyConfigured } = require('../lib/ai/models');
+const { validateClassification, validateSummary } = require('../lib/ai/schema');
 const {
   CATEGORIES,
   CUSTOMER_TYPES,
@@ -204,35 +205,6 @@ function truncate(str, max) {
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
-function extractJSON(text) {
-  if (!text || typeof text !== 'string') return null;
-  const trimmed = text.trim();
-
-  // 1. Direct parse
-  try {
-    return JSON.parse(trimmed);
-  } catch (e) {}
-
-  // 2. Markdown code block
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  if (codeBlockMatch && codeBlockMatch[1]) {
-    try {
-      return JSON.parse(codeBlockMatch[1].trim());
-    } catch (e) {}
-  }
-
-  // 3. Outermost { ... }
-  const firstBrace = trimmed.indexOf('{');
-  const lastBrace = trimmed.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    try {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
-    } catch (e) {}
-  }
-
-  return null;
-}
-
 function sanitizeBrandDeal(raw) {
   if (!raw || typeof raw !== 'object') return null;
   if (!raw.brand_name && !raw.campaign) return null;
@@ -343,331 +315,59 @@ function formatBusinessProfileContext(profile) {
 }
 
 // ============================================
-// AI Provider Implementations
+// The AI call path (Gate 4)
 //
-// Every HTTP call goes through attempt(), which times it and records ONE
-// ai_call_logs row (lib/ai/callLog.js): provider, model, job type, tenant,
-// latency, success, error code, tokens, estimated cost. Metadata only — never
-// the prompt or the answer. An empty or unparseable answer is logged as a
-// failure (the call still cost tokens) and the loop moves to the next model,
-// exactly as before.
+// Every call goes through lib/ai/router.js: the admin-selected provider and
+// model from the code allowlist, per-call timeout, limited retries, optional
+// fallback, and one ai_call_logs row per HTTP attempt. Provider-specific HTTP
+// lives in lib/ai/adapters.js. Classification answers are checked against
+// the one schema in lib/ai/schema.js; an answer that fails it is a failed
+// call, never patched up.
 // ============================================
-async function attempt({ provider, model, ctx }, send, readUsage) {
-  const started = Date.now();
-  let response;
-  try {
-    response = await send();
-  } catch (err) {
-    recordAiCall({ provider, model, ...ctx, latencyMs: Date.now() - started, success: false, error: err });
-    throw err;
-  }
-  const usage = readUsage(response.data) || {};
-  return {
-    response,
-    log(success, aiErrorCode) {
-      recordAiCall({
-        provider,
-        model,
-        ...ctx,
-        latencyMs: Date.now() - started,
-        success,
-        error: success ? null : { aiErrorCode },
-        inputTokens: usage.input,
-        outputTokens: usage.output,
-      });
-    },
-  };
-}
 
-const geminiUsage = (data) => ({
-  input: data?.usageMetadata?.promptTokenCount,
-  output: data?.usageMetadata?.candidatesTokenCount,
-});
-const chatUsage = (data) => ({ input: data?.usage?.prompt_tokens, output: data?.usage?.completion_tokens });
-
-async function callGemini(apiKey, { prompt, isJson, timeout = 15000, ctx = {} }) {
-  if (!apiKey || !apiKey.trim()) throw new Error('GEMINI_API_KEY is not configured');
-
-  const models = [
-    'gemini-flash-lite-latest',
-    'gemini-flash-latest',
-    'gemini-3-flash-preview',
-    'gemini-3.1-flash-lite-preview',
-  ];
-
-  let lastError = null;
-
-  for (const model of models) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
-      const payload = { contents: [{ parts: [{ text: prompt }] }] };
-      if (isJson) payload.generationConfig = { responseMimeType: 'application/json' };
-
-      const { response, log } = await attempt({ provider: 'gemini', model, ctx }, () => axios.post(url, payload, { timeout }), geminiUsage);
-      const rawText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawText) {
-        log(false, 'EMPTY_RESPONSE');
-        continue;
-      }
-
-      if (isJson) {
-        const parsed = extractJSON(rawText);
-        if (!parsed) {
-          log(false, 'UNPARSEABLE');
-          continue;
-        }
-        log(true);
-        return { json: parsed, text: rawText, model, provider: 'gemini' };
-      }
-
-      log(true);
-      return { text: rawText.trim(), model, provider: 'gemini' };
-    } catch (err) {
-      lastError = err;
-      if (err.response?.status === 400 && (err.response?.data?.error?.message?.includes('API key not valid') || err.response?.data?.error?.message?.includes('API_KEY_INVALID'))) {
-        throw err;
-      }
-      continue;
-    }
-  }
-
-  throw lastError || new Error('All Gemini models failed');
-}
-
-/** OpenAI-compatible chat completions (OpenAI, xAI). */
-async function callChatCompletions(provider, endpoint, models, apiKey, { prompt, isJson, timeout = 15000, ctx = {} }, isFatal) {
-  let lastError = null;
-
-  for (const model of models) {
-    try {
-      const payload = {
-        model,
-        messages: [{ role: 'user', content: prompt }],
-      };
-      if (isJson) payload.response_format = { type: 'json_object' };
-
-      const { response, log } = await attempt(
-        { provider, model, ctx },
-        () =>
-          axios.post(endpoint, payload, {
-            headers: {
-              Authorization: `Bearer ${apiKey.trim()}`,
-              'Content-Type': 'application/json',
-            },
-            timeout,
-          }),
-        chatUsage
-      );
-
-      const rawText = response.data?.choices?.[0]?.message?.content;
-      if (!rawText) {
-        log(false, 'EMPTY_RESPONSE');
-        continue;
-      }
-
-      if (isJson) {
-        const parsed = extractJSON(rawText);
-        if (!parsed) {
-          log(false, 'UNPARSEABLE');
-          continue;
-        }
-        log(true);
-        return { json: parsed, text: rawText, model, provider };
-      }
-
-      log(true);
-      return { text: rawText.trim(), model, provider };
-    } catch (err) {
-      lastError = err;
-      if (isFatal(err)) throw err;
-      continue;
-    }
-  }
-
-  throw lastError || new Error(`All ${provider} models failed`);
-}
-
-async function callXAI(apiKey, opts) {
-  if (!apiKey || !apiKey.trim()) throw new Error('GROK/xAI API key is not configured');
-  return callChatCompletions(
-    'xai',
-    'https://api.x.ai/v1/chat/completions',
-    ['grok-3-mini', 'grok-2-latest', 'grok-beta'],
-    apiKey,
-    opts,
-    (err) => err.response?.status === 400 || err.response?.status === 401
-  );
-}
-
-async function callOpenAI(apiKey, opts) {
-  if (!apiKey || !apiKey.trim()) throw new Error('OPENAI_API_KEY is not configured');
-  return callChatCompletions(
-    'openai',
-    'https://api.openai.com/v1/chat/completions',
-    ['gpt-4o-mini', 'gpt-4o'],
-    apiKey,
-    opts,
-    (err) => err.response?.status === 401
-  );
-}
-
-// ============================================
-// Multi-Provider Auto-Failover Orchestrator
-// ============================================
-function getProviderChain() {
-  const primaryPref = (process.env.AI_PROVIDER || 'gemini').toLowerCase();
-
-  const geminiKey = process.env.GEMINI_API_KEY?.trim();
-  const grokKey = (process.env.GROK_API_KEY || process.env.XAI_API_KEY || (process.env.OPENAI_API_KEY?.startsWith('xai-') ? process.env.OPENAI_API_KEY : null))?.trim();
-  const rawOpenAIKey = process.env.OPENAI_API_KEY?.trim();
-  const standardOpenAIKey = (rawOpenAIKey && !rawOpenAIKey.startsWith('xai-') ? rawOpenAIKey : null);
-
-  const available = {};
-
-  if (geminiKey) {
-    available.gemini = { name: 'Google Gemini', id: 'gemini', call: (opts) => callGemini(geminiKey, opts) };
-  }
-  if (grokKey) {
-    available.xai = { name: 'xAI (Grok)', id: 'xai', call: (opts) => callXAI(grokKey, opts) };
-  }
-  if (standardOpenAIKey) {
-    available.openai = { name: 'OpenAI', id: 'openai', call: (opts) => callOpenAI(standardOpenAIKey, opts) };
-  }
-
-  let order;
-  if (primaryPref === 'grok' || primaryPref === 'xai') {
-    order = ['xai', 'gemini', 'openai'];
-  } else if (primaryPref === 'openai') {
-    order = ['openai', 'gemini', 'xai'];
-  } else {
-    order = ['gemini', 'xai', 'openai'];
-  }
-
-  const chain = [];
-  for (const key of order) {
-    if (available[key]) chain.push(available[key]);
-  }
-
-  return chain;
+/**
+ * Kept under its old name for callers and tests; it is now the router.
+ * @param {object} args  see lib/ai/router.js callAI
+ */
+async function callAIWithFailover(args) {
+  return router.callAI(args);
 }
 
 /**
- * @param {object} args
- * @param {string} [args.jobType]  classification | summary | reply | admin_test — for ai_call_logs
- * @param {string} [args.tenantId] the customer the call is for, when there is one
+ * What the admin panel shows as "active": provider/model ids, whether each
+ * provider's key is configured (yes/no), and the fallback state. Never a key.
  */
-/**
- * Which provider would be tried first right now, which have a key, and what
- * last answered. Provider ids only — never a key. (Gate 4 replaces this with
- * the admin-selected AiConfig.)
- */
-function activeAiConfig() {
-  const chain = getProviderChain();
+async function activeAiConfig() {
+  const config = await router.getAiConfig();
   return {
-    primaryProvider: chain[0] ? chain[0].id : null,
-    configuredProviders: chain.map((p) => p.id),
+    primaryProvider: config.active.provider,
+    primaryModel: config.active.model,
+    keyConfigured: keyConfigured(config.active.provider),
+    fallback: config.fallbackEnabled ? config.fallback : null,
+    fallbackState: router.fallbackState(),
     lastSuccessfulProvider: aiStats.lastSuccessfulProvider,
     lastSuccessfulModel: aiStats.lastSuccessfulModel,
   };
 }
 
-async function callAIWithFailover({ prompt, isJson = true, timeout = 14000, jobType = 'unknown', tenantId = null }) {
-  const chain = getProviderChain();
-
-  if (chain.length === 0) {
-    // Tagged so callers can tell "we never made a network call" from "we
-    // called providers and they all failed". The billing layer charges a
-    // classification for the second and not the first — see
-    // analyzeConversation's `billable` flag.
-    const err = new Error('No AI provider keys configured in backend/.env');
-    err.code = 'NO_PROVIDERS_CONFIGURED';
-    throw err;
-  }
-
-  let lastError = null;
-
-  for (let i = 0; i < chain.length; i++) {
-    const provider = chain[i];
-    try {
-      const result = await provider.call({ prompt, isJson, timeout, ctx: { jobType, tenantId } });
-      if (result) {
-        aiStats.lastSuccessfulProvider = provider.id;
-        aiStats.lastSuccessfulModel = result.model;
-        return result;
-      }
-    } catch (err) {
-      lastError = err;
-      aiStats.providerFailovers++;
-      console.warn(`[AIService] Provider "${provider.name}" failed: ${err.message}. Trying the next one.`);
-    }
-  }
-
-  throw new Error(`All configured AI providers failed. Last error: ${lastError?.message}`);
+function noteSuccess(result) {
+  aiStats.lastSuccessfulProvider = result.provider;
+  aiStats.lastSuccessfulModel = result.model;
 }
 
 // ============================================
 // 1. Generalized Conversation Analysis
 // ============================================
-async function analyzeConversation({
-  messageText,
-  contactUsername,
-  recentMessages = [],
-  businessProfile = null,
-  preferences = null,
-  tenantId = null,
-}) {
-  if (!messageText || typeof messageText !== 'string') {
-    return {
-      category: 'other',
-      intent: 'unknown',
-      customerType: 'unknown',
-      purchaseIntent: 0,
-      leadQuality: 0,
-      commercialRelevance: 0,
-      urgency: 0,
-      riskLevel: 'LOW',
-      scamProbability: 0,
-      confidence: 0,
-      needsCreatorAttention: false,
-      shouldAutoReply: false,
-      summary: 'Nothing to read in this message.',
-      reason: 'The message has no text — it may be an attachment or a reaction.',
-      recommendedAction: 'REVIEW',
-      brandDeal: null,
-      model: 'keyword-engine',
-      priorityScore: 0,
-      priority: 'low',
-      failed: false,
-      // No provider was called — nothing was spent, so the billing layer
-      // must not charge the tenant a classification for this. See the
-      // `billable` note on the AI-call path below.
-      billable: false,
-    };
-  }
-
-  // Pre-filter
-  const keywordHit = classifyByKeywords(messageText);
-  if (keywordHit) {
-    aiStats.keywordMatches++;
-    aiStats.categoryCounts[keywordHit.category] = (aiStats.categoryCounts[keywordHit.category] || 0) + 1;
-    const scored = computePriorityScore(keywordHit, preferences);
-    return {
-      ...keywordHit,
-      model: 'keyword-engine',
-      priorityScore: scored.score,
-      priority: scored.priority,
-      failed: false,
-      billable: false, // keyword pre-filter answered it for free
-    };
-  }
-
-  aiStats.totalCalls++;
-  aiStats.messagesAnalyzed++;
-
+/**
+ * THE classification prompt — production and the admin model test (Gate 4)
+ * both use this, so a candidate model is tested on exactly what it will be
+ * asked in production.
+ */
+function buildClassificationPrompt({ messageText, contactUsername, recentMessages = [], businessProfile = null }) {
   const businessContext = formatBusinessProfileContext(businessProfile);
   const contextBlock = buildContextBlock(recentMessages, businessProfile?.businessName || 'Business Owner');
 
-  const prompt = `You read Instagram messages sent to a business and work out what the sender wants, how commercially serious they are, and whether anything about the message is unsafe.
+  return `You read Instagram messages sent to a business and work out what the sender wants, how commercially serious they are, and whether anything about the message is unsafe.
 
 ${OUTPUT_STYLE_CONTRACT}
 
@@ -736,9 +436,70 @@ Return ONLY valid JSON in this exact shape:
     "confidence": 0.0-1.0
   } or null
 }`;
+}
+
+async function analyzeConversation({
+  messageText,
+  contactUsername,
+  recentMessages = [],
+  businessProfile = null,
+  preferences = null,
+  tenantId = null,
+}) {
+  if (!messageText || typeof messageText !== 'string') {
+    return {
+      category: 'other',
+      intent: 'unknown',
+      customerType: 'unknown',
+      purchaseIntent: 0,
+      leadQuality: 0,
+      commercialRelevance: 0,
+      urgency: 0,
+      riskLevel: 'LOW',
+      scamProbability: 0,
+      confidence: 0,
+      needsCreatorAttention: false,
+      shouldAutoReply: false,
+      summary: 'Nothing to read in this message.',
+      reason: 'The message has no text — it may be an attachment or a reaction.',
+      recommendedAction: 'REVIEW',
+      brandDeal: null,
+      model: 'keyword-engine',
+      priorityScore: 0,
+      priority: 'low',
+      failed: false,
+      // No provider was called — nothing was spent, so the billing layer
+      // must not charge the tenant a classification for this. See the
+      // `billable` note on the AI-call path below.
+      billable: false,
+    };
+  }
+
+  // Pre-filter
+  const keywordHit = classifyByKeywords(messageText);
+  if (keywordHit) {
+    aiStats.keywordMatches++;
+    aiStats.categoryCounts[keywordHit.category] = (aiStats.categoryCounts[keywordHit.category] || 0) + 1;
+    const scored = computePriorityScore(keywordHit, preferences);
+    return {
+      ...keywordHit,
+      model: 'keyword-engine',
+      priorityScore: scored.score,
+      priority: scored.priority,
+      failed: false,
+      billable: false, // keyword pre-filter answered it for free
+    };
+  }
+
+  aiStats.totalCalls++;
+  aiStats.messagesAnalyzed++;
+
+  const prompt = buildClassificationPrompt({ messageText, contactUsername, recentMessages, businessProfile });
 
   try {
-    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true, jobType: 'classification', tenantId });
+    const result = await router.callAI({ prompt, isJson: true, jobType: 'classification', tenantId, validate: validateClassification });
+    noteSuccess(result);
+    const { json, model, provider } = result;
     const validated = validateAnalysisResult(json);
     const scored = computePriorityScore(validated, preferences);
 
@@ -859,7 +620,9 @@ ${safetyGuidelines}
 Draft the reply text:`;
 
   try {
-    const { text, model, provider } = await callAIWithFailover({ prompt, isJson: false, timeout: 15000, jobType: 'reply', tenantId });
+    const result = await router.callAI({ prompt, isJson: false, timeout: 15000, jobType: 'reply', tenantId });
+    noteSuccess(result);
+    const { text, model, provider } = result;
     aiStats.replyGenerations++;
     return {
       text: text?.replace(/^"|"$/g, '').trim() || null,
@@ -896,7 +659,9 @@ Return ONLY valid JSON:
 }`;
 
   try {
-    const { json, model, provider } = await callAIWithFailover({ prompt, isJson: true, jobType: 'summary', tenantId });
+    const result = await router.callAI({ prompt, isJson: true, jobType: 'summary', tenantId, validate: validateSummary });
+    noteSuccess(result);
+    const { json, model, provider } = result;
     aiStats.summariesGenerated++;
     return {
       summary: truncate(json?.summary, 600) || previousSummary || null,
@@ -926,5 +691,6 @@ module.exports = {
   validateAnalysisResult,
   getAIStats,
   callAIWithFailover,
+  buildClassificationPrompt,
   activeAiConfig,
 };
