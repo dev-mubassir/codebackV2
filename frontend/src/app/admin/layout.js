@@ -15,22 +15,34 @@
  * starts the login page unlocked rather than setting state synchronously in
  * the effect.
  *
- * Changed: `alert()` on a failed "stop viewing as customer" is now an inline
- * message; master's dark #1a1a2e sidebar and its horizontal-bar mobile layout
- * are replaced by the shared shell and its drawer.
+ * Changed: master's dark #1a1a2e sidebar and its horizontal-bar mobile
+ * layout are replaced by the shared shell and its drawer.
+ *
+ * Admin rebuild (Gate 1):
+ *   - impersonation is gone (it exposed customer DMs);
+ *   - the session is the separate admin session. It ends after 30 minutes
+ *     without ACTIVITY, and only a real click, keystroke or page change sends
+ *     the heartbeat below — the backend never counts a GET, so nothing that
+ *     refreshes on its own can keep an unattended panel signed in;
+ *   - destructive actions ask for the password again (StepUpProvider).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { getAdminMe, adminLogout, exitImpersonation } from '@/lib/api';
+import { getAdminMe, adminLogout, adminHeartbeat } from '@/lib/api';
 import Icon from '@/app/components/Icon';
-import { Avatar, Button, Skeleton } from '@/app/components/ui';
-import { admin as t, errors, nav as navCopy } from '@/content/copy';
+import { Avatar, Skeleton } from '@/app/components/ui';
+import { admin as t, nav as navCopy } from '@/content/copy';
+import { StepUpProvider } from './_components/StepUp';
 import shell from '@/app/components/ui/AppShell.module.css';
 import styles from './admin.module.css';
 
 const cx = (...p) => p.filter(Boolean).join(' ');
+
+// At most one heartbeat a minute. The idle limit is 30 minutes, so this is
+// fine-grained enough while keeping a busy admin from sending one per click.
+const HEARTBEAT_MIN_GAP_MS = 60 * 1000;
 
 const NAV_ITEMS = [
   { label: t.nav.dashboard, path: '/admin', icon: 'dashboard' },
@@ -46,11 +58,6 @@ export default function AdminLayout({ children }) {
   const [adminUsername, setAdminUsername] = useState('');
   const [loading, setLoading] = useState(() => pathname !== '/admin/login');
   const [authenticated, setAuthenticated] = useState(false);
-  // Never true today: GET /api/admin/me returns no impersonation flag, so the
-  // banner below has never rendered. Wiring it is impersonation behaviour,
-  // owned elsewhere — kept, restyled, reported.
-  const [impersonating] = useState(false);
-  const [exitError, setExitError] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerRef = useRef(null);
   const menuBtnRef = useRef(null);
@@ -70,7 +77,7 @@ export default function AdminLayout({ children }) {
           router.push('/admin/login');
         } else {
           setAuthenticated(true);
-          setAdminUsername(adminData.username || t.panelTitle);
+          setAdminUsername(adminData.email || t.panelTitle);
         }
       } catch {
         setAuthenticated(false);
@@ -83,6 +90,28 @@ export default function AdminLayout({ children }) {
   }, [router, isLoginPage]);
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+
+  // Activity heartbeat: real input and page changes only.
+  const lastBeat = useRef(0);
+  const beat = useCallback(() => {
+    const now = Date.now();
+    if (now - lastBeat.current < HEARTBEAT_MIN_GAP_MS) return;
+    lastBeat.current = now;
+    // A failure here is either the network or an ended session; the next
+    // real request surfaces the latter through the api.js interceptor.
+    adminHeartbeat().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!authenticated) return undefined;
+    const events = ['pointerdown', 'keydown'];
+    events.forEach((e) => window.addEventListener(e, beat, { passive: true }));
+    return () => events.forEach((e) => window.removeEventListener(e, beat));
+  }, [authenticated, beat]);
+
+  useEffect(() => {
+    if (authenticated) beat();
+  }, [pathname, authenticated, beat]);
 
   useEffect(() => {
     if (!drawerOpen) return undefined;
@@ -102,16 +131,6 @@ export default function AdminLayout({ children }) {
       await adminLogout();
     } finally {
       window.location.href = '/admin/login';
-    }
-  }
-
-  async function handleExitImpersonation() {
-    setExitError('');
-    try {
-      await exitImpersonation();
-      window.location.href = '/admin';
-    } catch {
-      setExitError(errors.admin.exitImpersonate);
     }
   }
 
@@ -208,14 +227,7 @@ export default function AdminLayout({ children }) {
 
         <div className={shell.content}>
           <div className={shell.contentInner}>
-            {impersonating && (
-              <div className={styles.impersonation} role="status">
-                <span>{t.impersonation.banner}</span>
-                <Button size="sm" onClick={handleExitImpersonation}>{t.impersonation.exit}</Button>
-              </div>
-            )}
-            {exitError && <p className={cx(styles.notice, styles.noticeError)} role="alert">{exitError}</p>}
-            {children}
+            <StepUpProvider>{children}</StepUpProvider>
           </div>
         </div>
       </div>

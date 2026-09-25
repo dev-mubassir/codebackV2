@@ -25,7 +25,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import { buildTestApp } from './helpers/app.js';
-import { prisma, resetDb, createUser, createAccount, uniq } from './helpers/db.js';
+import { prisma, resetDb, createUser, createAdmin, createAccount, uniq } from './helpers/db.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios');
@@ -39,12 +39,11 @@ const BACKEND_ROOT = join(HERE, '..');
 const SECRET = 'test-cashfree-secret-not-real';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const bcrypt = (await import('bcryptjs')).default;
-const ADMIN_USERNAME = 'refund-admin';
-const ADMIN_PASSWORD = 'refund-admin-pass-for-tests';
-process.env.ADMIN_USERNAME = ADMIN_USERNAME;
-process.env.ADMIN_PASSWORD_HASH = await bcrypt.hash(ADMIN_PASSWORD, 4);
-delete process.env.ADMIN_PASSWORD;
+// Admin rebuild, Gate 1: the admin is an AdminUser (created per test, since
+// resetDb clears admin_users), mutations need an allowlisted Origin, and
+// initiating a refund needs a recent step-up. None of that changes refund
+// behaviour, which is what this file tests.
+const ORIGIN = 'https://app.test.local';
 
 let app;
 let paymentSeq = 50000;
@@ -147,12 +146,18 @@ function deliverRefundWebhook({ orderId, refundId, status, amountMinor, cfRefund
 }
 
 let ipSeq = 0;
-/** A logged-in admin. Each login from its own address: the admin login limiter allows 5 per address. */
+/**
+ * A logged-in, stepped-up admin, from its own address (the admin limiters are
+ * per IP). Origin and address are agent defaults, so every call below carries
+ * them without repeating them.
+ */
 async function adminAgent() {
-  const agent = request.agent(app);
+  const { admin, password } = await createAdmin();
   const ip = `10.77.${Math.floor(ipSeq / 250)}.${(ipSeq++ % 250) + 1}`;
-  const res = await agent.post('/api/admin/login').set('X-Forwarded-For', ip).send({ username: ADMIN_USERNAME, password: ADMIN_PASSWORD });
+  const agent = request.agent(app).set('Origin', ORIGIN).set('X-Forwarded-For', ip);
+  const res = await agent.post('/api/admin/login').send({ email: admin.email, password });
   expect(res.status).toBe(200);
+  expect((await agent.post('/api/admin/step-up').send({ password })).status).toBe(200);
   return agent;
 }
 
@@ -170,7 +175,7 @@ beforeAll(async () => {
   process.env.CASHFREE_APP_ID = process.env.CASHFREE_APP_ID || 'test-cashfree-app';
   const adminRoutes = (await import('../src/routes/admin.js')).default;
   const webhookRoutes = (await import('../src/routes/cashfreeWebhooks.js')).default;
-  app = buildTestApp({ mount: { '/api/admin': adminRoutes, '/webhooks/cashfree': webhookRoutes } });
+  app = buildTestApp({ admin: adminRoutes, mount: { '/webhooks/cashfree': webhookRoutes } });
 });
 
 let alert;
@@ -197,8 +202,11 @@ const alertKinds = () => alert.mock.calls.map((c) => c[1].kind);
 
 describe('11b — the admin endpoint and the refund policy', () => {
   it('requires an admin session', async () => {
-    const res = await request(app).post('/api/admin/billing/orders/sfy_x/refunds').send({ reason: 'x' });
-    expect(res.status).toBe(401);
+    // 404, not 401: the admin API answers every non-admin exactly like an
+    // unknown URL (admin rebuild, Gate 1).
+    const res = await request(app).post('/api/admin/billing/orders/sfy_x/refunds').set('Origin', ORIGIN).send({ reason: 'x' });
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Not found.' });
   });
 
   it('reports eligibility with the usage numbers it decided on', async () => {

@@ -155,7 +155,8 @@ describe('frontend: PasswordInput is bound to actual password fields', () => {
         (f) => f.tag === 'PasswordInput'
       ).length;
     }
-    // login 1, register 2, reset-password 2, profile 3, admin/login 1
-    expect(passwordInputs, 'expected the nine converted password fields').toBe(9);
+    // login 1, register 2, reset-password 2, profile 3, admin/login 1,
+    // admin step-up dialog 1, admin settings change-password 3 (current, new, repeat)
+    expect(passwordInputs, 'expected the thirteen password fields').toBe(13);
   });
 });

@@ -1,29 +1,31 @@
 'use client';
 
 /**
- * Admin — connected Instagram accounts: filter, export, and the three
- * per-account actions.
+ * Admin — connected Instagram accounts: filter, export, and the per-account
+ * actions (refresh access, resubscribe, mark for reconnect).
  *
- * Data layer is master's, including the Gate-1 initial load (see admin/users).
+ * Admin rebuild (Gate 1):
+ *   - every action asks for a written reason, which the audit log records;
+ *   - Disconnect is gone: it hard-deleted the account and every conversation
+ *     under it. Deleting data returns in Gate 5 on top of the real deletion
+ *     path;
+ *   - the CSV export needs step-up, confirmed before the download starts.
  *
- * Changed:
- *   - Disconnect used window.confirm() with the handle spliced into the title
- *     by string replace. It is the shared Modal now, handle on its own line.
- *   - Success and failure notices were both rendered in the warning style, so
- *     "access refreshed" and "couldn't refresh" looked identical. Each notice
- *     now carries the tone it already had in state.
- *   - The account picture was a bare <img> with no fallback when Instagram's
- *     URL expires; it is the shared Avatar, which falls back to the initial.
+ * Success and failure notices keep their own tone, and the account picture is
+ * the shared Avatar, which falls back to the initial when Instagram's URL
+ * expires.
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { getAdminAccounts, refreshAccountToken, resubscribeAccountWebhook, disconnectAccountAdmin } from '@/lib/api';
+import { getAdminAccounts, refreshAccountToken, resubscribeAccountWebhook, markAccountNeedsReconnect } from '@/lib/api';
 import Icon from '@/app/components/Icon';
-import { Avatar, Badge, Button, Input, Modal, Select, Skeleton } from '@/app/components/ui';
+import { Avatar, Badge, Button, Input, Select, Skeleton } from '@/app/components/ui';
 import { admin as t, common, errors, empty, confirm as confirmCopy, toast } from '@/content/copy';
 import { tokenStatusLabel } from '@/content/labels';
 import { formatDateTime, formatCount } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import ReasonDialog from '../_components/ReasonDialog';
+import { StepUpCancelled, useStepUp } from '../_components/StepUp';
 import styles from '../admin.module.css';
 
 const NOTICE_TONE = { success: styles.noticeSuccess, error: styles.noticeError };
@@ -32,15 +34,26 @@ const NOTICE_TONE = { success: styles.noticeSuccess, error: styles.noticeError }
 // on the customer's own profile page, not the danger labels.js assigns it.
 const connectionTone = (tone) => (tone === 'positive' ? 'positive' : 'warning');
 
+/** What each action is called, what it calls, and what it says afterwards. */
+const ACTIONS = {
+  refresh: { copy: confirmCopy.adminRefreshToken, run: refreshAccountToken, done: toast.adminTokenRefreshed, error: errors.admin.refreshToken },
+  resubscribe: { copy: confirmCopy.adminResubscribe, run: resubscribeAccountWebhook, done: toast.adminResubscribed, error: errors.admin.resubscribe },
+  markReconnect: { copy: confirmCopy.adminMarkReconnect, run: markAccountNeedsReconnect, done: toast.adminMarkedReconnect, error: errors.admin.markReconnect },
+};
+
+const handleOf = (acc) => `@${acc.igUsername || 'unknown'}`;
+
 export default function AdminAccountsPage() {
   const [accounts, setAccounts] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
-  const [disconnecting, setDisconnecting] = useState(null);
-  const [disconnectBusy, setDisconnectBusy] = useState(false);
-  const [disconnectError, setDisconnectError] = useState('');
+  // { kind: keyof ACTIONS, account }
+  const [pending, setPending] = useState(null);
+  const [pendingBusy, setPendingBusy] = useState(false);
+  const [pendingError, setPendingError] = useState('');
+  const { ensureStepUp } = useStepUp();
 
   const loadAccounts = useCallback(async (searchQuery = search, status = statusFilter) => {
     setLoading(true);
@@ -76,52 +89,45 @@ export default function AdminAccountsPage() {
     loadAccounts(search, statusFilter);
   }
 
-  async function handleRefresh(acc) {
+  async function handleExport() {
     try {
-      await refreshAccountToken(acc.id);
-      setNotice({ tone: 'success', text: `${toast.adminTokenRefreshed} for @${acc.igUsername}` });
-      await loadAccounts();
-    } catch {
-      setNotice({ tone: 'error', text: `${errors.admin.refreshToken} @${acc.igUsername}` });
+      await ensureStepUp();
+      window.location.assign(`${BACKEND_URL}/api/admin/accounts/export/csv`);
+    } catch (err) {
+      if (!(err instanceof StepUpCancelled)) setNotice({ tone: 'error', text: errors.admin.export });
     }
   }
 
-  async function handleResubscribe(acc) {
-    try {
-      await resubscribeAccountWebhook(acc.id);
-      setNotice({ tone: 'success', text: `${toast.adminResubscribed} for @${acc.igUsername}` });
-      await loadAccounts();
-    } catch {
-      setNotice({ tone: 'error', text: `${errors.admin.resubscribe} @${acc.igUsername}` });
-    }
+  function openAction(kind, account) {
+    setPendingError('');
+    setPending({ kind, account });
   }
 
-  function openDisconnect(acc) {
-    setDisconnectError('');
-    setDisconnecting(acc);
-  }
+  const closeAction = useCallback(() => {
+    if (pendingBusy) return;
+    setPending(null);
+    setPendingError('');
+  }, [pendingBusy]);
 
-  const closeDisconnect = useCallback(() => {
-    if (disconnectBusy) return;
-    setDisconnecting(null);
-    setDisconnectError('');
-  }, [disconnectBusy]);
-
-  async function handleDisconnect() {
-    if (!disconnecting) return;
-    setDisconnectBusy(true);
-    setDisconnectError('');
+  async function handleConfirm(reason) {
+    if (!pending) return;
+    const { kind, account } = pending;
+    const action = ACTIONS[kind];
+    setPendingBusy(true);
+    setPendingError('');
     try {
-      await disconnectAccountAdmin(disconnecting.id);
-      setDisconnecting(null);
-      setNotice({ tone: 'success', text: toast.adminAccountDisconnected });
+      await action.run(account.id, reason);
+      setPending(null);
+      setNotice({ tone: 'success', text: `${action.done} for ${handleOf(account)}` });
       await loadAccounts();
-    } catch {
-      setDisconnectError(errors.admin.disconnect);
+    } catch (err) {
+      setPendingError(err?.response?.data?.error || action.error);
     } finally {
-      setDisconnectBusy(false);
+      setPendingBusy(false);
     }
   }
+
+  const dialog = pending ? ACTIONS[pending.kind] : null;
 
   return (
     <div className={styles.stack}>
@@ -153,14 +159,9 @@ export default function AdminAccountsPage() {
           <Button type="submit" size="sm">{common.filter}</Button>
         </form>
 
-        <a
-          href={`${BACKEND_URL}/api/admin/accounts/export/csv`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={styles.linkBtn}
-        >
+        <Button size="sm" onClick={handleExport}>
           <Icon name="download" size={13} /> {t.accounts.exportCsv}
-        </a>
+        </Button>
       </div>
 
       {notice && (
@@ -207,7 +208,7 @@ export default function AdminAccountsPage() {
                       <div className={styles.cellIdentity}>
                         <Avatar src={acc.igProfilePic} name={acc.igUsername} size={32} decorative />
                         <div>
-                          <div className={styles.cellPrimary}>@{acc.igUsername || 'unknown'}</div>
+                          <div className={styles.cellPrimary}>{handleOf(acc)}</div>
                           <div className={styles.cellSub}>{t.accounts.instagramId} {acc.igUserId}</div>
                         </div>
                       </div>
@@ -226,15 +227,17 @@ export default function AdminAccountsPage() {
 
                     <td className={styles.alignRight}>
                       <div className={styles.rowActions}>
-                        <Button size="sm" onClick={() => handleRefresh(acc)}>
+                        <Button size="sm" onClick={() => openAction('refresh', acc)}>
                           <Icon name="refresh" size={13} /> {t.accounts.refreshToken}
                         </Button>
-                        <Button size="sm" onClick={() => handleResubscribe(acc)}>
+                        <Button size="sm" onClick={() => openAction('resubscribe', acc)}>
                           <Icon name="zap" size={13} /> {t.accounts.resubscribe}
                         </Button>
-                        <Button size="sm" variant="danger" onClick={() => openDisconnect(acc)}>
-                          {t.accounts.disconnect}
-                        </Button>
+                        {acc.tokenStatus !== 'NEEDS_RECONNECT' && (
+                          <Button size="sm" onClick={() => openAction('markReconnect', acc)}>
+                            {t.accounts.markReconnect}
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -245,27 +248,17 @@ export default function AdminAccountsPage() {
         </div>
       </section>
 
-      {disconnecting && (
-        <Modal
-          title={confirmCopy.adminDisconnectAccount.title}
-          onClose={closeDisconnect}
-          actions={(
-            <>
-              <Button size="sm" onClick={closeDisconnect} disabled={disconnectBusy}>{common.cancel}</Button>
-              <Button size="sm" variant="danger" onClick={handleDisconnect} loading={disconnectBusy}>
-                {confirmCopy.adminDisconnectAccount.action}
-              </Button>
-            </>
-          )}
-        >
-          <p className={styles.dialogWho}>@{disconnecting.igUsername || 'unknown'}</p>
-          <p className={styles.dialogBody}>{confirmCopy.adminDisconnectAccount.body}</p>
-          {disconnectError && (
-            <p className={`${styles.notice} ${styles.noticeError} ${styles.dialogError}`} role="alert">
-              {disconnectError}
-            </p>
-          )}
-        </Modal>
+      {pending && dialog && (
+        <ReasonDialog
+          title={dialog.copy.title}
+          who={handleOf(pending.account)}
+          body={dialog.copy.body}
+          actionLabel={dialog.copy.action}
+          busy={pendingBusy}
+          error={pendingError}
+          onConfirm={handleConfirm}
+          onClose={closeAction}
+        />
       )}
     </div>
   );

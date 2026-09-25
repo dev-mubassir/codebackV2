@@ -15,6 +15,8 @@ export const uniq = (label) => `${label}-${Date.now()}-${seq++}`;
 
 /** Wipe every table, children first. Used in beforeEach. */
 export async function resetDb() {
+  await prisma.adminAuditLog.deleteMany({});
+  await prisma.adminUser.deleteMany({});
   await prisma.adminLog.deleteMany({});
   await prisma.webhookLog.deleteMany({});
   // Auth-hardening tables. The first three cascade from User, but deleting
@@ -54,6 +56,18 @@ export async function resetDb() {
   await prisma.creatorPreference.deleteMany({});
   await prisma.businessProfile.deleteMany({});
   await prisma.user.deleteMany({});
+}
+
+/**
+ * A super-admin (admin_users, never users) with a known password. Hashed with
+ * the production Argon2id profile — the admin path has no bcrypt legacy.
+ */
+export async function createAdmin({ email, password = 'admin-password-for-tests-0001' } = {}) {
+  const { hashPassword } = await import('../../src/lib/password.js');
+  const admin = await prisma.adminUser.create({
+    data: { email: (email || `${uniq('admin')}@test.codeback`).toLowerCase(), passwordHash: await hashPassword(password) },
+  });
+  return { admin, password };
 }
 
 /** A registered tenant with a known password, ready to log in over HTTP. */

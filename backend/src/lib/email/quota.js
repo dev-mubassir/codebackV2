@@ -115,6 +115,21 @@ const CRITICAL_TYPES = new Set([
   'renewalGraceFinal',
 ]);
 
+/**
+ * Admin security mail — login alerts, lockouts, and (from Gate 7) the alert
+ * cron — has its OWN daily bucket, entirely outside the shared cap above.
+ *
+ * Why separate rather than just "deferrable":
+ *   - a lockout alert is a security signal; a day of trial notices must not be
+ *     able to starve it, which is what sharing the deferrable pool would allow;
+ *   - it must also never touch the critical reserve a password reset needs,
+ *     which is what classifying it as critical would allow.
+ * So neither pool can drain the other. Worst case for the provider is
+ * DEFAULT_DAILY_CAP + ADMIN_DAILY_CAP = 90, still under Resend's 100/day.
+ */
+const ADMIN_TYPES = new Set(['adminSecurityAlert']);
+const ADMIN_DAILY_CAP = 10;
+
 function dailyCap() {
   const raw = parseInt(process.env.EMAIL_DAILY_CAP || '', 10);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_CAP;
@@ -139,6 +154,7 @@ function criticalReserve() {
 // ---------------------------------------------------------------------------
 let dayKey = null;
 let sentToday = 0;
+let adminSentToday = 0;
 const perRecipient = new Map(); // `${type}:${recipient}` -> { count, resetAt }
 
 function today() {
@@ -150,6 +166,7 @@ function rollDayIfNeeded() {
   if (dayKey !== key) {
     dayKey = key;
     sentToday = 0;
+    adminSentToday = 0;
   }
 }
 
@@ -175,6 +192,21 @@ if (typeof sweep.unref === 'function') sweep.unref();
  */
 function check(type, recipient) {
   rollDayIfNeeded();
+
+  // The admin bucket is checked on its own and never falls through to the
+  // shared cap — see ADMIN_TYPES. No per-recipient throttle either: a burst of
+  // lockouts is exactly the thing the owner needs to see, and the daily cap
+  // already bounds it.
+  if (ADMIN_TYPES.has(type)) {
+    if (adminSentToday >= ADMIN_DAILY_CAP) {
+      return {
+        ok: false,
+        reason: 'admin_daily_cap',
+        detail: `admin alert cap reached (${adminSentToday}/${ADMIN_DAILY_CAP})`,
+      };
+    }
+    return { ok: true };
+  }
 
   const cap = dailyCap();
   const reserve = criticalReserve();
@@ -208,6 +240,10 @@ function check(type, recipient) {
 /** Consume quota. Call ONLY after a send actually succeeded. */
 function recordSend(type, recipient) {
   rollDayIfNeeded();
+  if (ADMIN_TYPES.has(type)) {
+    adminSentToday += 1;
+    return;
+  }
   sentToday += 1;
 
   const key = `${type}:${String(recipient).toLowerCase()}`;
@@ -233,6 +269,8 @@ function stats() {
     deferrableLimit: cap - reserve,
     remainingCritical: Math.max(0, cap - sentToday),
     remainingDeferrable: Math.max(0, cap - reserve - sentToday),
+    adminSentToday,
+    adminCap: ADMIN_DAILY_CAP,
   };
 }
 
@@ -240,6 +278,7 @@ function stats() {
 function _reset() {
   dayKey = today();
   sentToday = 0;
+  adminSentToday = 0;
   perRecipient.clear();
 }
 
@@ -249,6 +288,8 @@ module.exports = {
   stats,
   _reset,
   CRITICAL_TYPES,
+  ADMIN_TYPES,
+  ADMIN_DAILY_CAP,
   PER_RECIPIENT_MAX,
   PER_RECIPIENT_MAX_BY_TYPE,
   DEFAULT_DAILY_CAP,

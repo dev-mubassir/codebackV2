@@ -34,6 +34,17 @@ data. It waits for:
 2. The Entitlement backfill confirmed correct against real production rows, and
 3. Explicit owner approval.
 
+### `20260924130000_retire_legacy_admin_users`
+
+Admin rebuild, Gate 1. Copies the old `admin_logs` history of legacy admin
+rows into `admin_audit_logs`, demotes every `users.role = 'ADMIN'` row to
+`USER`, and suspends the fake `admin@codeback.internal` row (never deletes
+it — `admin_logs` would cascade). Waits for:
+
+1. The rows listed by `backend/scripts/list-legacy-admin-users.js` against
+   production, and
+2. Explicit owner approval.
+
 ## How to promote one when approved
 
 ```bash

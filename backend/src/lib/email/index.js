@@ -205,7 +205,10 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
       `[email] QUOTA BLOCKED "${subject}" (${type}) — ${allowed.detail}. ` +
         `Today: ${sentToday}/${cap}, ${reserve} reserved for critical sends.`
     );
-    markTransportFailed(`email quota: ${allowed.detail}`);
+    // The admin bucket filling up says nothing about whether CUSTOMER mail can
+    // be delivered, so it must not flip the degraded flag that forgot-password
+    // answers from.
+    if (allowed.reason !== 'admin_daily_cap') markTransportFailed(`email quota: ${allowed.detail}`);
     const err = new Error(`Email quota reached: ${allowed.detail}`);
     err.quota = allowed.reason;
     throw err;
@@ -349,6 +352,14 @@ module.exports = {
     if (!type) throw new Error(`email.sendContactEnquiry: unknown kind "${kind}"`);
     return deliver(to, type, templates.contactEnquiry({ kind, ...details }), { replyTo: details.fromEmail });
   },
+
+  /**
+   * ADMIN bucket (quota.js ADMIN_TYPES) — its own 10/day cap, outside the
+   * shared cap and never touching the critical reserve.
+   * kind: 'login' | 'lockout'.
+   */
+  sendAdminSecurityAlert: (to, { kind, facts }) =>
+    deliver(to, 'adminSecurityAlert', templates.adminSecurityAlert({ kind, facts })),
 
   sendDeletionConfirmation: (to, { igUsername, accountDeleted, confirmationCode, statusUrl }) =>
     deliver(

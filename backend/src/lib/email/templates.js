@@ -457,6 +457,38 @@ const templates = {
     };
   },
 
+  /**
+   * Admin security alerts — to the admin's own address, never a customer.
+   * `facts` are server-produced (time, IP, user agent), but the user agent is
+   * attacker-controlled text, so every value is escaped and flattened.
+   */
+  adminSecurityAlert({ kind, facts = {} }) {
+    const copy = {
+      login: {
+        heading: 'New sign-in to the Siffty admin panel',
+        lead: 'Someone signed in to the admin panel with your admin account.',
+        next: 'If this was not you, run scripts/reset-admin-password.js immediately. That also signs out every admin session.',
+      },
+      lockout: {
+        heading: 'Admin account locked after failed sign-ins',
+        lead: 'Your admin account was locked for 15 minutes after repeated wrong passwords.',
+        next: 'If this was not you, someone is guessing your admin password. Consider resetting it with scripts/reset-admin-password.js.',
+      },
+    }[kind] || { heading: `Admin alert: ${kind}`, lead: 'An admin security event occurred.', next: 'Check the admin audit log.' };
+
+    const lines = Object.entries(facts).map(([k, v]) => `${k}: ${oneLine(v, 300)}`);
+    return {
+      subject: `[Siffty admin] ${copy.heading}`,
+      text: `${copy.lead}\n\n${lines.join('\n')}\n\n${copy.next}\n`,
+      html: wrap(
+        escapeHtml(copy.heading),
+        `<p style="margin:0;font-size:15px;line-height:1.5;">${escapeHtml(copy.lead)}</p>
+         <ul style="margin:16px 0 0;padding-left:20px;font-size:14px;line-height:1.6;">${lines.map((l) => `<li><code>${escapeHtml(l)}</code></li>`).join('')}</ul>
+         <p style="margin:20px 0 0;font-size:13px;color:#6b7280;">${escapeHtml(copy.next)}</p>`
+      ),
+    };
+  },
+
   trialEnding({ daysLeft, dashboardUrl }) {
     const when = daysLeft <= 0 ? 'has ended' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
     return {

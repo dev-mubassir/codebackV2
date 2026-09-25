@@ -617,12 +617,28 @@ export const admin = {
     eyebrow: 'Admin',
     title: 'Siffty admin',
     subtitle: 'Staff sign-in.',
-    usernameLabel: 'Username',
-    usernamePlaceholder: 'Enter username',
+    emailLabel: 'Email',
+    emailPlaceholder: 'you@siffty.com',
     passwordLabel: 'Password',
     passwordPlaceholder: 'Enter password',
     submit: 'Log in',
     submitting: 'Checking…',
+    expired: 'Your admin session ended. Sign in again.',
+  },
+
+  // Shared by every action that needs a written reason, and by step-up.
+  reason: {
+    label: 'Reason',
+    hint: 'Recorded in the audit log. 3 to 500 characters.',
+    placeholder: 'Why are you doing this?',
+  },
+  stepUp: {
+    title: 'Confirm your password',
+    body: 'This action needs your admin password again. It stays confirmed for five minutes.',
+    label: 'Admin password',
+    action: 'Confirm',
+    wrong: 'That password is not right.',
+    failed: "Couldn't confirm your password. Try again.",
   },
 
   nav: {
@@ -631,11 +647,6 @@ export const admin = {
     accounts: 'Connected accounts',
     support: 'Support lookup',
     settings: 'Settings',
-  },
-
-  impersonation: {
-    banner: 'You are viewing the app as a customer.',
-    exit: 'Stop viewing',
   },
 
   dashboard: {
@@ -686,10 +697,9 @@ export const admin = {
     unnamed: 'No name set',
     noEmail: 'No email set',
     suspended: 'Suspended',
-    impersonate: 'View as customer',
+    active: 'Active',
     suspend: 'Suspend',
     unsuspend: 'Restore',
-    delete: 'Delete',
     paginationLabel: 'Page',
     paginationOf: 'of',
   },
@@ -711,7 +721,7 @@ export const admin = {
     empty: 'No connected accounts match that search.',
     refreshToken: 'Refresh access',
     resubscribe: 'Resubscribe',
-    disconnect: 'Disconnect',
+    markReconnect: 'Mark for reconnect',
     instagramId: 'Instagram ID',
   },
 
@@ -724,25 +734,30 @@ export const admin = {
     matchedAccounts: 'Matched accounts',
     owner: 'Owner',
     empty: 'Nothing matched that search.',
-    inspectorTitle: 'Conversation',
-    inspectorClose: 'Close',
-    inbound: 'Received',
-    outbound: 'Sent',
   },
 
   settings: {
     adminsTitle: 'Administrators',
-    adminsColumns: { name: 'Name', email: 'Email', role: 'Role', granted: 'Granted' },
+    adminsNote: 'Admins are added and reset only with the scripts in backend/scripts — see ADMIN.md.',
+    adminsColumns: { email: 'Email', lastLogin: 'Last sign-in', passwordChanged: 'Password changed', created: 'Created' },
     environmentTitle: 'Server configuration',
     rows: {
-      port: 'Backend port',
       frontendUrl: 'App address',
-      redirectUri: 'Instagram redirect address',
-      signatureVerification: 'Webhook signature checks',
       nodeEnv: 'Environment',
     },
-    signatureEnforced: 'Enforced',
-    signatureSkipped: 'Skipped — test mode',
+    password: {
+      title: 'Change your password',
+      body: 'Every other admin session is signed out when you change it.',
+      current: 'Current password',
+      next: 'New password',
+      nextHint: 'At least 16 characters.',
+      confirm: 'Repeat new password',
+      submit: 'Change password',
+      mismatch: 'The two new passwords do not match.',
+      tooShort: 'Use at least 16 characters.',
+      done: 'Password changed. Other admin sessions were signed out.',
+      failed: "Couldn't change your password.",
+    },
   },
 };
 
@@ -795,15 +810,12 @@ export const errors = {
     accounts: "Couldn't load connected accounts. Refresh to try again.",
     settings: "Couldn't load server configuration. Refresh to try again.",
     search: "Couldn't run that search. Try again.",
-    conversation: "Couldn't open that conversation. Try again.",
-    login: 'That username or password is not right.',
+    login: 'That email or password is not right.',
     suspend: "Couldn't change that customer's status. Try again.",
-    deleteUser: "Couldn't delete that customer. Try again.",
-    impersonate: "Couldn't open the customer view. Try again.",
-    exitImpersonate: "Couldn't leave the customer view. Reload the page.",
     refreshToken: "Couldn't refresh access with Meta.",
     resubscribe: "Couldn't resubscribe with Meta.",
-    disconnect: "Couldn't disconnect that account. Try again.",
+    markReconnect: "Couldn't update that account. Try again.",
+    export: "Couldn't start that export. Try again.",
   },
 
   // Shown on the landing page after a failed Instagram OAuth redirect
@@ -915,10 +927,9 @@ export const toast = {
   templateLoaded: 'Starter content loaded',
   adminUserSuspended: 'Customer suspended',
   adminUserRestored: 'Customer restored',
-  adminUserDeleted: 'Customer deleted',
   adminTokenRefreshed: 'Access refreshed',
   adminResubscribed: 'Webhook resubscribed',
-  adminAccountDisconnected: 'Account disconnected',
+  adminMarkedReconnect: 'Marked for reconnect',
 };
 
 export const confirm = {
@@ -967,20 +978,20 @@ export const confirm = {
     body: 'They can log in again straight away.',
     action: 'Restore',
   },
-  adminDeleteUser: {
-    title: 'Delete this customer?',
-    body: 'This erases their account, connected Instagram accounts, and every conversation. It cannot be undone.',
-    action: 'Delete customer',
+  adminRefreshToken: {
+    title: 'Refresh Instagram access?',
+    body: 'Asks Meta for a fresh long-lived token for this account.',
+    action: 'Refresh access',
   },
-  adminImpersonate: {
-    title: 'View the app as this customer?',
-    body: 'You will see their dashboard and their conversations. This is recorded in the audit log.',
-    action: 'View as customer',
+  adminResubscribe: {
+    title: 'Resubscribe to Meta deliveries?',
+    body: 'Asks Meta to send this account’s messages to Siffty again.',
+    action: 'Resubscribe',
   },
-  adminDisconnectAccount: {
-    title: 'Disconnect this account?',
-    body: 'The customer stops receiving new messages until they reconnect.',
-    action: 'Disconnect',
+  adminMarkReconnect: {
+    title: 'Mark this account for reconnect?',
+    body: 'The customer is shown a reconnect prompt. Nothing is deleted.',
+    action: 'Mark for reconnect',
   },
 };
 

@@ -5,32 +5,24 @@
  *
  * Data layer is master's.
  *
- * Changed: the page repeated its own title under the topbar, which already
- * says "Support lookup" — only the one-line description stays. Inline styles
- * became classes, the results grid collapses to one column on narrow screens
- * (master's was a fixed two columns at every width), and the conversation
- * inspector is the shared Modal.
+ * The results grid collapses to one column on narrow screens.
  *
- * NOT reachable, in master or here: nothing calls handleInspectConversation,
- * and the search endpoint returns customers and accounts, not conversations,
- * so there is no id to open. The inspector is kept and restyled so that
- * wiring it later is a data change only. Reported.
+ * Admin rebuild (Gate 1): the conversation inspector is REMOVED, frontend and
+ * backend. It rendered customers' Instagram DMs, and the admin panel shows
+ * counts and metadata only — never message content.
  */
 
 import { useState } from 'react';
-import { supportSearch, getSupportConversation } from '@/lib/api';
-import { Badge, Button, Input, Modal, Skeleton } from '@/app/components/ui';
+import { supportSearch } from '@/lib/api';
+import { Badge, Button, Input, Skeleton } from '@/app/components/ui';
 import { admin as t, common, errors, empty } from '@/content/copy';
 import { tokenStatusLabel } from '@/content/labels';
-import { formatDateTime } from '@/content/format';
 import styles from '../admin.module.css';
 
 export default function AdminSupportPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState({ users: [], accounts: [] });
   const [loading, setLoading] = useState(false);
-  const [selectedConversation, setSelectedConversation] = useState(null);
-  const [, setLoadingConv] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState('');
 
@@ -48,18 +40,6 @@ export default function AdminSupportPage() {
       setError(errors.admin.search);
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleInspectConversation(convId) {
-    setLoadingConv(true);
-    try {
-      const data = await getSupportConversation(convId);
-      setSelectedConversation(data);
-    } catch {
-      setError(errors.admin.conversation);
-    } finally {
-      setLoadingConv(false);
     }
   }
 
@@ -164,26 +144,6 @@ export default function AdminSupportPage() {
         </div>
       )}
 
-      {selectedConversation && (
-        <Modal
-          title={`${t.support.inspectorTitle} — @${selectedConversation.instagramAccount?.igUsername} and @${selectedConversation.contact?.username}`}
-          onClose={() => setSelectedConversation(null)}
-          actions={(
-            <Button size="sm" onClick={() => setSelectedConversation(null)}>{t.support.inspectorClose}</Button>
-          )}
-        >
-          <div className={styles.thread}>
-            {selectedConversation.messages?.map((m) => (
-              <div key={m.id} className={`${styles.bubble} ${m.direction === 'outbound' ? styles.bubbleOut : styles.bubbleIn}`}>
-                <div>{m.content}</div>
-                <div className={styles.bubbleMeta}>
-                  {m.direction === 'outbound' ? t.support.outbound : t.support.inbound} · {formatDateTime(m.createdAt)}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

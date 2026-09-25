@@ -14,17 +14,33 @@ const api = axios.create({
   },
 });
 
+/**
+ * Admin pages: an admin API call that comes back as "not an admin" (the
+ * generic 404 — the backend answers every non-admin that way) or as an
+ * expired admin session (401 ADMIN_SESSION_EXPIRED) sends the browser to the
+ * admin sign-in. A 404 with any OTHER body is a real "that record no longer
+ * exists" and is left to the page.
+ */
+function isAdminSignOut(error) {
+  const res = error.response;
+  if (!res) return null;
+  const url = String(error.config?.url || '');
+  if (!url.startsWith('/api/admin') || url.startsWith('/api/admin/login')) return null;
+  if (res.status === 401 && res.data?.code === 'ADMIN_SESSION_EXPIRED') return 'expired';
+  if (res.status === 404 && res.data?.error === 'Not found.') return 'signed-out';
+  return null;
+}
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const reason = typeof window !== 'undefined' ? isAdminSignOut(error) : null;
     if (
-      error.response &&
-      error.response.status === 401 &&
-      typeof window !== 'undefined' &&
+      reason &&
       window.location.pathname.startsWith('/admin') &&
       window.location.pathname !== '/admin/login'
     ) {
-      window.location.href = '/admin/login';
+      window.location.href = reason === 'expired' ? '/admin/login?expired=1' : '/admin/login';
     }
     return Promise.reject(error);
   }
@@ -276,9 +292,14 @@ export async function getAnalyticsSummary(timeRange = '24h') {
 }
 
 // ---- Admin API Helpers ----
+//
+// Every admin mutation that changes a customer's state takes a written
+// `reason`; the backend refuses it without one. Destructive ones also need a
+// recent step-up (adminStepUp) — see app/admin/StepUp.js, which retries the
+// action after asking for the password.
 
-export async function adminLogin(username, password) {
-  const { data } = await api.post('/api/admin/login', { username, password });
+export async function adminLogin(email, password) {
+  const { data } = await api.post('/api/admin/login', { email, password });
   return data;
 }
 
@@ -287,8 +308,24 @@ export async function getAdminMe() {
   return data;
 }
 
+/** The admin UI's heartbeat. Only real clicks and keystrokes send it. */
+export async function adminHeartbeat() {
+  const { data } = await api.post('/api/admin/activity');
+  return data;
+}
+
 export async function adminLogout() {
   const { data } = await api.post('/api/admin/logout');
+  return data;
+}
+
+export async function adminStepUp(password) {
+  const { data } = await api.post('/api/admin/step-up', { password });
+  return data;
+}
+
+export async function changeAdminPassword(currentPassword, newPassword) {
+  const { data } = await api.post('/api/admin/password', { currentPassword, newPassword });
   return data;
 }
 
@@ -307,23 +344,8 @@ export async function getAdminUserDetail(id) {
   return data;
 }
 
-export async function toggleUserSuspension(id, suspend) {
-  const { data } = await api.post(`/api/admin/users/${id}/suspend`, { suspend });
-  return data;
-}
-
-export async function deleteUserAdmin(id) {
-  const { data } = await api.delete(`/api/admin/users/${id}`);
-  return data;
-}
-
-export async function impersonateUser(id) {
-  const { data } = await api.post(`/api/admin/users/${id}/impersonate`);
-  return data;
-}
-
-export async function exitImpersonation() {
-  const { data } = await api.post('/api/admin/impersonate/exit');
+export async function setUserSuspended(id, suspend, reason) {
+  const { data } = await api.post(`/api/admin/users/${id}/suspend`, { suspend, reason });
   return data;
 }
 
@@ -332,18 +354,18 @@ export async function getAdminAccounts(search = '', status = '') {
   return data;
 }
 
-export async function refreshAccountToken(id) {
-  const { data } = await api.post(`/api/admin/accounts/${id}/refresh-token`);
+export async function refreshAccountToken(id, reason) {
+  const { data } = await api.post(`/api/admin/accounts/${id}/refresh-token`, { reason });
   return data;
 }
 
-export async function resubscribeAccountWebhook(id) {
-  const { data } = await api.post(`/api/admin/accounts/${id}/resubscribe-webhook`);
+export async function resubscribeAccountWebhook(id, reason) {
+  const { data } = await api.post(`/api/admin/accounts/${id}/resubscribe-webhook`, { reason });
   return data;
 }
 
-export async function disconnectAccountAdmin(id) {
-  const { data } = await api.delete(`/api/admin/accounts/${id}`);
+export async function markAccountNeedsReconnect(id, reason) {
+  const { data } = await api.post(`/api/admin/accounts/${id}/mark-needs-reconnect`, { reason });
   return data;
 }
 
@@ -352,23 +374,18 @@ export async function getAdminWebhookLogs(limit = 50, status = '') {
   return data;
 }
 
-export async function pruneWebhookLogs(days = 30) {
-  const { data } = await api.post('/api/admin/logs/prune', { days });
+export async function pruneWebhookLogs(days, reason) {
+  const { data } = await api.post('/api/admin/logs/prune', { days, reason });
   return data;
 }
 
-export async function getAdminAuditLogs() {
-  const { data } = await api.get('/api/admin/logs/audit');
+export async function getAdminAuditLogs(page = 1, limit = 50) {
+  const { data } = await api.get(`/api/admin/logs/audit?page=${page}&limit=${limit}`);
   return data;
 }
 
 export async function supportSearch(query) {
   const { data } = await api.get(`/api/admin/support/search?q=${encodeURIComponent(query)}`);
-  return data;
-}
-
-export async function getSupportConversation(id) {
-  const { data } = await api.get(`/api/admin/support/conversations/${id}`);
   return data;
 }
 

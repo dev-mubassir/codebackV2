@@ -1,39 +1,36 @@
 'use client';
 
 /**
- * Admin — customers: search, export, and the three account actions.
+ * Admin — customers: search, export, suspend and restore.
+ *
+ * Admin rebuild (Gate 1): "view as customer" (impersonation) and delete are
+ * gone — the first exposed customer DMs, the second skipped the real account
+ * deletion path and returns in Gate 5 on top of it. Suspend/restore need a
+ * written reason (audit log). The CSV export needs step-up, so the page
+ * confirms the password before navigating to the download.
  *
  * Data layer is master's, including the Gate-1 initial load written out with
  * a cancelled flag rather than calling loadUsers() from the effect.
  *
- * Changed:
- *   - Suspend, restore and "view as customer" used window.confirm(). All four
- *     actions now go through the shared Modal with the copy that was already
- *     written for them (title, body, action label — the labels were unused).
- *   - Master named the customer by string surgery on the title
- *     (`title.replace('this customer', who)`), which silently stops working
- *     the moment the title is reworded. The name is its own line in the body.
- *   - The delete dialog's hard-coded sentence is now confirm.adminDeleteUser.body.
- *   - A failed action shows its error inside the dialog that caused it, not
- *     on the page behind the overlay.
+ * The customer is named on its own line in the dialog, never spliced into the
+ * title, and a failed action shows its error inside the dialog that caused it.
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { getAdminUsers, toggleUserSuspension, deleteUserAdmin, impersonateUser } from '@/lib/api';
+import { getAdminUsers, setUserSuspended } from '@/lib/api';
 import Icon from '@/app/components/Icon';
-import { Badge, Button, Input, Modal, Skeleton } from '@/app/components/ui';
+import { Badge, Button, Input, Skeleton } from '@/app/components/ui';
 import { admin as t, common, errors, empty, confirm as confirmCopy } from '@/content/copy';
-import { roleLabel } from '@/content/labels';
 import { formatDate, formatCount } from '@/content/format';
 import { BACKEND_URL } from '@/lib/backendUrl';
+import ReasonDialog from '../_components/ReasonDialog';
+import { StepUpCancelled, useStepUp } from '../_components/StepUp';
 import styles from '../admin.module.css';
 
 /** Which dialog each action opens, and how loud its confirm button is. */
 const DIALOGS = {
   suspend: { copy: confirmCopy.adminSuspendUser, variant: 'danger', error: errors.admin.suspend },
   restore: { copy: confirmCopy.adminRestoreUser, variant: 'primary', error: errors.admin.suspend },
-  impersonate: { copy: confirmCopy.adminImpersonate, variant: 'primary', error: errors.admin.impersonate },
-  delete: { copy: confirmCopy.adminDeleteUser, variant: 'danger', error: errors.admin.deleteUser },
 };
 
 const whoOf = (u) => u.name || u.email || u.id;
@@ -44,7 +41,9 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  // { kind: 'suspend' | 'restore' | 'impersonate' | 'delete', user }
+  const { ensureStepUp } = useStepUp();
+  const [exportError, setExportError] = useState('');
+  // { kind: 'suspend' | 'restore', user }
   const [pending, setPending] = useState(null);
   const [pendingBusy, setPendingBusy] = useState(false);
   const [pendingError, setPendingError] = useState('');
@@ -100,26 +99,27 @@ export default function AdminUsersPage() {
     setPendingError('');
   }, [pendingBusy]);
 
-  async function handleConfirm() {
+  async function handleExport() {
+    setExportError('');
+    try {
+      await ensureStepUp();
+      window.location.assign(`${BACKEND_URL}/api/admin/users/export/csv`);
+    } catch (err) {
+      if (!(err instanceof StepUpCancelled)) setExportError(errors.admin.export);
+    }
+  }
+
+  async function handleConfirm(reason) {
     if (!pending) return;
     const { kind, user } = pending;
     setPendingBusy(true);
     setPendingError('');
     try {
-      if (kind === 'impersonate') {
-        const data = await impersonateUser(user.id);
-        window.location.assign(data.redirectUrl || '/dashboard');
-        return;
-      }
-      if (kind === 'delete') {
-        await deleteUserAdmin(user.id);
-      } else {
-        await toggleUserSuspension(user.id, !user.isSuspended);
-      }
+      await setUserSuspended(user.id, kind === 'suspend', reason);
       setPending(null);
       await loadUsers(pagination.page);
-    } catch {
-      setPendingError(DIALOGS[kind].error);
+    } catch (err) {
+      setPendingError(err?.response?.data?.error || DIALOGS[kind].error);
     } finally {
       setPendingBusy(false);
     }
@@ -142,15 +142,16 @@ export default function AdminUsersPage() {
           <Button type="submit" size="sm">{common.search}</Button>
         </form>
 
-        <a
-          href={`${BACKEND_URL}/api/admin/users/export/csv`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={styles.linkBtn}
-        >
+        <Button size="sm" onClick={handleExport}>
           <Icon name="download" size={13} /> {t.users.exportCsv}
-        </a>
+        </Button>
       </div>
+
+      {exportError && (
+        <div className={`${styles.notice} ${styles.noticeError}`} role="alert">
+          <span className={styles.noticeText}>{exportError}</span>
+        </div>
+      )}
 
       {error && (
         <div className={`${styles.notice} ${styles.noticeError}`} role="alert">
@@ -192,7 +193,7 @@ export default function AdminUsersPage() {
                   <td>
                     {u.isSuspended
                       ? <Badge tone="danger">{t.users.suspended}</Badge>
-                      : <Badge tone="neutral">{roleLabel(u.role).label}</Badge>}
+                      : <Badge tone="neutral">{t.users.active}</Badge>}
                   </td>
                   <td>
                     {u.instagramAccounts?.length === 0 ? (
@@ -208,14 +209,8 @@ export default function AdminUsersPage() {
                   <td>{formatDate(u.createdAt)}</td>
                   <td className={styles.alignRight}>
                     <div className={styles.rowActions}>
-                      <Button size="sm" onClick={() => openDialog('impersonate', u)}>
-                        <Icon name="eye" size={13} /> {t.users.impersonate}
-                      </Button>
                       <Button size="sm" onClick={() => openDialog(u.isSuspended ? 'restore' : 'suspend', u)}>
                         {u.isSuspended ? t.users.unsuspend : t.users.suspend}
-                      </Button>
-                      <Button size="sm" variant="danger" onClick={() => openDialog('delete', u)}>
-                        {t.users.delete}
                       </Button>
                     </div>
                   </td>
@@ -246,26 +241,17 @@ export default function AdminUsersPage() {
       </div>
 
       {pending && dialog && (
-        <Modal
+        <ReasonDialog
           title={dialog.copy.title}
+          who={whoOf(pending.user)}
+          body={dialog.copy.body}
+          actionLabel={dialog.copy.action}
+          variant={dialog.variant}
+          busy={pendingBusy}
+          error={pendingError}
+          onConfirm={handleConfirm}
           onClose={closeDialog}
-          actions={(
-            <>
-              <Button size="sm" onClick={closeDialog} disabled={pendingBusy}>{common.cancel}</Button>
-              <Button size="sm" variant={dialog.variant} onClick={handleConfirm} loading={pendingBusy}>
-                {dialog.copy.action}
-              </Button>
-            </>
-          )}
-        >
-          <p className={styles.dialogWho}>{whoOf(pending.user)}</p>
-          <p className={styles.dialogBody}>{dialog.copy.body}</p>
-          {pendingError && (
-            <p className={`${styles.notice} ${styles.noticeError} ${styles.dialogError}`} role="alert">
-              {pendingError}
-            </p>
-          )}
-        </Modal>
+        />
       )}
     </div>
   );

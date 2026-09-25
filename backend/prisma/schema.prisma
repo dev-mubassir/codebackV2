@@ -500,6 +500,85 @@ model AdminLog {
 }
 
 // ============================================
+// Super-admin identity — deliberately NOT a User.
+//
+// The old panel keyed admin on User.role / ADMIN_EMAILS, so a normal customer
+// session (including a Google sign-in) could become an admin session, and the
+// env-credential login wrote a fake "admin@codeback.internal" customer row.
+// An admin now exists only here, is created only by scripts/create-admin.js
+// (run by the owner, never over HTTP), and has no path to the customer app.
+//
+// passwordChangedAt doubles as the session invalidator: every admin session
+// records the value it was minted under, and requireAdmin rejects a session
+// whose copy no longer matches. A password change therefore logs out every
+// other admin session without enumerating the session store.
+// ============================================
+model AdminUser {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  passwordHash      String    @map("password_hash")
+  failedAttempts    Int       @default(0) @map("failed_attempts")
+  lockedUntil       DateTime? @map("locked_until")
+  lastLoginAt       DateTime? @map("last_login_at")
+  lastLoginIp       String?   @map("last_login_ip")
+  passwordChangedAt DateTime  @default(now()) @map("password_changed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  auditLogs AdminAuditLog[]
+
+  @@map("admin_users")
+}
+
+// ============================================
+// Append-only record of every admin login attempt and every admin mutation.
+//
+// adminId is NULL for a failed login against an address that is not an admin
+// (there is nobody to attribute it to). SetNull, not Cascade: removing an
+// admin must never erase what that admin did.
+//
+// Separate from AdminLog, which predates this and is also written by
+// routes/auth.js for CUSTOMER security events (blocked Instagram links). That
+// table keeps its history and its existing writers.
+// ============================================
+model AdminAuditLog {
+  id         String   @id @default(uuid())
+  adminId    String?  @map("admin_id")
+  action     String // e.g. ADMIN_LOGIN_SUCCESS, USER_SUSPEND
+  targetType String?  @map("target_type") // USER, INSTAGRAM_ACCOUNT, ORDER, ADMIN_USER, SYSTEM
+  targetId   String?  @map("target_id")
+  reason     String? // the admin's written reason, where one is required
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  admin AdminUser? @relation(fields: [adminId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+  @@map("admin_audit_logs")
+}
+
+// ============================================
+// Admin session store — connect-pg-simple's default shape, same as
+// user_sessions, but a SEPARATE table. Customer-session cleanup
+// (lib/session.js destroyUserSessions) deletes by sess->>'userId' and can
+// therefore never reach an admin row, and vice versa. Created by a normal
+// migration (unlike user_sessions, nothing created it at runtime first).
+// ============================================
+model AdminSession {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_admin_session_expire")
+  @@map("admin_sessions")
+}
+
+// ============================================
 // Webhook Event & Health Log
 // ============================================
 model WebhookLog {

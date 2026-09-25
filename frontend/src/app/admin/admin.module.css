@@ -5,8 +5,8 @@
    admin layout renders the same classes from components/ui/AppShell.module.css
    that every customer page renders, so the two cannot drift into looking like
    different products. What lives here is only what admin has and the customer
-   app does not: data tables, stat tiles, the impersonation banner, and the
-   admin sign-in card.
+   app does not: data tables, stat tiles, dialog forms, and the admin sign-in
+   card.
 
    Master's version of this file had a dark #1a1a2e sidebar, a hand-rolled
    modal, a `.codeViewer` with two raw hex colours that nothing used, and ~90
@@ -280,58 +280,16 @@
 
 .resultsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-space-4); }
 
-/* The conversation inspector. Same bubble rule as the inbox: outbound is the
-   accent, inbound is a white bubble with a border. */
-.thread {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ui-space-2);
-  max-height: 360px;
-  overflow-y: auto;
-  padding: var(--ui-space-3);
-  background: var(--ui-surface-sunken);
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius-md);
-}
-
-.bubble {
-  max-width: 75%;
-  padding: var(--ui-space-2) var(--ui-space-3);
-  border-radius: var(--ui-radius-lg);
-  font-size: var(--ui-text-base);
-  line-height: var(--ui-leading-normal);
-  overflow-wrap: anywhere;
-}
-
-.bubbleIn { align-self: flex-start; background: var(--ui-surface); border: 1px solid var(--ui-border); color: var(--ui-ink); }
-.bubbleOut { align-self: flex-end; background: var(--ui-accent); color: var(--ui-text-inverse); }
-
-.bubbleMeta { margin-top: var(--ui-space-1); font-size: var(--ui-text-xs); opacity: 0.75; text-align: right; }
-
 /* ---------- Confirm-dialog body ------------------------------------------ */
 
 .dialogWho { margin: 0 0 var(--ui-space-2); font-weight: 600; color: var(--ui-ink); overflow-wrap: anywhere; }
 .dialogBody { margin: 0; color: var(--ui-text-body); line-height: var(--ui-leading-normal); }
 .dialogError { margin: var(--ui-space-3) 0 0; font-size: var(--ui-text-base); color: var(--ui-ink); }
+.dialogForm { display: flex; flex-direction: column; gap: var(--ui-space-3); }
 
-/* ---------- Impersonation banner ------------------------------------------
-   Present but never shown: GET /api/admin/me does not return an
-   impersonation flag, so `impersonating` is never true (see layout.js). */
+/* ---------- Settings: change password ------------------------------------ */
 
-.impersonation {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ui-space-3);
-  flex-wrap: wrap;
-  margin-bottom: var(--ui-space-4);
-  padding: var(--ui-space-3) var(--ui-space-4);
-  background: var(--ui-warning-bg);
-  border: 1px solid var(--ui-warning);
-  border-radius: var(--ui-radius-lg);
-  color: var(--ui-warning);
-  font-weight: 600;
-}
+.passwordForm { display: flex; flex-direction: column; gap: var(--ui-space-3); max-width: 420px; padding: var(--ui-space-4); }
 
 /* ---------- Sign-in ------------------------------------------------------- */
 

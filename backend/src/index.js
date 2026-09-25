@@ -40,6 +40,8 @@ const { setIO } = require('./lib/socket');
 const { assertMigrationsCurrent } = require('./lib/migrationGuard');
 const { startWorkers } = require('./jobs');
 const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
+const { skipOnAdminPaths, buildAdminSessionMiddleware, buildAdminStore } = require('./lib/adminSession');
+const { notFoundHandler, errorHandler } = require('./middleware/errorHandlers');
 
 // ============================================
 // Express App Setup
@@ -177,20 +179,15 @@ if (require('./lib/billingFlags').isBillingEnabled()) {
   }
 }
 
-// An admin session can impersonate any tenant, so the admin credential is
-// effectively a master key to every customer's DMs. A plaintext password in
-// an environment variable is readable from the hosting dashboard, a log dump,
-// or any shell on the container — so production requires the bcrypt hash and
-// refuses to start if the plaintext form is present at all.
-if (isProduction && process.env.ADMIN_PASSWORD) {
-  console.error('[Server] FATAL: ADMIN_PASSWORD (plaintext) must not be set in production. Use ADMIN_PASSWORD_HASH instead:');
-  console.error('           node -e "console.log(require(\'bcryptjs\').hashSync(process.argv[1], 12))" \'your-password\'');
-  console.error('           ...then unset ADMIN_PASSWORD.');
-  process.exit(1);
-}
-if (isProduction && process.env.ADMIN_USERNAME && !process.env.ADMIN_PASSWORD_HASH) {
-  console.error('[Server] FATAL: ADMIN_USERNAME is set but ADMIN_PASSWORD_HASH is not. Admin login would be unusable in production. Refusing to start.');
-  process.exit(1);
+// Admin credentials no longer come from the environment at all: admins live in
+// admin_users and are created by scripts/create-admin.js. The old variables
+// are now dead, so their presence only means a stale deploy config — warn,
+// never fail, and never read them.
+const DEAD_ADMIN_VARS = ['ADMIN_USERNAME', 'ADMIN_PASSWORD', 'ADMIN_PASSWORD_HASH', 'ADMIN_EMAILS'].filter(
+  (name) => process.env[name]
+);
+if (DEAD_ADMIN_VARS.length > 0) {
+  console.warn(`[Server] WARNING: ${DEAD_ADMIN_VARS.join(', ')} ${DEAD_ADMIN_VARS.length === 1 ? 'is' : 'are'} set but no longer used. Remove from the environment.`);
 }
 
 // Loud warning for the dangerous "production deployment running in dev mode"
@@ -339,7 +336,9 @@ const sessionMiddleware = session({
   },
 });
 
-app.use(sessionMiddleware);
+// The CUSTOMER session never loads on /api/admin — that path has its own
+// session (lib/adminSession.js), mounted with the admin router below.
+app.use(skipOnAdminPaths(sessionMiddleware));
 
 // CSRF defense-in-depth: reject state-changing requests whose Origin/Referer
 // is present but not on the CORS allowlist (lib/security.js). Runs after the
@@ -467,8 +466,13 @@ app.use('/data-deletion', dataDeletionRoutes);
 // /api, whose blanket requireAuth would otherwise 401 a logged-out visitor.
 app.use('/api/contact', contactRoutes);
 
-// Admin panel routes (must be mounted before /api)
-app.use('/api/admin', adminRoutes);
+// Admin panel routes (must be mounted before /api), on the ADMIN session:
+// separate cookie, separate table, SameSite=Strict, Path=/api/admin.
+// The trailing 404 is load-bearing: without it an admin request for a path
+// the admin router does not define falls through to the customer /api router
+// below, whose blanket requireAuth answers 401 "Log in to continue." — a
+// different answer from the one every other unknown admin path gets.
+app.use('/api/admin', buildAdminSessionMiddleware({ store: buildAdminStore() }), adminRoutes, notFoundHandler);
 
 // Billing checkout (must be mounted before /api, same reason as admin above
 // — apiRoutes' own blanket requireAuth would otherwise intercept every
@@ -542,7 +546,5 @@ server.listen(PORT, () => {
 // identical code — a harness whose error shape differs from production tests
 // nothing about the error shape.
 // ============================================
-const { notFoundHandler, errorHandler } = require('./middleware/errorHandlers');
-
 app.use(notFoundHandler);
 app.use(errorHandler);

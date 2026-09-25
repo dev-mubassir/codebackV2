@@ -56,7 +56,12 @@ beforeEach(async () => {
   await resetDb();
 });
 
-describe('H10 — admin login is a privilege transition', () => {
+// TEMP: skipped in admin-rebuild Gate 1. Asserts the RETIRED shared-cookie
+// design (admin state on codeback.sid, customer login carried across admin
+// elevation). The admin session is now a separate cookie and store. Replaced
+// by tests/admin-auth.test.js ("session isolation": fresh admin session id on
+// login, customer session untouched, admin grants no customer identity).
+describe.skip('H10 — admin login is a privilege transition', () => {
   it('issues a fresh session id on admin login', async () => {
     const { user, password } = await createUser({});
     const ip = nextIp();

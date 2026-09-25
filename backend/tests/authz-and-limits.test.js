@@ -146,7 +146,11 @@ describe('P5 — F6: rate limiter cannot be bypassed by path spelling', () => {
   });
 });
 
-describe('P4 — F1: admin logout ends impersonation', () => {
+// TEMP: skipped in admin-rebuild Gate 1. Impersonation was REMOVED (owner
+// decision — it exposed DM content), and admin state no longer lives on the
+// customer session at all. Replaced by tests/admin-auth.test.js ("retired
+// endpoints are gone", "session isolation").
+describe.skip('P4 — F1: admin logout ends impersonation', () => {
   let adminApp;
 
   beforeAll(async () => {
@@ -197,7 +201,13 @@ describe('P4 — F1: admin logout ends impersonation', () => {
   });
 });
 
-describe('P4 — F5: admin identity is not keyed on an Instagram username', () => {
+// TEMP: skipped in admin-rebuild Gate 1. The intent still holds, but these
+// assert a 403 from the retired User-based admin check (and set the removed
+// ADMIN_EMAILS). Non-admins now get 404 from a separate admin identity.
+// Replaced by tests/admin-auth.test.js ("no customer attribute confers
+// admin"), which covers role=ADMIN, a verified ADMIN_EMAILS match and an
+// Instagram handle match.
+describe.skip('P4 — F5: admin identity is not keyed on an Instagram username', () => {
   it('a user whose IG handle matches ADMIN_EMAILS is NOT granted admin', async () => {
     const handle = uniq('adminhandle');
     const previous = process.env.ADMIN_EMAILS;

@@ -70,7 +70,11 @@ describe('H12 — requested permission scopes', () => {
   });
 });
 
-describe('M10 — admin credentials', () => {
+// TEMP: skipped in admin-rebuild Gate 1. Asserts the RETIRED environment-
+// credential admin login (ADMIN_USERNAME / ADMIN_PASSWORD_HASH), which no
+// longer exists — admins are AdminUser rows now. Replaced by
+// tests/admin-auth.test.js ("login", "lockout").
+describe.skip('M10 — admin credentials', () => {
   it('accepts a bcrypt ADMIN_PASSWORD_HASH', async () => {
     const bcrypt = (await import('bcryptjs')).default;
     const prev = { ...process.env };
@@ -122,7 +126,11 @@ describe('M10 — admin credentials', () => {
   });
 });
 
-describe('M10 — impersonation is auditable end to end', () => {
+// TEMP: skipped in admin-rebuild Gate 1. Impersonation was REMOVED (owner
+// decision: it exposes DM content, violating the admin privacy rule).
+// Replaced by tests/admin-auth.test.js, which asserts the impersonation
+// routes no longer exist.
+describe.skip('M10 — impersonation is auditable end to end', () => {
   it('records the target tenant id on BOTH start and exit', async () => {
     const bcrypt = (await import('bcryptjs')).default;
     const prev = { ...process.env };

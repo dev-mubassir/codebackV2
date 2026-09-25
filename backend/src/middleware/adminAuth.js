@@ -1,98 +1,120 @@
 /**
- * Admin Authentication Middleware — protects /api/admin routes.
- * 
- * Verifies that:
- * 1. User is authenticated via session cookie
- * 2. User has role 'ADMIN' OR email/username is in ADMIN_EMAILS
- * 3. User account is not suspended
+ * Admin authorization — every /api/admin route except /login sits behind
+ * requireAdmin.
+ *
+ * The admin identity is an AdminUser (never a User), carried only on the admin
+ * session (lib/adminSession.js). There is no other way in: no User.role, no
+ * ADMIN_EMAILS, no environment credential, no Google sign-in.
+ *
+ * NOT-AN-ADMIN IS 404, not 401/403. A logged-in customer, a logged-out
+ * visitor and a scanner all get the same answer every unknown URL gets, so the
+ * API does not confirm that an admin surface exists. The ONE exception is a
+ * request carrying a genuine admin session that has just expired: that caller
+ * already holds an admin cookie, so telling them "expired" reveals nothing,
+ * and the UI needs it to say why they were signed out.
  */
 
 const prisma = require('../lib/prisma');
+const { isAllowedOrigin } = require('../lib/security');
+const { notFoundHandler } = require('./errorHandlers');
+const {
+  ADMIN_COOKIE_NAME,
+  ADMIN_COOKIE_PATH,
+  ADMIN_IDLE_MS,
+  ADMIN_ABSOLUTE_MS,
+  ADMIN_STEP_UP_MS,
+} = require('../lib/adminSession');
 
-async function requireAdmin(req, res, next) {
-  // Allow dedicated admin session (Username/Password login)
-  if (req.session && req.session.isAdmin) {
-    req.adminUserId = req.session.adminUserId || 'admin-super';
-    req.adminUser = { name: req.session.adminUsername || 'Mubassir', role: 'ADMIN' };
-    return next();
-  }
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-  if (!req.session || !req.session.userId) {
-    return res.status(401).json({ error: 'Log in to the admin panel to continue.' });
-  }
-
-  try {
-    // Explicit select. The Instagram relation is no longer loaded at all —
-    // admin identity no longer looks at igUsername, and `true` would have
-    // pulled the encrypted Meta token into memory on every admin request.
-    const user = await prisma.user.findUnique({
-      where: { id: req.session.userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        isSuspended: true,
-        emailVerifiedAt: true,
-      },
-    });
-
-    if (!user) {
-      req.session.destroy();
-      return res.status(401).json({ error: 'That account no longer exists.' });
-    }
-
-    if (user.isSuspended) {
-      return res.status(403).json({ error: 'This account is suspended. Contact support.' });
-    }
-
-    // Configured admin emails.
-    //
-    // INSTAGRAM USERNAMES ARE NO LONGER ACCEPTED HERE. Matching ADMIN_EMAILS
-    // against a connected account's igUsername keyed super-admin — which can
-    // impersonate any tenant — on a MUTABLE, EXTERNALLY CONTROLLED attribute,
-    // and then wrote role: 'ADMIN' to that user's row permanently. Instagram
-    // handles are globally unique so a live one cannot be squatted, but a
-    // renamed or released handle can be claimed by anyone. Admin identity now
-    // keys only on a verified email address.
-    const adminEmails = (process.env.ADMIN_EMAILS || '')
-      .split(',')
-      .map(e => e.trim().toLowerCase())
-      .filter(Boolean);
-
-    const userEmail = user.email ? user.email.toLowerCase() : '';
-
-    // The address must also be PROVEN. An unverified email is an unproven
-    // claim, and granting admin on one would let anyone who registers with a
-    // configured address take the panel without ever receiving mail there.
-    const isEmailAdmin =
-      adminEmails.length > 0 &&
-      Boolean(userEmail) &&
-      Boolean(user.emailVerifiedAt) &&
-      adminEmails.includes(userEmail);
-
-    // Grant access only to an explicit ADMIN role or a configured ADMIN_EMAILS
-    // match. The old "first user is automatically admin" rule was removed — it
-    // silently handed super-admin to the first registrant on any fresh deploy.
-    if (user.role === 'ADMIN' || isEmailAdmin) {
-      // Auto-promote a configured admin email to the ADMIN role if needed.
-      if (user.role !== 'ADMIN') {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { role: 'ADMIN' },
-        });
-      }
-
-      req.adminUser = user;
-      req.adminUserId = user.id;
-      return next();
-    }
-
-    return res.status(403).json({ error: 'This area is restricted to administrators.' });
-  } catch (error) {
-    console.error('[AdminAuth] Error verifying admin access:', error.message);
-    res.status(500).json({ error: "Couldn't confirm your access. Try again." });
+function endSession(req, res, status, body) {
+  const done = () => {
+    res.clearCookie(ADMIN_COOKIE_NAME, { path: ADMIN_COOKIE_PATH });
+    res.status(status).json(body);
+  };
+  if (req.session && typeof req.session.destroy === 'function') {
+    req.session.destroy(() => done());
+  } else {
+    done();
   }
 }
 
-module.exports = { requireAdmin };
+const EXPIRED = { error: 'Your admin session ended. Sign in again.', code: 'ADMIN_SESSION_EXPIRED' };
+
+async function requireAdmin(req, res, next) {
+  const sess = req.session;
+  if (!sess || !sess.adminId) return notFoundHandler(req, res);
+
+  const now = Date.now();
+  if (
+    typeof sess.authenticatedAt !== 'number' ||
+    typeof sess.lastActivityAt !== 'number' ||
+    now - sess.authenticatedAt > ADMIN_ABSOLUTE_MS ||
+    now - sess.lastActivityAt > ADMIN_IDLE_MS
+  ) {
+    return endSession(req, res, 401, EXPIRED);
+  }
+
+  let admin;
+  try {
+    admin = await prisma.adminUser.findUnique({
+      where: { id: sess.adminId },
+      // No passwordHash here: req.admin is visible to every handler, and the
+      // two that need the hash (step-up, password change) load it themselves.
+      select: { id: true, email: true, passwordChangedAt: true, lockedUntil: true },
+    });
+  } catch (err) {
+    console.error('[AdminAuth] Could not load admin:', err.message);
+    return res.status(500).json({ error: "Couldn't confirm your access. Try again." });
+  }
+
+  // Removed admin, a password change elsewhere, or a lockout since login.
+  if (
+    !admin ||
+    admin.passwordChangedAt.getTime() !== sess.pwdAt ||
+    (admin.lockedUntil && admin.lockedUntil.getTime() > now)
+  ) {
+    return endSession(req, res, 401, EXPIRED);
+  }
+
+  req.admin = admin;
+  res.setHeader('Cache-Control', 'no-store');
+  return next();
+}
+
+/**
+ * Stricter than the customer originGuard: an admin mutation must carry an
+ * Origin header, and it must be on the allowlist. The customer guard lets a
+ * missing Origin through for server-to-server callers; nothing legitimate
+ * calls the admin API without a browser.
+ */
+function adminOriginGuard(req, res, next) {
+  if (!MUTATING.has(req.method)) return next();
+  const origin = req.get('origin');
+  if (!origin || !isAllowedOrigin(origin)) {
+    return res.status(403).json({ error: 'Cross-origin request blocked.' });
+  }
+  return next();
+}
+
+/** A mutating request is activity; a GET is not. See lib/adminSession.js. */
+function trackAdminActivity(req, res, next) {
+  if (MUTATING.has(req.method) && req.session) req.session.lastActivityAt = Date.now();
+  next();
+}
+
+/**
+ * Destructive actions need the admin password re-entered within the last
+ * five minutes (POST /api/admin/step-up). A hijacked session alone — a cookie
+ * lifted from an unlocked laptop — can browse but not destroy.
+ */
+function requireStepUp(req, res, next) {
+  const at = req.session && req.session.stepUpAt;
+  if (typeof at === 'number' && Date.now() - at <= ADMIN_STEP_UP_MS) return next();
+  return res.status(403).json({
+    error: 'Confirm your password to continue.',
+    code: 'STEP_UP_REQUIRED',
+  });
+}
+
+module.exports = { requireAdmin, requireStepUp, adminOriginGuard, trackAdminActivity };

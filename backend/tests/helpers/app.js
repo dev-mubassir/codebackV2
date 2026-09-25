@@ -27,25 +27,33 @@ import session from 'express-session';
 import cookieParser from 'cookie-parser';
 
 import security from '../../src/lib/security.js';
+import adminSession from '../../src/lib/adminSession.js';
 import authRoutes from '../../src/routes/auth.js';
 import errorHandlers from '../../src/middleware/errorHandlers.js';
 
 const { securityHeaders, originGuard } = security;
+const { skipOnAdminPaths, buildAdminSessionMiddleware } = adminSession;
 
 /**
  * @param {object} [options]
  * @param {Record<string, import('express').Router>} [options.mount]
  *   Extra routers to mount, keyed by path — e.g. { '/api': apiRoutes }.
  *   `/auth` is always mounted.
+ * @param {import('express').Router} [options.admin]
+ *   The admin router. Mounted at /api/admin behind the ADMIN session
+ *   middleware exactly as src/index.js does, but on a MemoryStore and with
+ *   `secure` off (same reason as the customer cookie below).
  */
-export function buildTestApp({ mount = {} } = {}) {
+export function buildTestApp({ mount = {}, admin = null } = {}) {
   const app = express();
 
   app.use(securityHeaders);
   app.use(cookieParser());
   app.set('trust proxy', 1);
 
-  app.use(
+  // skipOnAdminPaths, exactly as src/index.js: the customer session never
+  // loads on /api/admin.
+  app.use(skipOnAdminPaths(
     session({
       name: 'codeback.sid',
       secret: process.env.SESSION_SECRET,
@@ -53,7 +61,7 @@ export function buildTestApp({ mount = {} } = {}) {
       saveUninitialized: false,
       cookie: { httpOnly: true, secure: false, maxAge: 7 * 24 * 60 * 60 * 1000, sameSite: 'lax' },
     })
-  );
+  ));
 
   app.use(originGuard);
 
@@ -81,6 +89,7 @@ export function buildTestApp({ mount = {} } = {}) {
   });
 
   app.use('/auth', authRoutes);
+  if (admin) app.use('/api/admin', buildAdminSessionMiddleware({ secure: false }), admin, errorHandlers.notFoundHandler);
   for (const [path, router] of Object.entries(mount)) {
     app.use(path, router);
   }
@@ -93,6 +102,15 @@ export function buildTestApp({ mount = {} } = {}) {
   app.use(errorHandlers.errorHandler);
 
   return app;
+}
+
+/** The decoded value of the admin cookie, for the same rotation assertions. */
+export function adminSessionIdFrom(res) {
+  const raw = res.headers['set-cookie'];
+  if (!raw) return null;
+  const cookie = raw.find((c) => c.startsWith('siffty.admin.sid='));
+  if (!cookie) return null;
+  return decodeURIComponent(cookie.split(';')[0].split('=').slice(1).join('='));
 }
 
 /**
