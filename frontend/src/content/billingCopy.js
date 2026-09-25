@@ -104,6 +104,14 @@ export const billing = {
     empty: 'No replies left',
   },
 
+  /** The manual "Draft a reply" button's own credits — a separate balance from auto-replies. */
+  draftCredits: {
+    heading: 'AI draft credits',
+    remaining: (n) => `${n.toLocaleString('en-IN')} left`,
+    unlimited: 'Unlimited',
+    help: 'Each AI draft you ask for in the inbox uses one. A draft that fails costs nothing. They roll over like reply credits, and are separate from auto-replies.',
+  },
+
   usage: {
     heading: 'This cycle',
     classified: 'Messages sorted',
@@ -148,6 +156,9 @@ export const billing = {
     subheading: 'Priced for your current plan. Add-ons never renew on their own.',
     replyPack: (count) => `+${count.toLocaleString('en-IN')} replies`,
     replyPackHelp: 'Added to this cycle straight away. Unused ones roll over like any other reply.',
+    draftPack: (count) => `+${count.toLocaleString('en-IN')} AI drafts`,
+    draftPackHelp: 'Draft credits for the "Draft a reply" button in the inbox. Added straight away; unused ones roll over.',
+    buyDrafts: 'Buy drafts',
     extraIgAccount: '+1 Instagram account',
     extraIgAccountHelp: 'Stays on your account and is included in every renewal from now on.',
     buyReplies: 'Buy replies',

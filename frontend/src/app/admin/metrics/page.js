@@ -37,7 +37,7 @@ export default function AdminMetricsPage() {
 
   // One row per day that had any activity, newest first.
   const byDay = new Map();
-  for (const [key, rows] of [['signups', data.signupsPerDay], ['dms', data.dmsPerDay], ['classified', data.classifiedPerDay]]) {
+  for (const [key, rows] of [['signups', data.signupsPerDay], ['dms', data.dmsPerDay], ['classified', data.classifiedPerDay], ['drafts', data.draftsPerDay || []]]) {
     for (const r of rows) byDay.set(r.day, { ...(byDay.get(r.day) || {}), [key]: r.count });
   }
   const days_ = [...byDay.keys()].sort().reverse();
@@ -46,6 +46,7 @@ export default function AdminMetricsPage() {
     [m.signups, sum(data.signupsPerDay)],
     [m.dms, sum(data.dmsPerDay)],
     [m.classified, sum(data.classifiedPerDay)],
+    [m.drafts, sum(data.draftsPerDay || [])],
     [m.active24h, data.activeUsers.last24h],
     [m.active7d, data.activeUsers.last7d],
     [m.active30d, data.activeUsers.last30d],
@@ -78,7 +79,7 @@ export default function AdminMetricsPage() {
         ) : (
           <div className={styles.tableScroll}>
             <table className={`${styles.table} ${styles.tableCompact}`}>
-              <thead><tr><th>{m.day}</th><th>{m.signups}</th><th>{m.dms}</th><th>{m.classified}</th></tr></thead>
+              <thead><tr><th>{m.day}</th><th>{m.signups}</th><th>{m.dms}</th><th>{m.classified}</th><th>{m.drafts}</th></tr></thead>
               <tbody>
                 {days_.map((d) => {
                   const row = byDay.get(d);
@@ -88,6 +89,7 @@ export default function AdminMetricsPage() {
                       <td>{row.signups || 0}</td>
                       <td>{row.dms || 0}</td>
                       <td>{row.classified || 0}</td>
+                      <td>{row.drafts || 0}</td>
                     </tr>
                   );
                 })}

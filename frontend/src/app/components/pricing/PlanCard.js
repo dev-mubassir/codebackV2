@@ -65,6 +65,13 @@ export default function PlanCard({
             ? 'Custom auto-replies'
             : `${plan.autoReplyCreditsPerCycle.toLocaleString('en-IN')} auto-replies`}
         </li>
+        {plan.draftCreditsPerCycle !== undefined && (
+          <li>
+            {plan.draftCreditsPerCycle == null
+              ? 'Unlimited AI drafts'
+              : `${plan.draftCreditsPerCycle.toLocaleString('en-IN')} AI drafts`}
+          </li>
+        )}
         <li>Unused replies roll over</li>
       </ul>
 

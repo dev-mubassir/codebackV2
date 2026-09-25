@@ -158,7 +158,9 @@ function BillingPageContent({ user }) {
       const prices =
         addonCode === 'extra_ig_account'
           ? catalogPlan?.addons?.extraIgAccount?.prices
-          : catalogPlan?.addons?.replyCredits?.find((pack) => pack.code === addonCode)?.prices;
+          : [...(catalogPlan?.addons?.replyCredits || []), ...(catalogPlan?.addons?.draftCredits || [])].find(
+              (pack) => pack.code === addonCode
+            )?.prices;
       const price = priceFor(prices, region);
       if (!price) return;
       checkout.reset();

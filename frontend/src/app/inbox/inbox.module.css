@@ -475,7 +475,21 @@
   padding: 0 var(--ui-space-2) var(--ui-space-2);
 }
 
-.composerLeft { display: flex; align-items: center; gap: var(--ui-space-1); }
+.composerLeft { display: flex; align-items: center; gap: var(--ui-space-1); flex-wrap: wrap; min-width: 0; }
+
+/* Draft credits left — shown only while billing is on. */
+.draftCounter {
+  font-size: var(--ui-text-xs);
+  color: var(--ui-text-muted);
+  line-height: var(--ui-leading-normal);
+}
+
+.draftBuyLink {
+  color: var(--ui-accent);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 .composerNote {
   margin: var(--ui-space-2) 0 0;

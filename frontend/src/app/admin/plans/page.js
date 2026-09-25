@@ -16,7 +16,10 @@ import { StepUpCancelled, useStepUp } from '../_components/StepUp';
 import styles from '../admin.module.css';
 
 const c = t.plans;
-const INT_FIELDS = ['classificationCapCycle', 'classificationThrottlePerHour', 'autoReplyCreditsPerCycle', 'autoReplyBankCap', 'igAccountLimit'];
+const INT_FIELDS = ['classificationCapCycle', 'classificationThrottlePerHour', 'autoReplyCreditsPerCycle', 'autoReplyBankCap', 'draftCreditsPerCycle', 'draftBankCap', 'igAccountLimit'];
+// Left empty on a NEW plan, the server applies the 1/4 rule rather than
+// storing null (which would mean unlimited drafts).
+const DEFAULTED_ON_CREATE = ['draftCreditsPerCycle', 'draftBankCap'];
 const EMPTY = { code: '', name: '', cycleLengthDays: '30', priceIn: '', priceIntl: '', features: '{}', isActive: false, isQuoteOnly: false, ...Object.fromEntries(INT_FIELDS.map((f) => [f, ''])) };
 
 function toForm(plan) {
@@ -55,7 +58,9 @@ function toBody(form, creating) {
     isQuoteOnly: form.isQuoteOnly,
     features,
     ...(form.code === 'TRIAL' ? {} : { prices }),
-    ...Object.fromEntries(INT_FIELDS.map((f) => [f, num(form[f])])),
+    ...Object.fromEntries(
+      INT_FIELDS.filter((f) => !(creating && DEFAULTED_ON_CREATE.includes(f) && form[f] === '')).map((f) => [f, num(form[f])])
+    ),
   };
 }
 
@@ -110,7 +115,7 @@ export default function AdminPlansPage() {
         <div className={styles.tableScroll}>
           <table className={`${styles.table} ${styles.tableCompact}`}>
             <thead>
-              <tr><th>{c.fields.code}</th><th>{c.fields.name}</th><th>{c.fields.classificationCapCycle}</th><th>{c.fields.autoReplyCreditsPerCycle}</th><th>{c.fields.priceIn}</th><th /></tr>
+              <tr><th>{c.fields.code}</th><th>{c.fields.name}</th><th>{c.fields.classificationCapCycle}</th><th>{c.fields.autoReplyCreditsPerCycle}</th><th>{c.fields.draftCreditsPerCycle}</th><th>{c.fields.priceIn}</th><th /></tr>
             </thead>
             <tbody>
               {(plans || []).map((p) => (
@@ -119,6 +124,7 @@ export default function AdminPlansPage() {
                   <td>{p.name}</td>
                   <td>{p.classificationCapCycle ?? '—'}</td>
                   <td>{p.autoReplyCreditsPerCycle ?? '—'}</td>
+                  <td>{p.draftCreditsPerCycle ?? '∞'}</td>
                   <td>{p.prices.find((x) => x.billingRegion === 'IN')?.amount ?? '—'}</td>
                   <td className={styles.alignRight}><Button size="sm" onClick={() => { setForm(toForm(p)); setEditing(p.code); }}>{c.edit}</Button></td>
                 </tr>
@@ -148,6 +154,7 @@ export default function AdminPlansPage() {
             <label className={styles.dialogBody}><input type="checkbox" checked={form.isActive} onChange={set('isActive')} /> {c.fields.isActive}</label>
             <label className={styles.dialogBody}><input type="checkbox" checked={form.isQuoteOnly} onChange={set('isQuoteOnly')} /> {c.fields.isQuoteOnly}</label>
             {editing === 'new' && <p className={styles.cellSub}>{c.notPurchasable}</p>}
+            {editing === 'new' && <p className={styles.cellSub}>{c.draftDefault}</p>}
             <div className={styles.rowActions}>
               <Button type="submit" variant="primary">{editing === 'new' ? c.create : c.save}</Button>
               <Button onClick={() => setEditing(null)}>Cancel</Button>

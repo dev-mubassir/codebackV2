@@ -33,8 +33,12 @@ export default function AddonShelf({ summary, catalogPlan, region, onBuyAddon })
   const pack = catalogPlan?.addons?.replyCredits?.[0];
   const packPrice = priceFor(pack?.prices, region);
   const igPrice = priceFor(catalogPlan?.addons?.extraIgAccount?.prices, region);
+  // Draft-credit packs (the inbox's "Draft a reply" button), each only when priced.
+  const draftPacks = (catalogPlan?.addons?.draftCredits || [])
+    .map((p) => ({ pack: p, price: priceFor(p.prices, region) }))
+    .filter((x) => x.price);
 
-  if (!packPrice && !igPrice) return null;
+  if (!packPrice && !igPrice && draftPacks.length === 0) return null;
 
   return (
     <section className={styles.panel} aria-label={billing.addons.heading}>
@@ -64,6 +68,26 @@ export default function AddonShelf({ summary, catalogPlan, region, onBuyAddon })
           </div>
         </div>
       )}
+
+      {draftPacks.map(({ pack: draftPack, price }) => (
+        <div className={styles.addonRow} key={draftPack.code} id={draftPack.code === draftPacks[0].pack.code ? 'draft-packs' : undefined}>
+          <div className={styles.addonInfo}>
+            <div className={styles.addonName}>{billing.addons.draftPack(draftPack.creditAmount)}</div>
+            <p className={styles.help}>{billing.addons.draftPackHelp}</p>
+          </div>
+          <div className={styles.addonRight}>
+            <span className={styles.addonPrice}>{formatPrice(price.amount, price.currency)}</span>
+            <button
+              type="button"
+              className={styles.btnSecondarySm}
+              onClick={() => onBuyAddon(draftPack.code)}
+              disabled={!canBuy}
+            >
+              {billing.addons.buyDrafts}
+            </button>
+          </div>
+        </div>
+      ))}
 
       {igPrice && (
         <div className={styles.addonRow}>

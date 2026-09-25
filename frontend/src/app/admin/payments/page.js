@@ -67,7 +67,10 @@ export default function AdminPaymentsPage() {
                 <tr key={p.id}>
                   <td className={styles.cellMono}>{p.cashfreeOrderId}</td>
                   <td>{p.customerEmail ? <Link href={`/admin/users/${p.tenantId}`}>{p.customerEmail}</Link> : <span className={styles.cellSub}>{c.deleted}</span>}</td>
-                  <td className={styles.cellMono}>{p.planCode || p.addonCode}</td>
+                  <td className={styles.cellMono}>
+                    {p.planCode || p.addonCode}
+                    {p.itemKind && <div className={styles.cellSub}>{c.kinds[p.itemKind] || p.itemKind}</div>}
+                  </td>
                   <td>{money(p.amount, p.currency)}</td>
                   <td><Badge tone={TONE[p.status] || 'neutral'}>{p.status}</Badge></td>
                   <td>{p.paidAt ? formatDateTime(p.paidAt) : '—'}</td>

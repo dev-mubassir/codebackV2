@@ -63,6 +63,12 @@ export default function RefundPolicyPage() {
             days. Nothing renews automatically and there is no subscription to cancel: when a
             period ends, it ends, unless you choose to buy another one.
           </p>
+          <p>
+            A plan includes two kinds of credits: <strong>auto-reply credits</strong>, used when
+            Siffty sends an automatic reply, and <strong>AI draft credits</strong>, used each time you
+            ask for an AI-drafted reply in the inbox. A draft that fails costs nothing. You can buy
+            more of either as a top-up.
+          </p>
         </div>
       </section>
 
@@ -80,6 +86,10 @@ export default function RefundPolicyPage() {
             <li>you ask within {REFUND_WINDOW_DAYS} days of the payment, and</li>
             <li>less than {PLAN_USAGE_LIMIT_PERCENT}% of the credits from that purchase have been used.</li>
           </ul>
+          <p>
+            &quot;Credits&quot; here means the plan&apos;s auto-reply credits. AI draft credits do not count
+            toward this limit.
+          </p>
           <div className={styles.calloutBox}>
             <p>
               <strong>Calculation Example:</strong> A plan that gives you 500 credits qualifies while fewer
@@ -107,6 +117,11 @@ export default function RefundPolicyPage() {
             <strong>Auto-reply top-ups</strong> are refunded in full if you ask within{' '}
             {REFUND_WINDOW_DAYS} days of the payment and the top-up is entirely unused — none of its
             credits have been used. Credits you already had are used first.
+          </p>
+          <p>
+            <strong>AI draft top-ups</strong> follow the same rule: refunded in full if you ask within{' '}
+            {REFUND_WINDOW_DAYS} days of the payment and none of the top-up&apos;s draft credits have been
+            used. Draft credits you already had are used first.
           </p>
           <p>
             <strong>Extra Instagram accounts</strong> are refunded in full if you ask within{' '}
@@ -167,8 +182,8 @@ export default function RefundPolicyPage() {
             business days after we issue them, depending on your bank or card provider.
           </p>
           <p>
-            When a refund is issued, the plan time or top-up it paid for ends, and the auto-reply
-            credits it gave you are removed from your balance.
+            When a refund is issued, the plan time or top-up it paid for ends, and whatever is left of
+            the auto-reply credits and AI draft credits it gave you is removed from your balance.
           </p>
         </div>
       </section>

@@ -32,6 +32,7 @@ function PlanControls({ userId, onDone }) {
   const [grant, setGrant] = useState({ planCode: 'STARTER', validUntil: '' });
   const [days, setDays] = useState('');
   const [amount, setAmount] = useState('');
+  const [draftAmount, setDraftAmount] = useState('');
   const [pending, setPending] = useState(null); // { action, body, title }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +74,10 @@ function PlanControls({ userId, onDone }) {
         <form className={styles.filters} onSubmit={(e) => { e.preventDefault(); ask('bonus-quota', { amount: Number(amount) }, `${pc.bonus}: +${amount}`); }}>
           <Input type="number" min="1" max="100000" aria-label={pc.amount} placeholder={pc.amount} value={amount} onChange={(e) => setAmount(e.target.value)} required />
           <Button type="submit" size="sm">{pc.bonus}</Button>
+        </form>
+        <form className={styles.filters} onSubmit={(e) => { e.preventDefault(); ask('bonus-quota', { draftCredits: Number(draftAmount) }, `${pc.bonusDrafts}: +${draftAmount}`); }}>
+          <Input type="number" min="1" max="10000" aria-label={pc.draftAmount} placeholder={pc.draftAmount} value={draftAmount} onChange={(e) => setDraftAmount(e.target.value)} required />
+          <Button type="submit" size="sm">{pc.bonusDrafts}</Button>
         </form>
         <div>
           <p className={styles.cellSub}>{pc.resetBody}</p>
@@ -192,6 +197,14 @@ export default function AdminUserDetailPage() {
                     }`}
                   />
                   <Row k={d.replyCredits} v={`${formatCount(user.quota.replyCreditsCurrent)} (+${formatCount(user.quota.replyCreditsBanked)} ${d.banked})`} />
+                  <Row
+                    k={d.draftCredits}
+                    v={
+                      user.plan.planCode && user.quota.draftCreditsPerCycle == null
+                        ? d.unlimited
+                        : `${formatCount(user.quota.draftCreditsCurrent ?? 0)} (+${formatCount(user.quota.draftCreditsBanked ?? 0)} ${d.banked})`
+                    }
+                  />
                   <Row k={`${d.totals} — ${d.total}`} v={formatCount(user.classifications.total)} />
                   <Row k={`${d.totals} — ${d.last30}`} v={formatCount(user.classifications.last30Days)} />
                 </tbody>

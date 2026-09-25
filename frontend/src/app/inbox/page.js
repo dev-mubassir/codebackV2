@@ -26,7 +26,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { io } from 'socket.io-client';
 import {
   getMe, getConversations, getMessages, getAccounts,
-  getConversationAnalysis, generateReply, sendReply, setConversationRead,
+  getConversationAnalysis, generateReply, getDraftCredits, sendReply, setConversationRead,
   updateBrandDealStatus, getNotifications, toggleAutoReply,
   clearChat, deleteConversation,
 } from '@/lib/api';
@@ -52,6 +52,12 @@ import { rememberDestination } from '@/lib/pendingDestination';
 import styles from './inbox.module.css';
 
 const BRAND_DEAL_STATUSES = ['new', 'contacted', 'negotiating', 'confirmed', 'declined'];
+
+/** One idempotency key per "Draft a reply" click — see lib/api generateReply. */
+function newDraftKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return `d_${crypto.randomUUID().replace(/-/g, '')}`;
+  return `d_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
 
 /**
  * labels.js tones -> Badge tones.
@@ -86,6 +92,9 @@ function InboxPageContent() {
   const [draftText, setDraftText] = useState('');
   const [customPromptText, setCustomPromptText] = useState('');
   const [generating, setGenerating] = useState(false);
+  // { remaining, unlimited, allowed, reason } while billing is on; null = no counter.
+  const [draftCredits, setDraftCredits] = useState(null);
+  const draftsBlocked = Boolean(draftCredits && !draftCredits.allowed);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -315,6 +324,8 @@ function InboxPageContent() {
           return;
         }
         setUser(userData);
+        // Draft credits: only while billing is on; null (billing off) = no counter.
+        if (userData?.features?.billing) getDraftCredits().then(setDraftCredits).catch(() => {});
         setAccounts(await getAccounts());
 
         const rows = await loadConversations(initialAccountId);
@@ -387,16 +398,24 @@ function InboxPageContent() {
   }
 
   async function handleGenerateReply() {
-    if (!selectedConv || generating) return;
+    if (!selectedConv || generating || draftsBlocked) return;
     setGenerating(true);
     setSendError('');
     try {
-      const result = await generateReply(selectedConv);
+      const result = await generateReply(selectedConv, undefined, newDraftKey());
+      if (result?.draftCredits) setDraftCredits(result.draftCredits);
       if (result?.text) {
         setDraftText(result.text);
         composerRef.current?.focus();
       }
     } catch (err) {
+      // The server reports the counter on failures too (a failed draft costs
+      // nothing; a blocked one says why).
+      const body = err?.response?.data;
+      if (body?.draftCredits) setDraftCredits(body.draftCredits);
+      // Out of credits / no plan: the counter row says so with a billing link,
+      // so no second error line.
+      if (err?.response?.status === 402) return;
       // Deliberately NOT err.response.data.error. The backend returns its own
       // copy of this sentence, so the server string wins and any wording fix
       // here would be invisible. The server's useful half is `details`, which
@@ -992,10 +1011,24 @@ function InboxPageContent() {
                         size="sm"
                         variant="ghost"
                         onClick={handleGenerateReply}
-                        disabled={generating || !canSend}
+                        disabled={generating || !canSend || draftsBlocked}
                       >
                         {generating ? t.compose.generating : t.compose.draft}
                       </Button>
+                      {draftCredits && (
+                        draftsBlocked ? (
+                          <span className={styles.draftCounter} role="status">
+                            {draftCredits.reason === 'not_entitled' ? t.compose.draftsNeedPlan : t.compose.noDrafts}{' '}
+                            <a className={styles.draftBuyLink} href={draftCredits.reason === 'not_entitled' ? '/billing#plans' : '/billing#draft-packs'}>
+                              {draftCredits.reason === 'not_entitled' ? t.compose.seePlans : t.compose.buyDrafts}
+                            </a>
+                          </span>
+                        ) : (
+                          <span className={styles.draftCounter} aria-live="polite">
+                            {draftCredits.unlimited ? t.compose.draftsUnlimited : t.compose.draftsLeft(draftCredits.remaining)}
+                          </span>
+                        )
+                      )}
                     </div>
                     <Button
                       variant="primary"

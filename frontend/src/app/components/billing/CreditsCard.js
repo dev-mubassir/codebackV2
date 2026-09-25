@@ -29,7 +29,7 @@ function meterToneClass(usedPercent, remaining) {
 }
 
 export default function CreditsCard({ summary }) {
-  const { credits } = summary;
+  const { credits, draftCredits } = summary;
   const isEmpty = credits.remaining === 0;
 
   return (
@@ -77,6 +77,31 @@ export default function CreditsCard({ summary }) {
       <p className={`${styles.help} ${styles.helpAfter}`}>
         {billing.credits.bankedHelp}
       </p>
+
+      {/* The inbox's "Draft a reply" credits: a separate pool, never spent by auto-replies. */}
+      {draftCredits && (
+        <div className={styles.gapTopSm} data-testid="draft-credits">
+          <div className={styles.splitRow}>
+            <span className={styles.addonName}>{billing.draftCredits.heading}</span>
+            <span className={styles.splitValue}>
+              {draftCredits.unlimited ? billing.draftCredits.unlimited : billing.draftCredits.remaining(draftCredits.remaining)}
+            </span>
+          </div>
+          {!draftCredits.unlimited && (
+            <>
+              <div className={styles.splitRow}>
+                <span>{billing.credits.current}</span>
+                <span className={styles.splitValue}>{formatCount(draftCredits.current)}</span>
+              </div>
+              <div className={styles.splitRow}>
+                <span>{billing.credits.banked}</span>
+                <span className={styles.splitValue}>{formatCount(draftCredits.banked)}</span>
+              </div>
+            </>
+          )}
+          <p className={`${styles.help} ${styles.helpAfter}`}>{billing.draftCredits.help}</p>
+        </div>
+      )}
     </section>
   );
 }

@@ -222,9 +222,26 @@ export async function getConversationAnalysis(conversationId) {
  * Ask AI to draft a reply. This NEVER sends anything — it only returns text
  * for the creator to review/edit. Only sendReply() below actually sends.
  */
-export async function generateReply(conversationId, instructions) {
-  const { data } = await api.post(`/api/conversations/${conversationId}/generate-reply`, { instructions });
+export async function generateReply(conversationId, instructions, idempotencyKey) {
+  // One key per click: a double-click or a retried request is charged at most
+  // one draft credit and gets the same draft back.
+  const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined;
+  const { data } = await api.post(`/api/conversations/${conversationId}/generate-reply`, { instructions }, { headers });
   return data;
+}
+
+/**
+ * The inbox's draft counter: { remaining, unlimited, allowed, reason }.
+ * Resolves null when billing is off (the endpoint 404s) — show no counter.
+ */
+export async function getDraftCredits() {
+  try {
+    const { data } = await api.get('/api/billing/draft-credits');
+    return data;
+  } catch (err) {
+    if (err?.response?.status === 404) return null;
+    throw err;
+  }
 }
 
 /** Send a reply in a conversation — the ONLY call that reaches Instagram. */
@@ -471,6 +488,18 @@ export async function createAdminPlan(body) {
 }
 export async function updateAdminPlan(code, body) {
   const { data } = await api.put(`/api/admin/plans/${encodeURIComponent(code)}`, body);
+  return data;
+}
+export async function getAdminAddonPacks() {
+  const { data } = await api.get('/api/admin/addon-packs');
+  return data;
+}
+export async function createAdminAddonPack(body) {
+  const { data } = await api.post('/api/admin/addon-packs', body);
+  return data;
+}
+export async function updateAdminAddonPack(code, body) {
+  const { data } = await api.put(`/api/admin/addon-packs/${encodeURIComponent(code)}`, body);
   return data;
 }
 export async function getAdminCoupons() {

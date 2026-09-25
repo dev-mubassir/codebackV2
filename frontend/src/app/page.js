@@ -1533,6 +1533,7 @@ function LandingPageContent() {
               <ul className="tier-features-list">
                 <li><span className="check-bullet">✓</span> 1 Instagram account</li>
                 <li><span className="check-bullet">✓</span> 500 AI auto-replies</li>
+                <li><span className="check-bullet">✓</span> 125 AI drafts</li>
                 <li><span className="check-bullet">✓</span> Unlimited AI classifications</li>
                 <li><span className="check-bullet">✓</span> Unused replies roll over</li>
               </ul>
@@ -1565,6 +1566,7 @@ function LandingPageContent() {
               <ul className="tier-features-list">
                 <li><span className="check-bullet">✓</span> <strong>2 Instagram accounts</strong></li>
                 <li><span className="check-bullet">✓</span> <strong>2,000 AI auto-replies</strong></li>
+                <li><span className="check-bullet">✓</span> <strong>500 AI drafts</strong></li>
                 <li><span className="check-bullet">✓</span> <strong>Unlimited AI classifications</strong></li>
                 <li><span className="check-bullet">✓</span> Unused replies roll over</li>
               </ul>
@@ -1598,6 +1600,7 @@ function LandingPageContent() {
               <ul className="tier-features-list">
                 <li><span className="check-bullet">✓</span> Custom Instagram accounts</li>
                 <li><span className="check-bullet">✓</span> Custom AI auto-replies</li>
+                <li><span className="check-bullet">✓</span> Unlimited AI drafts</li>
                 <li><span className="check-bullet">✓</span> Unlimited AI classifications</li>
                 <li><span className="check-bullet">✓</span> Unused replies roll over</li>
                 <li><span className="check-bullet">✓</span> Dedicated Account Manager</li>
@@ -1612,6 +1615,51 @@ function LandingPageContent() {
                   </span>
                 </span>
               </Link>
+            </div>
+          </div>
+
+          {/* Add-ons — what the billing page sells on top of a plan. Prices MUST
+              match the addon_pack_prices / extra_ig_account_prices seed
+              (backend/tests/landing-pricing-seed.test.js pins this). */}
+          <div className="pricing-addons-box" id="add-ons">
+            <h3 className="pricing-addons-title">Add-ons</h3>
+            <p className="pricing-addons-text">
+              One-time top-ups for the current 30-day plan, priced by plan. Auto-replies and AI drafts are
+              separate credits: an auto-reply uses an auto-reply credit, and each AI draft you ask for in the
+              inbox uses one draft credit.
+            </p>
+            <div className="pricing-addons-scroll">
+              <table className="pricing-addons-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Add-on</th>
+                    <th scope="col">On Starter</th>
+                    <th scope="col">On Pro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-addon="reply_credits_500">
+                    <th scope="row">+500 AI auto-replies</th>
+                    <td>₹299</td>
+                    <td>₹149</td>
+                  </tr>
+                  <tr data-addon="draft_credits_125">
+                    <th scope="row">+125 AI drafts</th>
+                    <td>₹74.75</td>
+                    <td>₹37.25</td>
+                  </tr>
+                  <tr data-addon="draft_credits_500">
+                    <th scope="row">+500 AI drafts</th>
+                    <td>₹299</td>
+                    <td>₹149</td>
+                  </tr>
+                  <tr data-addon="extra_ig_account">
+                    <th scope="row">+1 Instagram account</th>
+                    <td>₹299</td>
+                    <td>₹199</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 

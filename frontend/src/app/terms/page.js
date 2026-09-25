@@ -9,7 +9,7 @@ export const metadata = {
   description: meta.terms.description,
 };
 
-const LAST_UPDATED = '11 September 2026';
+const LAST_UPDATED = '25 September 2026';
 
 const TOC_ITEMS = [
   { id: 'agreement', title: '1. Agreement' },
@@ -17,13 +17,14 @@ const TOC_ITEMS = [
   { id: 'instagram-meta', title: "3. Your Instagram account & Meta's terms" },
   { id: 'automated-replies', title: '4. Automated replies' },
   { id: 'output-guarantee', title: '5. Automated output is not guaranteed' },
-  { id: 'acceptable-use', title: '6. Acceptable use' },
-  { id: 'your-data', title: '7. Your data' },
-  { id: 'availability', title: '8. Availability' },
-  { id: 'liability', title: '9. Liability' },
-  { id: 'termination', title: '10. Termination' },
-  { id: 'governing-law', title: '11. Governing law' },
-  { id: 'changes', title: '12. Changes' },
+  { id: 'plans-credits-payments', title: '6. Plans, credits and payments' },
+  { id: 'acceptable-use', title: '7. Acceptable use' },
+  { id: 'your-data', title: '8. Your data' },
+  { id: 'availability', title: '9. Availability' },
+  { id: 'liability', title: '10. Liability' },
+  { id: 'termination', title: '11. Termination' },
+  { id: 'governing-law', title: '12. Governing law' },
+  { id: 'changes', title: '13. Changes' },
 ];
 
 export default function TermsPage() {
@@ -161,11 +162,50 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 6. Acceptable use */}
-      <section id="acceptable-use" className={styles.contentCard}>
+      {/* 6. Plans, credits and payments */}
+      <section id="plans-credits-payments" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
             <span className={styles.sectionNumber}>6</span>
+            Plans, credits and payments
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
+          <p>
+            Paid plans are one-time purchases of a 30-day period. Nothing renews automatically: a
+            period ends unless you choose to buy another one. Prices are shown on the pricing section
+            of our home page and on your billing page before you pay.
+          </p>
+          <p>A plan includes two separate kinds of credits:</p>
+          <ul>
+            <li>
+              <strong>Auto-reply credits.</strong> One is used each time Siffty sends an automatic
+              reply for you.
+            </li>
+            <li>
+              <strong>AI draft credits.</strong> One is used each time you ask for an AI-drafted reply
+              in the inbox and a draft is produced. A draft that fails costs nothing. Drafts are never
+              sent unless you send them.
+            </li>
+          </ul>
+          <p>
+            One kind of credit is never used in place of the other. You can buy more of either as a
+            one-time add-on for your current plan. Unused credits roll over to your next period, up to
+            your plan&apos;s limit. If a plan lapses and is not renewed before its grace period ends,
+            unused credits are cleared.
+          </p>
+          <p>
+            Payments are processed by our payment partner, Cashfree Payments. Refunds follow our{' '}
+            <Link href="/refund-policy">Refund Policy</Link>.
+          </p>
+        </div>
+      </section>
+
+      {/* 7. Acceptable use */}
+      <section id="acceptable-use" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>7</span>
             Acceptable use
           </h2>
         </div>
@@ -183,11 +223,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 7. Your data */}
+      {/* 8. Your data */}
       <section id="your-data" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>7</span>
+            <span className={styles.sectionNumber}>8</span>
             Your data
           </h2>
         </div>
@@ -204,11 +244,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 8. Availability */}
+      {/* 9. Availability */}
       <section id="availability" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>8</span>
+            <span className={styles.sectionNumber}>9</span>
             Availability
           </h2>
         </div>
@@ -221,11 +261,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 9. Liability */}
+      {/* 10. Liability */}
       <section id="liability" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>9</span>
+            <span className={styles.sectionNumber}>10</span>
             Liability
           </h2>
         </div>
@@ -239,11 +279,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 10. Termination */}
+      {/* 11. Termination */}
       <section id="termination" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>10</span>
+            <span className={styles.sectionNumber}>11</span>
             Termination
           </h2>
         </div>
@@ -258,11 +298,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 11. Governing law */}
+      {/* 12. Governing law */}
       <section id="governing-law" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>11</span>
+            <span className={styles.sectionNumber}>12</span>
             Governing law
           </h2>
         </div>
@@ -274,11 +314,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 12. Changes */}
+      {/* 13. Changes */}
       <section id="changes" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>12</span>
+            <span className={styles.sectionNumber}>13</span>
             Changes
           </h2>
         </div>
