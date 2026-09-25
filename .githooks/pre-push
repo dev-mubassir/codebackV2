@@ -1,0 +1,18 @@
+#!/bin/sh
+# Blocks direct pushes to master. master auto-deploys to production, so it
+# only changes through a merged pull request (see OPERATIONS.md).
+#
+# Activate once per clone:   git config core.hooksPath .githooks
+#
+# git feeds one line per ref being pushed:
+#   <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/master)
+      echo "pre-push: direct pushes to master are blocked." >&2
+      echo "pre-push: push a branch and open a pull request instead." >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0

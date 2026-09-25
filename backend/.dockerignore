@@ -1,0 +1,25 @@
+# Secrets and local config — never in an image.
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+**/*.pem
+# Local HTTPS certs: if present, src/index.js switches the server to HTTPS,
+# which breaks the platform's plain-HTTP health checks and routing.
+certs/
+
+# Rebuilt inside the image.
+node_modules/
+
+# Not needed at runtime.
+.git/
+tests/
+scripts/
+graphify-out/
+coverage/
+*.log
+**/*.log
+vitest.config.mjs
+Dockerfile
+.dockerignore

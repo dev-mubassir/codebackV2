@@ -1,0 +1,34 @@
+{
+  "name": "stg-migrate",
+  "description": "TEMPORARY: prisma migrate deploy against stg-postgres (delete in Gate 4)",
+  "tags": [
+    "stg"
+  ],
+  "billing": {
+    "deploymentPlan": "nf-compute-20",
+    "buildPlan": "nf-compute-400-16"
+  },
+  "backoffLimit": 0,
+  "activeDeadlineSeconds": 600,
+  "vcsData": {
+    "projectUrl": "https://github.com/dev-mubassir/codebackV2",
+    "projectType": "github",
+    "projectBranch": "scale-prod",
+    "accountLogin": "dev-mubassir"
+  },
+  "buildSettings": {
+    "dockerfile": {
+      "buildEngine": "buildkit",
+      "dockerFilePath": "/backend/Dockerfile",
+      "dockerWorkDir": "/backend",
+      "useCache": true
+    }
+  },
+  "deployment": {
+    "docker": {
+      "configType": "customCommand",
+      "customCommand": "npx prisma migrate deploy"
+    }
+  },
+  "disabledCI": true
+}
