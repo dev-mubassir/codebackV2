@@ -113,6 +113,7 @@ class InMemoryJobQueue {
 
   async _run(job) {
     try {
+      if (!this._processor) return;
       await this._processor(job);
     } catch (err) {
       job.attemptsMade += 1;
@@ -196,9 +197,16 @@ function buildMemoryJobSystem(name, opts) {
   const q = new InMemoryJobQueue(name, opts);
   return {
     mode: 'memory',
-    async close() {
-      // Nothing to hand over: in-process jobs are best effort by design, and
-      // the stalled-analysis sweep re-queues any message left unclassified.
+    async close({ drainMs = 4000 } = {}) {
+      // Stop taking new work, then let in-flight jobs finish (bounded). What
+      // is still queued in memory is not lost: webhook deliveries are in the
+      // database (recovery sweep) and unclassified messages are re-enqueued
+      // by the stalled-analysis sweep.
+      q._processor = null;
+      const deadline = Date.now() + drainMs;
+      while (q._active > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
     },
     add(jobName, data, addOpts) {
       return q.add(jobName, data, addOpts);

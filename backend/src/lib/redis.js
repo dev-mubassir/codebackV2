@@ -30,6 +30,9 @@ const IORedis = require('ioredis');
 
 const connections = new Set();
 let shared = null;
+// When the shared connection last stopped being usable (null while it is).
+// Read by the admin health page and the "Redis down > 2 minutes" alert.
+let downSince = null;
 
 function redisUrl() {
   const url = (process.env.REDIS_URL || '').trim();
@@ -75,6 +78,19 @@ function getRedis() {
       enableOfflineQueue: false,
       maxRetriesPerRequest: 1,
     });
+    downSince = Date.now(); // not usable until the first 'ready'
+    shared.on('ready', () => {
+      if (downSince && Date.now() - downSince > 5000) console.log('[Redis] Recovered.');
+      downSince = null;
+    });
+    const markDown = () => {
+      if (!downSince) {
+        downSince = Date.now();
+        console.warn('[Redis] Connection lost — rate limits and quota fall back to memory; webhooks are processed in-process.');
+      }
+    };
+    shared.on('close', markDown);
+    shared.on('end', markDown);
   }
   return shared;
 }
@@ -82,6 +98,13 @@ function getRedis() {
 /** True when the shared connection can take a command right now. */
 function isRedisReady() {
   return Boolean(shared && shared.status === 'ready');
+}
+
+/** ms since the shared connection became unusable, or 0 while it is fine. */
+function redisDownForMs(now = Date.now()) {
+  if (!isRedisConfigured()) return 0;
+  getRedis();
+  return downSince ? now - downSince : 0;
 }
 
 /** PING with a bound. Resolves the round-trip in ms; rejects on failure. */
@@ -122,6 +145,7 @@ module.exports = {
   isRedisConfigured,
   getRedis,
   isRedisReady,
+  redisDownForMs,
   pingRedis,
   createRedisConnection,
   closeRedis,

@@ -140,7 +140,31 @@ async function checkAiFallback(now) {
   return { type: 'ai_fallback', title: 'AI fallback activated', lead: 'Traffic moved to the fallback AI model.', facts: [] };
 }
 
-const CHECKS = [checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback];
+/** DMs Meta was told we received that are still not in the inbox. */
+async function checkWebhookBacklog(now) {
+  const { olderThan10Min, unprocessed, oldestReceivedAt } = await require('../services/webhookDeliveries').backlogStats({ now });
+  if (!olderThan10Min) return null;
+  return {
+    type: 'webhook_backlog',
+    title: `${olderThan10Min} webhook deliveries unprocessed for over 10 minutes`,
+    lead: 'Stored Instagram deliveries are not reaching the inbox. The recovery sweep retries them every 2 minutes; check the logs for the last error.',
+    facts: [`unprocessed: ${unprocessed}`, `oldest: ${oldestReceivedAt ? oldestReceivedAt.toISOString() : 'n/a'}`],
+  };
+}
+
+/** Redis configured but unusable for over 2 minutes. */
+async function checkRedisDown(now) {
+  const downMs = require('../lib/redis').redisDownForMs(now);
+  if (downMs < 2 * MIN) return null;
+  return {
+    type: 'redis_down',
+    title: `Redis unavailable for ${Math.round(downMs / MIN)} minute(s)`,
+    lead: 'The API keeps serving: rate limits and email quota are per-instance, webhooks are saved and processed in-process, live socket events only reach users on the same instance.',
+    facts: [`down for: ${Math.round(downMs / 1000)}s`],
+  };
+}
+
+const CHECKS = [checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback, checkWebhookBacklog, checkRedisDown];
 
 async function recentlySent(type, now, db = prisma) {
   const since = new Date(now - COOLDOWN_MS);

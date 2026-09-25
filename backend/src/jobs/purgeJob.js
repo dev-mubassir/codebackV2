@@ -26,7 +26,10 @@ const ADMIN_LOG_IP_RETENTION_DAYS = 90;
 async function purgeWebhookDeliveries({ olderThanDays = WEBHOOK_DELIVERY_RETENTION_DAYS } = {}) {
   const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
   const { count } = await prisma.webhookDelivery.deleteMany({
-    where: { receivedAt: { lt: cutoff } },
+    // Never an UNPROCESSED delivery that still holds its payload: that is a DM
+    // not yet in the inbox. Those stay (and keep the backlog alert firing)
+    // until processed or dealt with by hand.
+    where: { receivedAt: { lt: cutoff }, OR: [{ processedAt: { not: null } }, { payload: null }] },
   });
   if (count > 0) console.log(`[Jobs] Purged ${count} webhook delivery record(s).`);
   return count;

@@ -20,6 +20,7 @@ const { rollupAiUsage } = require('./aiUsageJob');
 const { runTokenMaintenance } = require('./tokenRefreshJob');
 const { runAlertChecks } = require('./alertJob');
 const { schedule, stopScheduler, schedulerEnabled, closeLockPool } = require('./scheduler');
+const { recoverUnprocessedDeliveries, processDelivery, WEBHOOK_QUEUE } = require('../services/webhookDeliveries');
 
 const QUEUE_NAME = 'ai-processing';
 const MIN = 60 * 1000;
@@ -37,9 +38,23 @@ const HOUR = 60 * MIN;
  * the env default.)
  */
 const JOBS = [
-  // Reclaim messages whose worker died mid-analysis (or whose queued job was
-  // lost — e.g. a Redis flush). Without this they sit unclassified forever.
-  { name: 'stalled_analysis_sweep', intervalMs: 5 * MIN, fn: sweepStalledAnalyses },
+  // Webhook deliveries not processed 5 minutes after arrival — a crash
+  // mid-processing, a redeploy, a lost queue job, a Redis/AI/DB outage — are
+  // processed again from the stored payload (services/webhookDeliveries.js).
+  { name: 'webhook_recovery', intervalMs: 2 * MIN, fn: () => recoverUnprocessedDeliveries() },
+  // Reclaim analyses stranded in 'processing', and RE-ENQUEUE analyses whose
+  // queued job was lost (Redis flush/outage) or that failed during an AI
+  // outage — the DM itself is already saved and visible; only its
+  // classification is retried.
+  {
+    name: 'stalled_analysis_sweep',
+    intervalMs: 5 * MIN,
+    fn: async () => {
+      const reset = await sweepStalledAnalyses();
+      const requeued = await requeueOrphanedAnalyses();
+      return { reset, requeued };
+    },
+  },
   // Enforce the published 30-day limit on stored webhook payloads, which
   // contain customers' message text.
   { name: 'webhook_payload_retention', intervalMs: 6 * HOUR, fn: pruneWebhookPayloads },
@@ -90,6 +105,17 @@ function startWorkers() {
       { concurrency: 3 }
     );
 
+    // The durable webhook inbox: one job per stored delivery. Processing is
+    // claimed per row and idempotent per message, so a job that also got
+    // picked up by the recovery sweep does nothing the second time.
+    getJobSystem(WEBHOOK_QUEUE, { concurrency: 5 }).registerProcessor(
+      async (job) => {
+        if (job.name === 'webhook.process') return processDelivery(job.data.deliveryId);
+        console.warn(`[Jobs] Unknown webhook job "${job.name}", ignoring.`);
+      },
+      { concurrency: 5 }
+    );
+
     if (schedulerEnabled()) {
       for (const job of JOBS) schedule(job);
       console.log(`[Jobs] In-process scheduler ON: ${JOBS.length} jobs, each once per interval across all instances.`);
@@ -112,6 +138,46 @@ async function stopWorkers() {
   stopScheduler();
   await closeQueues();
   await closeLockPool();
+}
+
+const ORPHAN_AFTER_MS = 15 * MIN;
+const ORPHAN_WINDOW_MS = 24 * HOUR;
+const ORPHAN_MAX_ATTEMPTS = 12; // 3 queue attempts x 4 recovery rounds
+const ORPHAN_BATCH = 200;
+
+/**
+ * Re-enqueue analyses that nothing will ever pick up again:
+ *   - 'pending' for 15+ minutes: its queued job was lost (Redis flushed or
+ *     unreachable when it was enqueued, an in-process job lost on restart);
+ *   - 'failed' in the last 24h with attempts left: an AI outage outlasted the
+ *     queue's own retries.
+ *
+ * The jobKey is the current 15-minute bucket, so each message gets at most one
+ * recovery job per bucket however many instances or sweeps run. Messages older
+ * than 24h are left alone — and a recovered message never auto-replies late
+ * (messageAnalysisJob's recoveredTooLate guard).
+ */
+async function requeueOrphanedAnalyses({ now = Date.now() } = {}) {
+  const prisma = require('../lib/prisma');
+  const orphans = await prisma.message.findMany({
+    where: {
+      direction: 'inbound',
+      createdAt: { gte: new Date(now - ORPHAN_WINDOW_MS) },
+      OR: [
+        { aiStatus: 'pending', createdAt: { lt: new Date(now - ORPHAN_AFTER_MS) } },
+        { aiStatus: 'failed', attempts: { lt: ORPHAN_MAX_ATTEMPTS } },
+      ],
+    },
+    orderBy: { createdAt: 'asc' },
+    take: ORPHAN_BATCH,
+    select: { id: true },
+  });
+  const bucket = Math.floor(now / ORPHAN_AFTER_MS);
+  for (const { id } of orphans) {
+    await enqueueMessageAnalysis(id, { jobKey: `recover${bucket}` });
+  }
+  if (orphans.length) console.log(`[Sweeper] Re-enqueued ${orphans.length} orphaned or failed analysis job(s).`);
+  return orphans.length;
 }
 
 /**
@@ -149,4 +215,4 @@ async function enqueueMessageAnalysis(messageId, { delayMs = 0, throttleAttempt 
   }
 }
 
-module.exports = { startWorkers, stopWorkers, enqueueMessageAnalysis, JOBS };
+module.exports = { startWorkers, stopWorkers, enqueueMessageAnalysis, requeueOrphanedAnalyses, JOBS };

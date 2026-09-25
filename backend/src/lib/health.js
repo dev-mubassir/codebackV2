@@ -13,7 +13,7 @@ const { getIO } = require('./socket');
 const { aiStatsSince } = require('./ai/callLog');
 const { latestRunPerJob } = require('../jobs/jobRuns');
 const { recentErrors } = require('./errorRing');
-const { isRedisConfigured, pingRedis } = require('./redis');
+const { isRedisConfigured, pingRedis, redisDownForMs } = require('./redis');
 const { socketAdapterMode } = require('./socketAdapter');
 const { queueDriver } = require('./queue');
 const { rateLimitStore } = require('./rateLimit');
@@ -80,6 +80,11 @@ async function redisStats() {
   return {
     configured,
     connected,
+    // 'healthy' | 'degraded' (configured but not answering: the app keeps
+    // serving — rate limits/quota in memory, webhooks processed in-process)
+    // | 'not_configured'.
+    status: !configured ? 'not_configured' : connected ? 'healthy' : 'degraded',
+    downForSeconds: connected ? 0 : Math.round(redisDownForMs() / 1000),
     pingMs,
     socketAdapter: socketAdapterMode(),
     sessionStore: 'postgres',
@@ -149,7 +154,7 @@ async function tokenStats(now) {
  */
 async function collectHealth({ aiConfig, emailFailures }) {
   const now = Date.now();
-  const [db, jobs, webhooks, ai1h, ai24h, tokens, redis, dbConns] = await Promise.all([
+  const [db, jobs, webhooks, ai1h, ai24h, tokens, redis, dbConns, inbox] = await Promise.all([
     section(async () => ({ ok: true, pingMs: Math.round((await dbPing()) * 10) / 10 })),
     section(latestRunPerJob),
     section(() => webhookStats(now)),
@@ -158,6 +163,7 @@ async function collectHealth({ aiConfig, emailFailures }) {
     section(() => tokenStats(now)),
     section(redisStats),
     section(dbConnectionStats),
+    section(() => require('../services/webhookDeliveries').backlogStats({ now })),
   ]);
 
   return {
@@ -167,7 +173,7 @@ async function collectHealth({ aiConfig, emailFailures }) {
     redis,
     sockets: socketStats(),
     jobs,
-    webhooks,
+    webhooks: webhooks.error ? webhooks : { ...webhooks, inbox },
     ai: { lastHour: ai1h, last24Hours: ai24h, active: await section(aiConfig), costsAreEstimates: true },
     email: emailFailures(),
     instagramTokens: tokens,
@@ -182,18 +188,28 @@ function markShuttingDown() {
   shuttingDown = true;
 }
 
+function isShuttingDown() {
+  return shuttingDown;
+}
+
 /**
  * GET /health — readiness, and the external uptime monitor's check. Says ok or
- * error and nothing else: no version, no timestamp, no dependency detail. The
- * database is pinged (bounded), and Redis too when it is configured, so "ok"
- * means this instance can actually serve. While shutting down it answers 503,
- * which takes the instance out of rotation before it stops.
+ * error and nothing else: no version, no timestamp, no dependency detail.
+ *
+ * DATABASE ONLY. Redis is deliberately not checked: with Redis down every
+ * instance still serves (rate limits and quota fall back to memory, webhooks
+ * are saved to Postgres and processed in-process), so failing readiness on it
+ * would take the whole API out of rotation for an outage it survives. Redis
+ * shows as "degraded" on the admin health page and raises an admin alert.
+ *
+ * While shutting down it answers 503, which takes the instance out of
+ * rotation before it stops.
  */
 async function publicHealthHandler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (shuttingDown) return res.status(503).json({ status: 'error' });
   try {
-    await Promise.all([dbPing(), isRedisConfigured() ? pingRedis({ timeoutMs: 1000 }) : null]);
+    await dbPing();
     res.json({ status: 'ok' });
   } catch {
     res.status(503).json({ status: 'error' });
@@ -211,4 +227,4 @@ function livezHandler(req, res) {
   res.json({ status: 'ok' });
 }
 
-module.exports = { collectHealth, dbPing, publicHealthHandler, livezHandler, markShuttingDown, redisStats };
+module.exports = { collectHealth, dbPing, publicHealthHandler, livezHandler, markShuttingDown, isShuttingDown, redisStats };

@@ -942,9 +942,18 @@ model WebhookDelivery {
   provider     String   @default("meta")
   deliveryHash String   @map("delivery_hash") // SHA-256 hex of the raw request body
   receivedAt   DateTime @default(now()) @map("received_at")
+  // Durable inbox (zero missed DMs): the raw signed body is saved BEFORE Meta
+  // gets its 200, and cleared once processed. NULL on rows written before this
+  // column existed — those are never re-processed.
+  payload     String?   @db.Text
+  processedAt DateTime? @map("processed_at")
+  claimedAt   DateTime? @map("claimed_at") // lease: a worker or the recovery sweep is on it
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error")
 
   @@unique([provider, deliveryHash])
   @@index([receivedAt])
+  @@index([processedAt, receivedAt])
   @@map("webhook_deliveries")
 }
 
