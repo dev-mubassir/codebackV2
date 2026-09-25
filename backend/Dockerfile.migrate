@@ -1,0 +1,21 @@
+# Siffty `migrate` job image: runs `prisma migrate deploy` and exits.
+#
+# Separate from the API Dockerfile so the API image carries no Prisma CLI or
+# schema engine (Northflank job: dockerFilePath=/backend/Dockerfile.migrate,
+# dockerWorkDir=/backend). Needs only the schema and migrations — no app code.
+
+FROM node:24-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 1001 app \
+ && useradd --system --uid 1001 --gid app --no-create-home app
+WORKDIR /app
+ENV NODE_ENV=production NPM_CONFIG_UPDATE_NOTIFIER=false
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+RUN npm ci --no-audit --no-fund --ignore-scripts \
+ && npx prisma --version >/dev/null \
+ && npm cache clean --force
+USER app
+CMD ["npx", "prisma", "migrate", "deploy"]

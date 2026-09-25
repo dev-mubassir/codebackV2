@@ -90,6 +90,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Backend image
         run: docker build -t siffty-api:ci backend
+      - name: Migrate job image
+        run: docker build -f backend/Dockerfile.migrate -t siffty-migrate:ci backend
       - name: Frontend image
         run: >-
           docker build -t siffty-web:ci
