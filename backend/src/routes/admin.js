@@ -298,7 +298,7 @@ router.post('/login', adminOriginGuard, adminLoginIpLimiter, async (req, res) =>
     });
     alertAdmin(admin.email, 'login', requestFacts(req, now));
 
-    return res.json({ authenticated: true, email: admin.email, ...sessionDeadlines(req.session) });
+    return res.json({ authenticated: true, isAdmin: true, email: admin.email, ...sessionDeadlines(req.session) });
   } catch (error) {
     console.error('[Admin] Login error:', error.message);
     return res.status(500).json({ error: "Couldn't sign you in. Try again." });
@@ -314,7 +314,10 @@ router.use(trackAdminActivity);
 
 // GET /api/admin/me — the session, for the UI. A GET: does not count as activity.
 router.get('/me', (req, res) => {
-  res.json({ authenticated: true, email: req.admin.email, ...sessionDeadlines(req.session) });
+  // `isAdmin` is part of the contract the admin shell checks
+  // (AdminShell: authenticated && isAdmin). Without it a valid session was
+  // bounced back to the login page (production bug after the Gate 1 rewrite).
+  res.json({ authenticated: true, isAdmin: true, email: req.admin.email, ...sessionDeadlines(req.session) });
 });
 
 // POST /api/admin/activity — the UI's heartbeat on real clicks and keystrokes.
