@@ -82,7 +82,7 @@ function handleEnquiry(kind) {
 
     const to = (process.env.SUPPORT_EMAIL || '').trim();
     if (!to) {
-      console.error(`[Contact] SUPPORT_EMAIL is not set — a ${kind} enquiry from ${email} could not be delivered.`);
+      console.error(`[Contact] SUPPORT_EMAIL is not set — a ${kind} enquiry could not be delivered (sender not logged).`);
       return res.status(503).json({ error: UNAVAILABLE });
     }
 

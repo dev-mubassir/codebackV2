@@ -129,11 +129,30 @@ function userSessionGuard() {
   };
 }
 
+/**
+ * Does this session still belong to a live, un-suspended user at the SAME
+ * sessionVersion? The HTTP side checks this on every request (middleware/
+ * auth.js requireAuth); sockets must too. Without it, a session invalidated
+ * by a password reset or an admin suspension could reconnect its socket (the
+ * client retries automatically with the old cookie) and keep receiving DMs.
+ */
+async function sessionUserIsValid(sess) {
+  if (!sess || !sess.userId) return false;
+  const user = await prisma.user.findUnique({
+    where: { id: sess.userId },
+    select: { isSuspended: true, sessionVersion: true },
+  });
+  if (!user || user.isSuspended) return false;
+  const version = typeof sess.sessionVersion === 'number' ? sess.sessionVersion : 0;
+  return version === user.sessionVersion;
+}
+
 /** Called from io.on('connection'): refuse a socket whose session is already over. */
 async function socketSessionIsLive(socket) {
   const sess = socket.request && socket.request.session;
   if (!sess || !sess.userId) return false;
-  return expiryReason(sess, await idleLimitMs()) === null;
+  if (expiryReason(sess, await idleLimitMs()) !== null) return false;
+  return sessionUserIsValid(sess);
 }
 
 /**
@@ -158,7 +177,10 @@ async function sweepIdleSockets({ io = getIO(), store } = {}) {
       : { err: null, sess: null };
 
     if (err) continue; // store error: try again next sweep
-    const reason = !sess || !sess.userId ? 'gone' : expiryReason(sess, idleMs, now);
+    let reason = !sess || !sess.userId ? 'gone' : expiryReason(sess, idleMs, now);
+    // Also drop sockets whose user was suspended or whose sessionVersion moved
+    // on (password reset) since the handshake.
+    if (!reason && !(await sessionUserIsValid(sess).catch(() => true))) reason = 'revoked';
     if (!reason) continue;
 
     if (reason !== 'gone') await new Promise((resolve) => store.destroy(sid, () => resolve()));
@@ -177,6 +199,7 @@ function startIdleSocketSweep({ store, intervalMs = SOCKET_SWEEP_MS } = {}) {
 }
 
 module.exports = {
+  sessionUserIsValid,
   ABSOLUTE_MS,
   LAST_SEEN_WRITE_EVERY_MS,
   userSessionGuard,

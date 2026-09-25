@@ -297,7 +297,7 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
   // BEFORE the transport is selected for delivery.
   if (isUndeliverable(to) && !['console', 'dry-run'].includes(pickTransport().name)) {
     console.warn(
-      `[email] REFUSED to send "${subject}" to an undeliverable address (${to}). ` +
+      `[email] REFUSED to send "${subject}" to an undeliverable address (${hashRecipient(to)}). ` +
         'Reserved/fixture domains can only bounce, and bounces damage sender reputation. ' +
         'Logging instead.'
     );
