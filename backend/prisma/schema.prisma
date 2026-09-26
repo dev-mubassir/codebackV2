@@ -290,7 +290,7 @@ model Conversation {
 model Message {
   id             String    @id @default(uuid())
   conversationId String    @map("conversation_id")
-  igMessageId    String?   @unique @map("ig_message_id") // Instagram's message ID (for deduplication)
+  igMessageId    String?   @map("ig_message_id") // Instagram's message ID. Unique PER CONVERSATION (see @@unique below), not globally
   direction      String // "inbound" or "outbound"
   content        String?
   category       String? // legacy convenience copy of the conversation's category at the time of this message
@@ -315,8 +315,15 @@ model Message {
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  // F2 (tenant isolation): one Instagram message id is stored once PER
+  // CONVERSATION. It used to be globally unique, so when two Siffty tenants DM
+  // each other the recipient's inbound copy collided with the sender's
+  // outbound row and was dropped as a "duplicate". Each conversation belongs
+  // to exactly one connected account, so this is also once per account.
+  @@unique([conversationId, igMessageId])
   @@index([conversationId, createdAt])
   @@index([aiStatus])
+  @@index([igMessageId])
   @@map("messages")
 }
 

@@ -284,7 +284,7 @@ async function provisionTenant(label, igUserId) {
 
   await new Promise((r) => setTimeout(r, 2500)); // let async processing settle
 
-  const landed = await prisma.message.findUnique({
+  const landed = await prisma.message.findFirst({
     where: { igMessageId: spoofMid },
     include: { conversation: { include: { instagramAccount: true } } },
   });

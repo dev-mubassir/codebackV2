@@ -4,7 +4,7 @@
  *
  * Moved out of routes/webhook.js so the same code runs from three places: the
  * webhook queue worker, the inline fallback when the queue is unavailable,
- * and the recovery sweep. It is idempotent per message: Message.igMessageId
+ * and the recovery sweep. It is idempotent per message: (conversation, igMessageId)
  * is unique, so re-processing a delivery never duplicates a DM.
  *
  * Tenant routing: entry.id is the receiving IG account; the event is
@@ -168,7 +168,13 @@ async function handleIncomingMessage(account, messagingEvent) {
   // against a race between two near-simultaneous deliveries (belt & braces).
   const igMessageId = message.mid;
   if (igMessageId) {
-    const existingMsg = await prisma.message.findUnique({ where: { igMessageId } });
+    // Scoped to THIS account (F2): the same Meta message id legitimately
+    // exists in another tenant's conversation when two Siffty tenants DM each
+    // other — that one must not make this copy look like a duplicate.
+    const existingMsg = await prisma.message.findFirst({
+      where: { igMessageId, conversation: { instagramAccountId: account.id } },
+      select: { id: true },
+    });
     if (existingMsg) {
       console.log('[Webhook] Duplicate message, skipping:', igMessageId);
       return;
@@ -322,8 +328,8 @@ async function handleIncomingMessage(account, messagingEvent) {
       },
     });
   } catch (err) {
-    // P2002 = unique constraint violation on igMessageId — another
-    // concurrent delivery of the same event already inserted it.
+    // P2002 = unique constraint violation on (conversationId, igMessageId) —
+    // another concurrent delivery of the same event already inserted it.
     if (err.code === 'P2002') {
       console.log('[Webhook] Duplicate message caught at insert time, skipping:', igMessageId);
       return;

@@ -15,7 +15,7 @@
  *                  (crash mid-processing, redeploy, lost queue job, AI or DB
  *                  blip) is claimed and processed again.
  *
- * Re-processing is always safe: Message.igMessageId is unique, so a delivery
+ * Re-processing is always safe: (conversationId, igMessageId) is unique, so a delivery
  * processed twice saves each DM once.
  */
 
