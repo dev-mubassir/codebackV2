@@ -35,3 +35,12 @@ docker run -d --name siffty-test-redis -p 56379:6379 redis:7-alpine
 ```
 
 Postgres is the `codeback-pg` container on port 55432 (database `codeback_test`, recreated on every run). Override with `TEST_DATABASE_URL` and `TEST_REDIS_URL`.
+
+## Secrets: a change needs a restart
+
+Changing a value in a secret group (`prod-secrets`, `web-build-args`) does **not** restart running services. They keep the old value until they restart. Seen on 2026-09-26: `api` still read `USD_PRICING_ENABLED=true` after the group had been changed to `false`.
+
+After every secret change:
+- **`prod-secrets` (runtime):** restart `api`: Northflank → `api` → Restart, or `northflank restart service --projectId siffty --serviceId api`. The `migrate` job reads the group on its next run.
+- **`web-build-args` (build time):** `NEXT_PUBLIC_*` values are baked into the bundle, so a restart isn't enough. **Rebuild and deploy `web`.**
+- Confirm with the config check, names and statuses only, e.g. `node src/cli/configCheck.js --expect BILLING_ENABLED=true`.

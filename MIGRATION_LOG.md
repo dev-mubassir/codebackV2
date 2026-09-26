@@ -179,3 +179,17 @@ Pool: with `DB_POOL_SIZE=8` the worst case is 6 × (8 + 2 + 1 + 2) + 2 + 5 = **8
 1. F2 and F3 are implemented (Gate 3 batch). See `docs/ISOLATION_AUDIT.md`.
 2. Real `max_connections`, Redis TLS verification, and autoscaling behaviour are checked in the Gate 3 prod smoke test.
 3. The old server stored only hashes, so deliveries it acknowledged but didn't finish can't be recovered after cutover. Zero loss at cutover depends on Meta retrying deliveries while the old API is at 0 instances (they get connection errors, not 200s).
+
+## Cutover — Phase P (2026-09-26)
+
+- Gate 3c batch pushed (`e5694c1..4ee580c`).
+- **P1 config check:** first run PASS except `EMAIL_DRY_RUN=true` (expected). `USD_PRICING_ENABLED` was `true`.
+- **P2 USD live check:** `api.cashfree.com` refused the $1 USD order `sfy_cutover_usd_probe_1790404851446`: `400 order_create_failed, "order Currency not enabled for this merchant account"`. Nothing was created. Owner set `USD_PRICING_ENABLED=false`: **INR-only launch**.
+- **P1 re-run:** matches `USD_PRICING_ENABLED=false`, `COOKIE_SAMESITE=lax`, and the rest. Only `EMAIL_DRY_RUN=true` flagged.
+  - A running service does **not** restart when a secret-group value changes. `api` had to be restarted to see the new value. In the window, the flags flip while `api` is at 0, so the fresh start picks them up.
+- **P3 old references:**
+  - Northflank: `api.siffty.com` → `codeback-backend`, `app.siffty.com` → `codeback-frontend` (moved in the window).
+  - Old default URLs `site--codeback-{backend,frontend}--84qlkxm9y5r8.code.run`: no reference in the repo.
+  - DNS: `api`/`app` CNAME → `<fqdn>.muba-8sb4.dns.northflank.app` (team-level, Northflank re-points it; TTL 60 s), DNS-only. `siffty.com`/`www` → Cloudflare 302 to `app.siffty.com`.
+  - Code-derived callbacks are all on `api.siffty.com`: Instagram `REDIRECT_URI` (config-check rule), Google `BACKEND_URL/auth/google/callback`, Cashfree `notify_url`.
+  - The Meta webhook, deauthorize, data-deletion and Google Console entries can't be read with the available credentials → owner checks them.
