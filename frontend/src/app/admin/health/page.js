@@ -173,6 +173,14 @@ export default function AdminHealthPage() {
               <Metric label={h.server.uptime} value={duration(p.uptimeSeconds)} />
               <Metric label={h.server.memory} value={`${p.memoryMb?.rss ?? '—'} MB`} hint={`heap ${p.memoryMb?.heapUsed ?? '—'} / ${p.memoryMb?.heapTotal ?? '—'} MB`} />
               <Metric label={h.server.loop} value={ms(p.eventLoopLagMs?.p99)} danger={p.eventLoopLagMs?.p99 > 200} />
+              {p.unhandledRejections && (
+                <Metric
+                  label={h.server.unhandled}
+                  value={String(p.unhandledRejections.last10m)}
+                  hint={h.server.unhandledHint(p.unhandledRejections.sinceBoot)}
+                  danger={p.unhandledRejections.last10m > 0}
+                />
+              )}
               <Metric label={h.server.db} value={health.database?.ok ? ms(health.database.pingMs) : h.server.dbDown} danger={!health.database?.ok} />
               <Metric label={h.server.sockets} value={formatCount(health.sockets?.connectedClients)} />
               <Metric

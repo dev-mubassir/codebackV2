@@ -724,6 +724,8 @@ export const admin = {
     },
     server: {
       uptime: 'Uptime',
+      unhandled: 'Unhandled errors (10 min)',
+      unhandledHint: (n) => `${n} since this instance started`,
       memory: 'Memory (RSS)',
       loop: 'Event-loop lag (p99)',
       db: 'Database ping',

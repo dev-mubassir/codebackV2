@@ -45,10 +45,12 @@ async function section(fn) {
 }
 
 function processStats() {
+  const guards = require('./processGuards').stats();
   const mem = process.memoryUsage();
   const toMb = (b) => Math.round((b / 1024 / 1024) * 10) / 10;
   return {
     uptimeSeconds: Math.round(process.uptime()),
+    unhandledRejections: { last10m: guards.thisInstanceLast10m, sinceBoot: guards.thisInstanceSinceBoot },
     memoryMb: { rss: toMb(mem.rss), heapUsed: toMb(mem.heapUsed), heapTotal: toMb(mem.heapTotal) },
     eventLoopLagMs: {
       mean: Math.round(loopDelay.mean / 1e4) / 100,

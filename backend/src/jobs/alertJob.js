@@ -164,7 +164,20 @@ async function checkRedisDown(now) {
   };
 }
 
-const CHECKS = [checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback, checkWebhookBacklog, checkRedisDown];
+/** More than the threshold of unhandled promise rejections in 10 minutes, all instances. */
+async function checkUnhandledRejections(now) {
+  const guards = require('../lib/processGuards');
+  const count = await guards.unhandledLast10m(now);
+  if (count <= guards.UNHANDLED_ALERT_THRESHOLD) return null;
+  return {
+    type: 'unhandled_rejections',
+    title: `${count} unhandled promise rejections in the last 10 minutes`,
+    lead: 'A background library is failing without a handler. Instances keep serving, but the cause needs fixing — search the logs for "Unhandled promise rejection".',
+    facts: [`last 10 min: ${count}`, `threshold: ${guards.UNHANDLED_ALERT_THRESHOLD}`],
+  };
+}
+
+const CHECKS = [checkUnhandledRejections, checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback, checkWebhookBacklog, checkRedisDown];
 
 async function recentlySent(type, now, db = prisma) {
   const since = new Date(now - COOLDOWN_MS);

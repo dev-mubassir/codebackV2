@@ -600,7 +600,7 @@ const protocol = server instanceof https.Server ? 'https' : 'http';
 const SHUTDOWN_TIMEOUT_MS = 8000;
 let shuttingDown = false;
 
-async function shutdown(signal) {
+async function shutdown(signal, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[Server] ${signal} received — shutting down gracefully (max ${SHUTDOWN_TIMEOUT_MS / 1000}s).`);
@@ -635,18 +635,14 @@ async function shutdown(signal) {
   await step('redis', () => closeRedis());
 
   clearTimeout(hardExit);
-  console.log('[Server] Shutdown complete.');
-  process.exit(0);
+  console.log(`[Server] Shutdown complete${exitCode ? ` (exit ${exitCode})` : ''}.`);
+  process.exit(exitCode);
 }
 
-// Safety net: an unhandled rejection or exception from a background library
-// (Redis client, queue, adapter) must not kill an instance that is otherwise
-// serving fine — it is logged, and the request paths keep their own handling.
-// A Redis outage in the Gate 3 rehearsal crashed both instances this way
-// before the specific causes were fixed.
-process.on('unhandledRejection', (reason) => {
-  console.error('[Server] Unhandled promise rejection (kept running):', reason && reason.message ? reason.message : reason);
-});
+// Unhandled rejections: logged, counted, alerted on (never silent).
+// Uncaught exceptions: graceful shutdown with exit 1 (never kept running).
+// See lib/processGuards.js.
+require('./lib/processGuards').installProcessGuards({ shutdown });
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
