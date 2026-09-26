@@ -1,0 +1,44 @@
+# Local two-instance rehearsal of the production topology (Gate 3, dev data only).
+#
+#   docker compose -f deploy/local/docker-compose.yml up -d
+#
+# Needs: images siffty-api-local (docker build -t siffty-api-local backend),
+# the dev Postgres 18 copy on host port 55434 (siffty-dev-pg18), and backend/.env
+# for the dev secrets (read by docker, never printed). Stop your usual dev
+# backend on :5000 first — nginx takes that port so the tunnel keeps working.
+#
+# Safety overrides: EMAIL_DRY_RUN, sandbox Cashfree, AI_MOCK. Never production data.
+x-api: &api
+  image: siffty-api-local
+  env_file: ../../backend/.env
+  environment: &apienv
+    DATABASE_URL: postgresql://postgres:postgres@host.docker.internal:55434/codeback
+    REDIS_URL: redis://redis:6379
+    EMAIL_DRY_RUN: "true"
+    CASHFREE_ENV: sandbox
+    AI_MOCK: "true"
+    RUN_IN_PROCESS_SCHEDULER: "true"
+    TRUST_PROXY: "2"
+    PORT: "5000"
+    # Throwaway signing secret so deploy/local/burst.js can sign synthetic
+    # webhooks. Real Meta deliveries to the dev tunnel fail while this runs.
+    INSTAGRAM_APP_SECRET: local-burst-signing-secret-not-real
+  depends_on: [redis]
+  restart: unless-stopped
+  mem_limit: 768m
+  cpus: 1.0
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    ports: ["56380:6379"]
+  api1:
+    <<: *api
+  api2:
+    <<: *api
+  lb:
+    image: nginx:1.27-alpine
+    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro"]
+    ports: ["5000:5000"]
+    depends_on: [api1, api2]

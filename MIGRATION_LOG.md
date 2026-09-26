@@ -24,8 +24,8 @@ History: GCP-direct (Gate 1) and Northflank BYOC (Gate 1b) were rejected on cost
 |---|---|
 | 1, 1b | done |
 | 2 — code (Redis state, adapter, scheduler, ops hardening) | committed and pushed on `scale-prod` (2026-09-25) |
-| 2b — new project, zero missed DMs, isolation, AI mock | **report delivered; waiting for commit approval** |
-| 3 — dev-machine verification, prod smoke test, runbook | — |
+| 2b — new project, zero missed DMs, isolation, AI mock | committed and pushed (2026-09-25) |
+| 3 — F2/F3, self-check, dev-machine tests, rehearsal, runbook | **report delivered; F2/F3 batch waiting for approval; rehearsal blocked on it** |
 | 4 — cutover + cleanup | — |
 
 ## Facts established
@@ -66,7 +66,10 @@ Specs: `deploy/northflank/*.json`.
 ### Temporary / to clean up
 | Item | Where | Note |
 |---|---|---|
-| workflows `probe`, `probe1`, `probe11`, `probe13` | project `siffty` | schema probes, no triggers; the CLI can't delete workflows, so remove them in the UI |
+| workflows `probe*` | project `siffty` | deleted by the owner (2026-09-25) |
+| local stack `deploy/local` (api1, api2, lb, redis) + `siffty-dev-pg18` (:55434) | dev machine | Gate 3 tests; `docker compose -f deploy/local/docker-compose.yml down` + `docker rm -f siffty-dev-pg18` |
+| local DB `siffty_shadow` in `codeback-pg` | dev machine | shadow DB for `prisma migrate diff` |
+| local images `siffty-api-local`, `siffty-migrate-local` | dev machine | |
 | local Docker `siffty-test-redis` | dev machine | test-suite Redis (:56379) |
 | local Docker `siffty-test-pg18` (stopped) | dev machine | one PG 18 suite run |
 | local DBs `siffty_smoke`, `siffty_smoke2` in `codeback-pg` | dev machine | image smoke tests |
@@ -110,8 +113,26 @@ The old project `codeback` keeps billing until the owner deletes it, 7 days afte
 Gate 2: D1, D3, D4, `EMAIL_DRY_RUN`, `RUN_IN_PROCESS_SCHEDULER`, log-only Cashfree timestamp window, D9, D7. `REDIS_TLS_INSECURE` stays false in prod. Postgres 18 everywhere.
 Gate 2b: Delhi region, no staging, autoscaling as above, zero-missed-DM design, strict isolation, `AI_MOCK` for local only.
 
+## Gate 3 results (2026-09-26, local Docker: 2 API containers + nginx + Redis + Postgres 18 dev copy)
+
+| Test | Result |
+|---|---|
+| Boot logs (both containers) | redis adapter, bullmq, sandbox, dry-run, AI mock, scheduler ON |
+| Burst: 2,000 signed webhooks, api2 restarted mid-burst | 2000/2000 stored, 0 duplicates, 0 unprocessed; 19 retries (502/503 during restart) |
+| Redis down 5 min under traffic (run 1) | **found a crash**: both containers restarted twice (unhandled ioredis rejection from the socket adapter publish, plus BullMQ `error` events without listeners). No DM lost: 1540/1540 after the recovery sweep |
+| Redis down 5 min (run 2, after the fix) | 1738/1738 stored, 0 duplicates, `/health` 107/107 OK, 0 restarts, `redis_down` alert fired |
+| Isolation over HTTP through the LB (both containers) | 10/10 rounds: B blocked from A's conversation, A's data absent from B's list |
+| k6 spike 20 → 150 → 0 | 0.00 % errors (23,036 requests), p95 495.8 ms (< 500, little margin, laptop 1 CPU per container), 0 restarts, ~125 MB per container |
+| Jobs once per interval | observation running; see the report |
+
+**Rehearsal on `siffty`:**
+- The first run failed because the `migrate` job had been created as an external-image job. It was recreated (jobs take their git source under `deployment.vcs`).
+- The second run failed in `migrate`: Prisma rejects the HA addon's `POSTGRES_URI` ("invalid port number"). Fix: `src/lib/dbUrl.js` builds a single-host URL from the linked parts (`DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_NAME`, now linked in `prod-secrets`).
+- The rehearsal continues once the Gate 3 batch is pushed.
+- The `release` workflow was switched back to `master` with its push trigger after the attempts (verified 2026-09-26). The next rehearsal switches it temporarily again and restores it.
+
 ## Open items
 
-1. Isolation findings **F2** (tenant-global `igMessageId` unique) and **F3** (deletion callback deletes earlier owners' accounts) are proposed and waiting for approval. See `docs/ISOLATION_AUDIT.md`.
+1. F2 and F3 are implemented (Gate 3 batch). See `docs/ISOLATION_AUDIT.md`.
 2. Real `max_connections`, Redis TLS verification, and autoscaling behaviour are checked in the Gate 3 prod smoke test.
 3. The old server stored only hashes, so deliveries it acknowledged but didn't finish can't be recovered after cutover. Zero loss at cutover depends on Meta retrying deliveries while the old API is at 0 instances (they get connection errors, not 200s).
