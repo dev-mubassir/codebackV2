@@ -9,6 +9,9 @@
  */
 
 require('dotenv').config();
+// Before any module reads DATABASE_URL (Prisma, the session pools): build it
+// from the addon's linked parts when present — see lib/dbUrl.js.
+require('./lib/dbUrl').applyDatabaseUrl();
 const fs = require('fs');
 const path = require('path');
 
@@ -635,6 +638,15 @@ async function shutdown(signal) {
   console.log('[Server] Shutdown complete.');
   process.exit(0);
 }
+
+// Safety net: an unhandled rejection or exception from a background library
+// (Redis client, queue, adapter) must not kill an instance that is otherwise
+// serving fine — it is logged, and the request paths keep their own handling.
+// A Redis outage in the Gate 3 rehearsal crashed both instances this way
+// before the specific causes were fixed.
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] Unhandled promise rejection (kept running):', reason && reason.message ? reason.message : reason);
+});
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));

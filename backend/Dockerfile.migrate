@@ -14,8 +14,11 @@ WORKDIR /app
 ENV NODE_ENV=production NPM_CONFIG_UPDATE_NOTIFIER=false
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
+COPY src/lib/dbUrl.js ./src/lib/dbUrl.js
 RUN npm ci --no-audit --no-fund --ignore-scripts \
  && npx prisma --version >/dev/null \
  && npm cache clean --force
 USER app
-CMD ["npx", "prisma", "migrate", "deploy"]
+# DATABASE_URL is built from the addon's linked parts when present (HA addon;
+# see src/lib/dbUrl.js), else used as given.
+CMD ["sh", "-c", "DATABASE_URL=\"$(node -e 'process.stdout.write(require(\"./src/lib/dbUrl\").resolveDatabaseUrl(process.env) || \"\")')\" exec npx prisma migrate deploy"]
