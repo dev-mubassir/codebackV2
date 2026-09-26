@@ -706,9 +706,16 @@ router.post('/checkout/plan', async (req, res) => {
  * per the CURRENT plan tier, cheaper on Pro on purpose (see
  * AddonPackPrice/ExtraIgAccountPrice schema notes). A trial or unentitled
  * tenant has nothing to price an add-on against.
+ *
+ * The REGION follows the plan checkout's rule: a locked region wins outright,
+ * otherwise billingRegionHint (default IN). A plan granted by an admin has no
+ * region lock (no payment evidence — adminBilling.grantPlanWithExpiry), and
+ * requiring one here refused every add-on for those tenants with a misleading
+ * "requires an active Starter or Pro plan". Add-on fulfilment never locks a
+ * region, so pricing an unlocked tenant by the hint changes nothing else.
  */
 router.post('/checkout/addon', async (req, res) => {
-  const { addonCode, customerPhone } = req.body || {};
+  const { addonCode, customerPhone, billingRegionHint } = req.body || {};
   let orderId = null;
 
   if (!addonCode) {
@@ -720,17 +727,19 @@ router.post('/checkout/addon', async (req, res) => {
 
   try {
     const entitlement = await prisma.entitlement.findUnique({ where: { userId: req.userId } });
-    if (!entitlement || !PURCHASABLE_PLAN_CODES.includes(entitlement.planCode) || !entitlement.billingRegion) {
+    if (!entitlement || !PURCHASABLE_PLAN_CODES.includes(entitlement.planCode)) {
       return res.status(400).json({ error: 'Add-ons require an active Starter or Pro plan.' });
     }
-    if (entitlement.billingRegion === 'INTL' && !isUsdPricingEnabled()) {
+    // Locked region wins outright; otherwise the hint (default IN) — see above.
+    const billingRegion = entitlement.billingRegion || (billingRegionHint === 'INTL' ? 'INTL' : 'IN');
+    if (billingRegion === 'INTL' && !isUsdPricingEnabled()) {
       return res.status(409).json({ code: 'INTL_PRICING_DISABLED', error: 'International (USD) checkout is not available right now.' });
     }
 
     let price;
     if (addonCode === RECURRING_ADDON_CODE) {
       price = await prisma.extraIgAccountPrice.findUnique({
-        where: { planCode_billingRegion: { planCode: entitlement.planCode, billingRegion: entitlement.billingRegion } },
+        where: { planCode_billingRegion: { planCode: entitlement.planCode, billingRegion } },
       });
     } else {
       const pack = await prisma.addonPack.findUnique({ where: { code: addonCode } });
@@ -742,7 +751,7 @@ router.post('/checkout/addon', async (req, res) => {
           addonPackId_planCode_billingRegion: {
             addonPackId: pack.id,
             planCode: entitlement.planCode,
-            billingRegion: entitlement.billingRegion,
+            billingRegion,
           },
         },
       });

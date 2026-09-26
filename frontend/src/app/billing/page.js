@@ -225,7 +225,9 @@ function BillingPageContent({ user }) {
               billingRegionHint: region,
               customerPhone,
             }
-          : { addonCode: activeDialog.code, customerPhone };
+          : // Same display hint: used only while the tenant has no region lock
+            // (e.g. a plan granted by an admin), ignored once one exists.
+            { addonCode: activeDialog.code, billingRegionHint: region, customerPhone };
       await checkout.start(activeDialog.kind, body);
       // No success branch: a successful start navigates this tab to
       // Cashfree's hosted page, so there is nothing left here to update.
