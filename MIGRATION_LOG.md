@@ -25,7 +25,8 @@ History: GCP-direct (Gate 1) and Northflank BYOC (Gate 1b) were rejected on cost
 | 1, 1b | done |
 | 2 — code (Redis state, adapter, scheduler, ops hardening) | committed and pushed on `scale-prod` (2026-09-25) |
 | 2b — new project, zero missed DMs, isolation, AI mock | committed and pushed (2026-09-25) |
-| 3 — F2/F3, self-check, dev-machine tests, rehearsal, runbook | **report delivered; F2/F3 batch waiting for approval; rehearsal blocked on it** |
+| 3 — F2/F3, self-check, dev-machine tests, runbook | committed and pushed (2026-09-26) |
+| 3b — env audit, config check, guards, rehearsal, short-cutover runbook | **report delivered; batch waiting for approval** |
 | 4 — cutover + cleanup | — |
 
 ## Facts established
@@ -74,6 +75,8 @@ Specs: `deploy/northflank/*.json`.
 | local Docker `siffty-test-pg18` (stopped) | dev machine | one PG 18 suite run |
 | local DBs `siffty_smoke`, `siffty_smoke2` in `codeback-pg` | dev machine | image smoke tests |
 | local images `siffty-api-test`, `siffty-migrate-test` | dev machine | |
+
+| secret group `tmp-patch-probe` | project `siffty` | 2026-09-26: proved PATCH replaces all variables; dummy values, no restrictions (applies to nothing). **Deletion needs owner approval** |
 
 **Deleted on 2026-09-25 (old project `codeback`):** `stg-postgres`, `stg-redis`, `stg-secrets`, tag `stg`, subdomains `new-api` and `new-app`. Old production is untouched.
 
@@ -130,6 +133,27 @@ Gate 2b: Delhi region, no staging, autoscaling as above, zero-missed-DM design, 
 - The second run failed in `migrate`: Prisma rejects the HA addon's `POSTGRES_URI` ("invalid port number"). Fix: `src/lib/dbUrl.js` builds a single-host URL from the linked parts (`DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD`/`DB_NAME`, now linked in `prod-secrets`).
 - The rehearsal continues once the Gate 3 batch is pushed.
 - The `release` workflow was switched back to `master` with its push trigger after the attempts (verified 2026-09-26). The next rehearsal switches it temporarily again and restores it.
+
+## Gate 3b rehearsal (2026-09-26, project `siffty`, no domains, empty database)
+
+| Check | Result |
+|---|---|
+| Release workflow end to end from `scale-prod` | ✅ migrate build → migrate on the empty DB (HA URL fix works) → api + web builds; trigger restored to `master` and verified |
+| Deploy of a non-tracked-branch build | needs `update service deployment {"internal":{"buildSHA":…}}` (CD only follows the tracked branch) |
+| `/livez`, `/health` on `http--api--ggvsbt6z8cd4.code.run` | ✅ 200 / 200 |
+| Boot log | redis adapter, bullmq, AI mock off, dry-run email, scheduler off, **Cashfree mode: sandbox** (owner to set `CASHFREE_ENV=production`) |
+| Config check (in the container, statuses only) | all required set; FAIL only on `EMAIL_DRY_RUN=true` (expected until cutover) and **`CASHFREE_ENV` sandbox vs production key** |
+| Postgres | 18.4; `max_connections` **750** (3 reserved); connected to the **primary endpoint**, single host, not a replica |
+| Failover (addon restart) | Postgres restarted at 05:08:58 UTC; connections terminated; **API reconnected by itself; `/health` failed for ~1 s** (1 of 271 samples) |
+| Redis | `rediss://`, `REDIS_TLS_INSECURE=false`, connected. **Strict TLS works** |
+| `TRUST_PROXY` | default (1) gives `req.ip` = the owner's public IP. **Keep unset** (DNS records must stay DNS-only) |
+| k6 spike (spec shape, 2 instances) | 0.00 % errors, **p95 54.5 ms** (34,614 req); no-think-time variant 0.00 %, p95 134.7 ms at 957 req/s; CPU peaked 60 %, so no scale-up |
+| Autoscaling proof (up to 300 VUs, sustained) | 0.00 % errors, p95 209 ms at 1,703 req/s; CPU 75–78 % → **3rd instance at 11:03:55 IST, back to 2 at 11:08:57** |
+| `web` boot | `/` 200 in 0.27 s, `/privacy` 200, `next/image` optimizer 200 |
+| Cashfree | no calls made (scheduler off, no order endpoints hit) |
+| After | `api` and `web` at 0 instances, autoscaling off |
+
+Pool: with `DB_POOL_SIZE=8` the worst case is 6 × (8 + 2 + 1 + 2) + 2 + 5 = **85 of 747** usable (89 % headroom).
 
 ## Open items
 

@@ -19,5 +19,5 @@ export default function () {
   const b = http.get(`${BASE}/api/announcements/active`);
   check(a, { 'livez 200': (r) => r.status === 200 });
   check(b, { 'announcements 2xx': (r) => r.status >= 200 && r.status < 300 });
-  sleep(0.5);
+  sleep(Number(__ENV.SLEEP ?? 0.5)); // SLEEP=0: no think time, to push CPU and trigger autoscaling
 }
