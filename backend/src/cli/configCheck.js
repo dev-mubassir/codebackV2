@@ -120,6 +120,25 @@ for (const [name, required, rule] of RULES) {
 const parts = ['DB_HOST', 'DB_PORT', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'].map((k) => `${k}=${has(k) ? 'set' : 'missing'}`).join(' ');
 rows.push(`${'(database parts)'.padEnd(28)} ${parts}`);
 
+// --expect KEY=VALUE (repeatable): confirm a NON-SECRET setting has the value
+// the runbook requires. Secret names are refused outright; the output says
+// only "matches" or "DIFFERS", never the actual value.
+const EXPECTABLE = new Set(['NODE_ENV', 'CASHFREE_ENV', 'BILLING_ENABLED', 'USD_PRICING_ENABLED', 'META_APPROVED', 'EMAIL_DRY_RUN', 'RUN_IN_PROCESS_SCHEDULER', 'REDIS_TLS_INSECURE', 'WEBHOOK_TIMESTAMP_ENFORCE', 'DB_POOL_SIZE', 'COOKIE_SAMESITE', 'TRUST_PROXY', 'FRONTEND_URL', 'BACKEND_URL']);
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i += 1) {
+  if (argv[i] !== '--expect' || !argv[i + 1]) continue;
+  const [k, ...rest] = argv[i + 1].split('=');
+  const want = rest.join('=');
+  if (!EXPECTABLE.has(k)) {
+    rows.push(`${('expect ' + k).padEnd(28)} refused — not an expectable non-secret key`);
+    fail = true;
+    continue;
+  }
+  const ok = val(k) === want;
+  if (!ok) fail = true;
+  rows.push(`${('expect ' + k).padEnd(28)} ${ok ? `matches ${want}` : `DIFFERS from ${want}`}`);
+}
+
 console.log(rows.join('\n'));
 console.log(fail ? 'CONFIG CHECK: FAIL' : 'CONFIG CHECK: PASS');
 process.exitCode = fail ? 1 : 0;
