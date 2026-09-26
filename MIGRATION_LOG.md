@@ -193,3 +193,110 @@ Pool: with `DB_POOL_SIZE=8` the worst case is 6 × (8 + 2 + 1 + 2) + 2 + 5 = **8
   - DNS: `api`/`app` CNAME → `<fqdn>.muba-8sb4.dns.northflank.app` (team-level, Northflank re-points it; TTL 60 s), DNS-only. `siffty.com`/`www` → Cloudflare 302 to `app.siffty.com`.
   - Code-derived callbacks are all on `api.siffty.com`: Instagram `REDIRECT_URI` (config-check rule), Google `BACKEND_URL/auth/google/callback`, Cashfree `notify_url`.
   - The Meta webhook, deauthorize, data-deletion and Google Console entries can't be read with the available credentials → owner checks them.
+- **P4:** old `codeback-backend`/`codeback-frontend` `disabledCI: true`, `disabledCD: true` (from `list services`; `get service` doesn't return `disabledCD`).
+- **P5:** `release` trigger removed (paused) 07:02 UTC; the steps still build `master`.
+- **CI:** the first PR run failed to load `tests/pro-upgrade-verdict.test.js` (it imports a frontend file that needs `react`; the backend job didn't install the frontend packages). Fixed in `39646f9`. Re-run: all 3 checks green.
+- **P6:** owner merged PR #3 at 08:36:51 UTC → **merge SHA `c0f907561fc39b95c6b26b2c7fc8b3ba903e601b`**. Afterwards, the old project's latest builds were still `5fad3e0` (2026-09-25, running), and `siffty` had no workflow run and no build.
+- **P7 pre-build from `c0f9075`, all SUCCESS:**
+  - `migrate` build `mutual-scarf-1648`; the job runs the latest `master` build;
+  - `api` build `talented-wax-8142` (image tag `…:6ab78510a4bd1af528c4977d`);
+  - `web` build `snazzy-scale-9712` (image tag `…:6ab785189a7083d5a271eb7c`).
+  - `api`/`web` deployments set to `c0f9075` (`update service deployment {"internal":{"buildSHA":…}}`); instances 0.
+  - `api`/`web` had `disabledCD: true`: the rehearsal deploys of pinned builds turned CD off. To re-enable at W8 with the trigger.
+- **P10 on the pre-built images (1 instance each, then back to 0):**
+  - built-in `configCheck --expect`: everything matches, only `EMAIL_DRY_RUN=true` flagged;
+  - boot: Cashfree production, Redis adapter, BullMQ, AI mock off, scheduler off, email dry-run;
+  - web bundle: `NEXT_PUBLIC_CASHFREE_MODE` baked `"production"`, `api.siffty.com`, no `code.run`;
+  - Redis queues empty; scheduler run marks live in the database (`job_runs`), so the import carries them over.
+- **Import method:** the CLI import needs a `.gz` URL or a live connection string. The window import is the owner's UI upload. Northflank: "All existing user databases will be removed … All databases from the backup source will be imported"; how a plain single-database dump is handled is **not rehearsed**. A dev-data dump for a rehearsal is at `C:/siffty-backup/rehearsal-dev.sql`.
+- **Import rehearsal (dev data, 2026-09-26):**
+  - Dump: the local dev DB (`siffty-dev-pg18/codeback`, 44 tables) with the window flags (`pg_dump 18 --format=plain --no-owner --no-acl --no-comments`) → `C:/siffty-backup/rehearsal-dev.sql`, 4.6 MB.
+  - Owner UI: `siffty/postgres` → Backups → Import (file upload) → backup `rehearsal-dev-sql` completed in **10 s** → Restore (`dump-restore`) 09:01:44 → 09:03:00, **76 s**.
+  - A plain single-database dump **lands in the addon's default database, the one the app uses**: `migrate` found all 32 migrations applied ("No pending migrations to apply", 37 s).
+  - Row counts (`rowCounts.js` on `api`): 44/44 tables equal the dump. `job_runs` 969 = dev rows started before the dump (08:54:19Z); the local stack kept writing afterwards.
+  - Token self-check not run (dev tokens use the dev key).
+  - `api` back to 0.
+  - **Temporary:** backup entry `rehearsal-dev-sql` in `siffty/postgres` (delete with approval in Gate 4) and the local file `C:/siffty-backup/rehearsal-dev.sql`.
+  - The new DB now holds dev data until the window import replaces it.
+
+## Cutover window #1 — rolled back (2026-09-26)
+
+| Time (UTC) | Event |
+|---|---|
+| 09:18:22 | owner "go" |
+| **09:18:58** | **T0**: old `codeback-backend` scaled to 0; `api.siffty.com/health` 503 |
+| ~09:22 | `northflank forward` needs an admin shell on Windows. Docker resolves the forwarded hostname to `127.24.1.1` (the container's own loopback) → refused. Fix: a local relay `127.0.0.1:55999 → 127.24.1.1:5432`, containers use `host.docker.internal:55999` |
+| 09:28 | dump `final-cutover.sql` (551 KB, complete); old counts: **45 tables, 2,703 rows**, `_prisma_migrations` 29 (`C:/siffty-backup/old-counts.txt`) |
+| 09:30:28–09:31:14 | restore **failed**: the dump contains Northflank's `CREATE SCHEMA pooler` (+ `pooler.user_lookup`) and `pg_stat_statements`/`pg_stat_kcache`; the new DB already has `pooler` → "schema pooler already exists", psql exit 3 (before any table) |
+| 09:40:50–09:41:40 | re-dump with `--exclude-schema=pooler --exclude-extension=pg_stat_statements --exclude-extension=pg_stat_kcache` (`final-cutover-v2.sql`, 550 KB); restore completed |
+| 09:42:29–09:42:48 | **migrate FAILED**: `20260928090000_trial_warning_sent_marker` → `ERROR 42501: must be owner of table entitlements`. Northflank's restore runs psql as its own internal user, so every restored object is owned by that user, not the app user (`DB_USER`). DML works, DDL doesn't → no migration can ever run. The dev rehearsal missed it (no pending migration) |
+| ~09:44 | owner rolled back: `codeback-backend` → 1 (still `5fad3e0`, CI/CD off) |
+| **09:46:29** | `api.siffty.com/health` 200 again. **Downtime 27 min 31 s** |
+
+State after the rollback:
+- The old stack is serving.
+- New `api`/`web` at 0, release trigger still paused, CD off.
+- The new DB holds the 09:18 production copy with objects owned by the restore user and a failed migration record. It will be recreated.
+- `C:/siffty-backup/final-cutover.sql` (full) and `final-cutover-v2.sql` are kept.
+
+Lessons:
+1. A Northflank UI restore is fine for *data*, but the objects end up owned by Northflank's restore user → load the dump **as the app user** instead.
+2. Plain dumps of a Northflank database include the `pooler` schema and monitoring extensions → exclude them.
+3. The rehearsal must include a pending migration.
+
+## Rehearsal #2 — load as the app user, REAL data (2026-09-26, agent-run, old site online)
+
+Credential exception (owner, 2026-09-26): the agent may load `siffty/postgres` app + admin logins (and `codeback-postgres` for the window dump only) into env vars inside one command. Values are never printed or written. The helper `scratchpad/pgrun.sh` passes them to `docker run -e NAME`.
+
+| Step | Result | Time |
+|---|---|---|
+| Flags (one-off `migrate` job run with an injected `configCheck`) | `EMAIL_DRY_RUN=true`, `RUN_IN_PROCESS_SCHEDULER=false` | — |
+| Old site | `/health` 200; DMs processed 09:52, 10:02, 10:04 UTC after the rollback | — |
+| Forward without admin rights | `northflank forward addon … --skipHostnames` → `127.24.1.1` (primary, `pg_is_in_recovery()=f`); relay `127.0.0.1:55998` | — |
+| Admin inspection | the restore runs as **ADMIN**: all 45 restored tables were admin-owned; admin owns the DB and `public`, is a member of the app role, not superuser | — |
+| Empty (admin, siffty DB only) | dropped the app tables/types/functions in `public` only (extension objects, `pooler` and schema ACLs kept) → 0 app objects left | ~10 s |
+| Precheck (app user) | PG 18; **CAN create in `public`** (grant, not DB owner); create-table probe OK; no extension needed (dump has no `CREATE EXTENSION`; migrations only use the built-in `gen_random_uuid()`) | ~5 s |
+| **Load `final-cutover-v2.sql` as the app user** | `psql -v ON_ERROR_STOP=1`: exit 0, no errors | **23.6 s** |
+| **migrate** | **exactly 3 applied** (`…trial_warning_sent_marker`, `…webhook_delivery_inbox`, `…message_id_unique_per_conversation`) | **49 s** wall (6 s in the container) |
+| Postcheck | app objects all owned by the app user: 45 tables, 137 indexes, 11 enums (the 46 functions/4 views are `pg_stat_*` extension objects); 32 migrations, 0 failed | — |
+| Row counts | 45/45 tables equal `old-counts.txt`; `_prisma_migrations` 29 → 32 | — |
+| Self-check (`api` at 1, flags safe) | tokens **3/3 (100 %)**, identities **3/3 (100 %)** → PASS | api ready in 22 s |
+| Cleanup | `api` → 0; app objects emptied again; forward + relay stopped | — |
+
+State after the rehearsal: new DB empty (app objects), `api`/`web` 0 on `c0f9075`, CD off, release trigger paused, old site 200.
+
+Window #2 method changes:
+- The flags go on the **`api` service itself** (Northflank: service variables always override secret groups). `api`'s own variables are only `PORT=5000`, so the update sets `{PORT:5000, EMAIL_DRY_RUN:false, RUN_IN_PROCESS_SCHEDULER:true}`. `prod-secrets` is not read or changed.
+- **Domains:** each subdomain has one path `/`. Move = `assign subdomain path` (path `<fqdn>`) to `siffty/api:http` / `siffty/web:http`. Rollback = the same to `codeback-backend:site` / `codeback-frontend:site`. DNS CNAME is team-level (`*.muba-8sb4.dns.northflank.app`, TTL 60 s), so there's no Cloudflare change.
+
+## Cutover window #2 — SUCCESS (2026-09-26, agent-run)
+
+| Time (UTC) | Step |
+|---|---|
+| 10:22–10:24 | pre-window: old site 200; new `api`/`web` 0 on `c0f9075`; trigger paused. Forwards without admin rights: new DB `127.24.1.1` (relay :55998), old DB `127.24.1.3` (relay :55999). Old DB PG 18.4 (45 tables); new DB empty. Watcher on both domains |
+| 10:24:56 | W1 `codeback-backend` → 0 |
+| **10:25:02** | **T0**: `api.siffty.com/health` 503 |
+| 10:25:05–10:26:00 | W2 dump as the old app user, exclusions `pooler`/`pg_stat_statements`/`pg_stat_kcache` → `C:/siffty-backup/final-cutover-w2.sql` (575 KB, complete, 0 schema/extension DDL, 45 COPY). Old counts `old-counts-w2.txt`: **45 tables, 2,799 rows**, `_prisma_migrations` 29. 55.7 s incl. counts (cross-region) |
+| 10:26:19–10:26:48 | W3 load as the new app user, `ON_ERROR_STOP`: exit 0, 29.0 s |
+| 10:26:58–10:27:26 | W4 migrate: **exactly 3 applied**, 28.6 s |
+| 10:27:40 | W5 `api` service-level env = `PORT`, `EMAIL_DRY_RUN=false`, `RUN_IN_PROCESS_SCHEDULER=true` (overrides the group; `prod-secrets` untouched) |
+| 10:28:26–10:28:51 | W6 autoscaling on (`api` 2–6, `web` 1–3, CPU 70 %/mem 80 %); `api` 2 running, `web` 1; `*.code.run` health 200 |
+| 10:29:23 | W7 `configCheck --expect` (12 expectations incl. live flags): **PASS, zero exceptions**. Self-check tokens **3/3**, identities **3/3** (100 %). Counts: 45/45 tables; equal except `_prisma_migrations` +3 and new live writes (`ai_analyses` +3, `ai_call_logs` +3, `job_runs` +3) |
+| 10:29:51 | W8 `assign subdomain path --subdomainPath <fqdn>` → 404 (the path id is `/`, not its name); retried with `--subdomainPath /` → OK at 10:31:00 |
+| **10:31:12** | **T1**: `api.siffty.com/health` 200 from the new LB `34.126.218.73` (Delhi); `app` at 10:31:45. DNS-only (CNAME → Northflank team DNS → LB); TLS Let's Encrypt, SAN matches, expires 2026-12-02 |
+| 10:33:13 | W9 release trigger restored (`vcs-push` `master`) |
+| 10:33:37–10:35:26 | CD on: `patch {"disabledCD":false}` had no effect; `update service deployment {"internal":{"id":…,"branch":"master","buildSHA":"latest"}}` enables CD (rolling redeploy of the same `c0f9075`). `web` then `api`: **0 non-200 health samples** during the rollout |
+
+**Downtime (API): 10:25:02 → 10:31:12 = 6 min 10 s.** The web app never went down (the old frontend served until 10:31:45).
+
+### After window #2 — verification (10:36–10:45 UTC)
+
+- A new real DM was delivered at 10:36:29, processed and analysed (webhook backlog 0, no errors). **No DM sent during T0–T1 has been retried by Meta yet**; re-checked at the end of the 2-hour watch.
+- Scheduled jobs run once each across 2 instances, no failures: `admin_alerts`, `stalled_analysis_sweep`, `webhook_recovery` (the longer-interval jobs run when due; their `job_runs` history came across).
+- Boot on every container: Cashfree production, email transport Resend, scheduler ON, Socket.io Redis adapter.
+- **Cashfree live:** ₹1 INR order `sfy_cutover_inr_probe_1790419101509` CREATED on `api.cashfree.com`, then TERMINATION_REQUESTED (no payment).
+- **Logins:**
+  - Google OAuth start → `accounts.google.com` with `redirect_uri=https://api.siffty.com/auth/google/callback`;
+  - email login for an unknown user → 401 "not right";
+  - `app` pages 200; Socket.io handshake 200.
+- **Pre-existing, not migration-related:** Gemini `402 RESOURCE_EXHAUSTED` since 09:11 UTC (31 calls on the old stack, 6 on the new). AI analysis uses the fallback. `prisma:error` "Unique constraint (tenant_id, message_id, type)" = the `credit_ledger` idempotency guard when the sweeper retries those analyses (no double charge).

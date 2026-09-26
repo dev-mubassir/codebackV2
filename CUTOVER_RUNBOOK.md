@@ -1,5 +1,9 @@
 # Cutover runbook — `codeback` (us-central) → `siffty` (asia-south-delhi)
 
+> **Done on 2026-09-26, in window #2: 6 min 10 s of API downtime.** Window #1 was rolled back (see `MIGRATION_LOG.md`).
+> Step 3.3 below (Northflank UI Import → Restore) **must not be used**: it leaves every table owned by the addon's admin user, so migrations fail.
+> What actually ran is in **"As executed (window #2)"** at the end.
+
 **Start only when the owner says "start cutover".** The owner is present throughout.
 Owners: 🧑 = you, 🤖 = agent. Target maintenance window (steps 2–6): **under 15 minutes**. See "Timing" at the end.
 
@@ -174,3 +178,27 @@ Code-only rollback (any time): Northflank → `api` → Deployments → redeploy
 | 5 self-check + counts | 1–2 min |
 | 6 domains + certificate check | 1–2 min |
 | **Window** | **8–12 min** (target 8–10) |
+
+## As executed (window #2, 2026-09-26) — the procedure that worked
+
+Agent-run end to end, under an owner-granted credential exception: database logins are loaded into env vars inside one command and never printed. Old site online until W1.
+
+**Before T0:**
+- Forward both databases **without admin rights**: `northflank forward addon --projectId <p> --addonId <a> --skipHostnames` (new DB `127.24.1.1`, old DB `127.24.1.3`).
+- A local TCP relay per forward (`127.0.0.1:55998` → new, `:55999` → old), so `docker run` reaches them via `host.docker.internal`.
+- Check the new DB is empty: the admin user dropped the app tables/types in `public` only; extension objects, `pooler` and schema grants were kept.
+- Start a watcher on both domains.
+
+| Step | Command (shape) | Measured |
+|---|---|---|
+| W1 | `northflank scale service --projectId codeback --serviceId codeback-backend -i '{"instances":0}'` | T0 +6 s |
+| W2 | `pg_dump --format=plain --no-owner --no-acl --no-comments --exclude-schema=pooler --exclude-extension=pg_stat_statements --exclude-extension=pg_stat_kcache` as the old app user, plus `row-counts.sql` | 56 s (cross-region) |
+| W3 | `psql -v ON_ERROR_STOP=1 -f final-cutover-w2.sql` **as the new APP user** | 29 s |
+| W4 | `northflank start job run --jobId migrate` → exactly 3 applied | 29 s |
+| W5 | `northflank update service runtime-environment --serviceId api` = `{PORT:5000, EMAIL_DRY_RUN:false, RUN_IN_PROCESS_SCHEDULER:true}` (service level overrides `prod-secrets`; the group is neither read nor changed) | 5 s |
+| W6 | `patch service combined` autoscaling (`api` 2–6, `web` 1–3; CPU 70, mem 80) + `scale service` | 25 s to ready |
+| W7 | `configCheck.js --expect …` (zero exceptions) · `secretSelfCheck.js` (100 %/100 %) · `rowCounts.js` vs old counts | 30 s |
+| W8 | `northflank assign subdomain path --domain siffty.com --subdomain api --subdomainPath / -i '{"assignment":{"project":"siffty","service":"api","port":"http"}}'` (same for `app` → `web`). The path id is `/`, not its name | T1 = 70 s after the command |
+| W9 | `update workflow release` (trigger back) · CD on via `update service deployment {"internal":{"id":…,"branch":"master","buildSHA":"latest"}}` (rolling, 0 failed health checks) | 3 min |
+
+**Rollback of W8** (had it been needed): the same `assign subdomain path` command back to `{"project":"codeback","service":"codeback-backend","port":"site"}` (and `codeback-frontend`), then scale `codeback-backend` back to 1.

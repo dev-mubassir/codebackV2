@@ -39,18 +39,18 @@ Legend: **Req** = the API refuses to boot, or the feature breaks, without it. **
 | `SUPPORT_EMAIL` | contact/enterprise enquiries, billing alerts go here | yes (contact form 503s without it) | no | yes | **business**: your support inbox |
 | `EMAIL_DAILY_CAP` | daily send cap (default 80, under Resend free 100/day) | no | no | – | unset while on Resend free; **raise if you have a paid Resend plan** (business) |
 | `EMAIL_CRITICAL_RESERVE` | sends reserved for resets/verification (default 20) | no | no | – | unset |
-| `EMAIL_DRY_RUN` | send nothing (staging only) | no | no | – | **`false` at cutover** (currently `true` for the rehearsal) |
+| `EMAIL_DRY_RUN` | send nothing (staging only) | no | no | – | **`false`: set as a SERVICE-LEVEL variable on `api`** since the cutover (it overrides the group, which still says `true`). Never remove it |
 | `GEMINI_API_KEY` | AI classification/replies (the default provider) | yes (else AI degrades to "other") | **yes** | yes | 🧑 copy |
 | `OPENAI_API_KEY` `ANTHROPIC_API_KEY` | optional alternate providers | no | yes | – | **not needed**. Confirmed: boot doesn't read them; a provider without a key simply can't be selected in the admin panel (`lib/ai/models.js:61-68`) |
 | `AI_MOCK` | fake AI for local tests | **must NOT exist** | – | – | absent (configCheck fails if set in production) |
 | `BILLING_ENABLED` | master billing switch: billing routes, Cashfree webhook, billing jobs, entitlement enforcement | yes | no | – | **business**: `true` if you sell from day one (you added live keys, so presumably `true`). The admin kill switch `enforce_subscriptions` overrides it at runtime |
 | `META_APPROVED` | shows the "official Instagram Graph API" trust badge on pricing | no | no | yes | **business**: `true` only once Meta App Review has approved the app |
-| `USD_PRICING_ENABLED` | shows **USD/INTL prices** and the currency toggle on `/api/billing/plans`. It only hides/shows; USD rows stay in the DB | no | no | – | **`false`** unless Cashfree international payments are activated. ⚠ Checkout still accepts `billingRegionHint: 'INTL'` when it's false (`routes/billing.js:646`), so a crafted request can attempt a USD order; Cashfree then refuses it if international isn't enabled. Follow-up: enforce the flag at checkout |
+| `USD_PRICING_ENABLED` | shows USD/INTL prices and the currency toggle; **enforced at checkout** (INTL orders get 409 `INTL_PRICING_DISABLED` while off) | no | no | – | **`false`: INR-only launch.** The live Cashfree account refused a USD order on 2026-09-26 ("order Currency not enabled"). Turn it on only after Cashfree enables USD, and restart `api` |
 | `CASHFREE_ENV` | `sandbox` or `production` API host (unset + `NODE_ENV=production` means LIVE) | yes | no | – | **`production`** (currently `sandbox`: 🧑 change it) |
 | `CASHFREE_APP_ID` | Cashfree app | yes (if billing) | no (ID) | no (you entered production) | ✅ entered |
 | `CASHFREE_SECRET_KEY` | Cashfree API + **webhook signature key** | yes (if billing) | **yes** | no | ✅ entered (configCheck verifies it's a production key when `CASHFREE_ENV=production`) |
 | `WEBHOOK_TIMESTAMP_ENFORCE` | reject Cashfree webhooks outside ±5 min | no | no | – | **`false`/unset** until retry timestamps are verified |
-| `RUN_IN_PROCESS_SCHEDULER` | scheduled jobs on | no | no | – | **`true` at cutover** (currently `false` for the rehearsal) |
+| `RUN_IN_PROCESS_SCHEDULER` | scheduled jobs on | no | no | – | **`true`: set as a SERVICE-LEVEL variable on `api`** since the cutover (overrides the group's `false`). Never remove it |
 | `SKIP_SIGNATURE_VERIFICATION` | dev-only escape hatch | – | – | – | absent (refused in production) |
 
 ## Frontend — group `web-build-args` (web, build time)
