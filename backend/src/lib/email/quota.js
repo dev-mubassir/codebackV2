@@ -355,8 +355,52 @@ async function recordSendShared(type, recipient) {
   }
 }
 
+/**
+ * A send refused by the quota. Counted per day (all instances when Redis is
+ * up) so the alert cron can page someone — a blocked CRITICAL send (password
+ * reset, verification) is never allowed to stay silent in the logs.
+ */
+let blockedTodayLocal = { day: null, all: 0, critical: 0 };
+async function recordBlocked(type) {
+  const day = today();
+  if (blockedTodayLocal.day !== day) blockedTodayLocal = { day, all: 0, critical: 0 };
+  blockedTodayLocal.all += 1;
+  const critical = CRITICAL_TYPES.has(type);
+  if (critical) blockedTodayLocal.critical += 1;
+  const client = sharedClient();
+  if (!client) return;
+  try {
+    const multi = client.multi().incr(`email:quota:${day}:blocked`).expire(`email:quota:${day}:blocked`, DAY_KEY_TTL_S);
+    if (critical) multi.incr(`email:quota:${day}:blocked_critical`).expire(`email:quota:${day}:blocked_critical`, DAY_KEY_TTL_S);
+    await multi.exec();
+  } catch {
+    /* counted locally */
+  }
+}
+
+/** Today's counters for alerting: shared across instances when Redis is up. */
+async function sharedStats() {
+  const cap = dailyCap();
+  const day = today();
+  const client = sharedClient();
+  if (client) {
+    try {
+      const [sent, admin, blocked, blockedCritical] = await client.mget(
+        keys.sent(day), keys.admin(day), `email:quota:${day}:blocked`, `email:quota:${day}:blocked_critical`
+      );
+      return { cap, reserve: criticalReserve(), sentToday: Number(sent) || 0, adminSentToday: Number(admin) || 0, blockedToday: Number(blocked) || 0, blockedCriticalToday: Number(blockedCritical) || 0, shared: true };
+    } catch {
+      /* fall through */
+    }
+  }
+  rollDayIfNeeded();
+  const b = blockedTodayLocal.day === day ? blockedTodayLocal : { all: 0, critical: 0 };
+  return { cap, reserve: criticalReserve(), sentToday, adminSentToday, blockedToday: b.all, blockedCriticalToday: b.critical, shared: false };
+}
+
 /** Test seam. */
 function _reset() {
+  blockedTodayLocal = { day: null, all: 0, critical: 0 };
   dayKey = today();
   sentToday = 0;
   adminSentToday = 0;
@@ -368,6 +412,8 @@ module.exports = {
   recordSend,
   checkShared,
   recordSendShared,
+  recordBlocked,
+  sharedStats,
   stats,
   _reset,
   CRITICAL_TYPES,

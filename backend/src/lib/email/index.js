@@ -278,6 +278,7 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
   // transport is degraded, and that behaviour is exactly right here too.
   const allowed = await quota.checkShared(type, to);
   if (!allowed.ok) {
+    await quota.recordBlocked(type);
     const { sentToday, cap, reserve } = quota.stats();
     console.error(
       `[email] QUOTA BLOCKED "${subject}" (${type}) — ${allowed.detail}. ` +

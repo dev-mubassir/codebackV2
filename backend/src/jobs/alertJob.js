@@ -177,7 +177,36 @@ async function checkUnhandledRejections(now) {
   };
 }
 
-const CHECKS = [checkUnhandledRejections, checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback, checkWebhookBacklog, checkRedisDown];
+const EMAIL_CAP_WARN_FRACTION = 0.8;
+
+/**
+ * Email capacity: warn at 80 % of the daily cap (before customer mail starts
+ * being refused), and alert on ANY blocked critical send — a password reset or
+ * verification that did not go out. Admin alerts use their own bucket, so
+ * this alert can always be delivered.
+ */
+async function checkEmailQuota() {
+  const s = await require('../lib/email/quota').sharedStats();
+  if (s.blockedCriticalToday > 0) {
+    return {
+      type: 'email_critical_blocked',
+      title: `${s.blockedCriticalToday} password-reset/verification email(s) blocked today`,
+      lead: 'The daily email cap refused critical mail. Affected users cannot reset their password or verify. Raise EMAIL_DAILY_CAP (paid Resend plan) or wait for the daily reset.',
+      facts: [`sent today: ${s.sentToday}/${s.cap}`, `blocked today: ${s.blockedToday}`],
+    };
+  }
+  if (s.sentToday >= Math.ceil(EMAIL_CAP_WARN_FRACTION * s.cap)) {
+    return {
+      type: 'email_quota_80',
+      title: `Email quota at ${Math.round((s.sentToday / s.cap) * 100)} % of today's cap`,
+      lead: `Informational mail stops at ${s.cap - s.reserve}; the last ${s.reserve} sends are reserved for password resets and verification.`,
+      facts: [`sent today: ${s.sentToday}/${s.cap}`, `blocked today: ${s.blockedToday}`],
+    };
+  }
+  return null;
+}
+
+const CHECKS = [checkEmailQuota, checkUnhandledRejections, checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback, checkWebhookBacklog, checkRedisDown];
 
 async function recentlySent(type, now, db = prisma) {
   const since = new Date(now - COOLDOWN_MS);
