@@ -8,6 +8,12 @@
 # backend on :5000 first — nginx takes that port so the tunnel keeps working.
 #
 # Safety overrides: EMAIL_DRY_RUN, sandbox Cashfree, AI_MOCK. Never production data.
+#
+# The Meta app secret comes from backend/.env untouched: Instagram connect's
+# code exchange is signed with it. (A throwaway override used for the Gate 3
+# webhook burst made every connect fail with Meta's misleading
+# "redirect_uri is not identical" error.) For burst tests, run them with
+# docker-compose.burst.yml, which adds the override back temporarily.
 x-api: &api
   image: siffty-api-local
   env_file: ../../backend/.env
@@ -20,9 +26,6 @@ x-api: &api
     RUN_IN_PROCESS_SCHEDULER: "true"
     TRUST_PROXY: "2"
     PORT: "5000"
-    # Throwaway signing secret so deploy/local/burst.js can sign synthetic
-    # webhooks. Real Meta deliveries to the dev tunnel fail while this runs.
-    INSTAGRAM_APP_SECRET: local-burst-signing-secret-not-real
   depends_on: [redis]
   restart: unless-stopped
   mem_limit: 768m
