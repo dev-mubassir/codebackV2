@@ -28,6 +28,23 @@ function attachSocketAdapter(io) {
     return mode;
   }
   const subClient = createRedisConnection('socket-sub');
+
+  // With Redis down, the adapter's PUBLISH rejects (ioredis gives up after its
+  // retries) and nothing in socket.io catches it — an unhandled rejection,
+  // which kills a Node process. Swallow and log it here instead: the emit
+  // still reaches sockets on THIS instance (the adapter broadcasts locally
+  // regardless), only the cross-instance relay is lost until Redis returns.
+  const publish = pubClient.publish.bind(pubClient);
+  let lastWarned = 0;
+  pubClient.publish = (...args) =>
+    publish(...args).catch((err) => {
+      if (Date.now() - lastWarned > 60 * 1000) {
+        lastWarned = Date.now();
+        console.warn('[Socket.io] Redis publish failed; events reach this instance only until Redis returns:', err.message);
+      }
+      return 0;
+    });
+
   const { createAdapter } = require('@socket.io/redis-adapter');
   io.adapter(createAdapter(pubClient, subClient, { key: 'socket.io' }));
   mode = 'redis';

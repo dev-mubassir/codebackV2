@@ -148,6 +148,9 @@ function buildRedisJobSystem(name) {
   });
 
   const queue = new Queue(name, { connection });
+  // An EventEmitter 'error' with no listener throws — during a Redis outage
+  // that took the whole process down. Log it (rate-limited by lib/redis).
+  queue.on('error', (err) => console.error(`[Queue:${name}] queue error:`, err.message));
   const workers = [];
 
   return {
@@ -177,6 +180,7 @@ function buildRedisJobSystem(name) {
         async (job) => processorFn(job),
         { connection, concurrency: workerOpts.concurrency || 3 }
       );
+      worker.on('error', (err) => console.error(`[Queue:${name}] worker error:`, err.message));
       worker.on('failed', (job, err) => {
         // BullMQ fires this for EVERY failed attempt; say which one it was.
         const attempts = job?.opts?.attempts || 1;

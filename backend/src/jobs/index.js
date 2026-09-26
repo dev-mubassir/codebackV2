@@ -140,6 +140,7 @@ async function stopWorkers() {
   await closeLockPool();
 }
 
+const ENQUEUE_TIMEOUT_MS = 2000;
 const ORPHAN_AFTER_MS = 15 * MIN;
 const ORPHAN_WINDOW_MS = 24 * HOUR;
 const ORPHAN_MAX_ATTEMPTS = 12; // 3 queue attempts x 4 recovery rounds
@@ -204,14 +205,22 @@ async function enqueueMessageAnalysis(messageId, { delayMs = 0, throttleAttempt 
   const jobSystem = startWorkers();
   let jobId = throttleAttempt > 0 ? `analyze-${messageId}-t${throttleAttempt}` : `analyze-${messageId}`;
   if (jobKey) jobId = `${jobId}-${jobKey}`;
+  // Bounded: with Redis down, BullMQ would otherwise wait for it forever and
+  // hold up the webhook delivery that called this (the DM is already saved).
+  // A job that does not get queued is re-enqueued later by the stalled-
+  // analysis sweep (requeueOrphanedAnalyses), so giving up here loses nothing.
+  let timer;
   try {
-    await jobSystem.add(
-      'message.analysis',
-      { messageId, throttleAttempt },
-      { jobId, attempts: 3, backoffMs: 3000, delayMs }
-    );
+    await Promise.race([
+      jobSystem.add('message.analysis', { messageId, throttleAttempt }, { jobId, attempts: 3, backoffMs: 3000, delayMs }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('queue did not accept the job in time')), ENQUEUE_TIMEOUT_MS);
+      }),
+    ]);
   } catch (err) {
-    console.error('[Jobs] Failed to enqueue message.analysis job:', err.message);
+    console.error('[Jobs] Failed to enqueue message.analysis job (the sweep will retry):', err.message);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
