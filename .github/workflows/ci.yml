@@ -53,8 +53,14 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
       - run: npm ci --no-audit --no-fund
+      # tests/pro-upgrade-verdict.test.js imports frontend/src/lib/pricing.js,
+      # which imports react: the frontend packages must be installed too.
+      - run: npm ci --no-audit --no-fund --ignore-scripts
+        working-directory: frontend
       - run: npx prisma generate
       - run: npm test
 
