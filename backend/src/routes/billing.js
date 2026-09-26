@@ -645,6 +645,14 @@ router.post('/checkout/plan', async (req, res) => {
     // Locked region wins outright; otherwise the hint (default IN).
     const billingRegion = entitlement?.billingRegion || (billingRegionHint === 'INTL' ? 'INTL' : 'IN');
 
+    // USD_PRICING_ENABLED is ENFORCED here, not just a display toggle: with it
+    // off, no INTL (USD) order is ever created — a crafted billingRegionHint,
+    // or a tenant whose region was locked INTL by card evidence, is refused
+    // before any order row or Cashfree call exists.
+    if (billingRegion === 'INTL' && !isUsdPricingEnabled()) {
+      return res.status(409).json({ code: 'INTL_PRICING_DISABLED', error: 'International (USD) checkout is not available right now.' });
+    }
+
     const price = await prisma.planPrice.findUnique({
       where: { planId_billingRegion: { planId: plan.id, billingRegion } },
     });
@@ -714,6 +722,9 @@ router.post('/checkout/addon', async (req, res) => {
     const entitlement = await prisma.entitlement.findUnique({ where: { userId: req.userId } });
     if (!entitlement || !PURCHASABLE_PLAN_CODES.includes(entitlement.planCode) || !entitlement.billingRegion) {
       return res.status(400).json({ error: 'Add-ons require an active Starter or Pro plan.' });
+    }
+    if (entitlement.billingRegion === 'INTL' && !isUsdPricingEnabled()) {
+      return res.status(409).json({ code: 'INTL_PRICING_DISABLED', error: 'International (USD) checkout is not available right now.' });
     }
 
     let price;
