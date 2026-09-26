@@ -327,7 +327,7 @@ describe('background work does not need a session', () => {
     const deadline = Date.now() + 4000;
     let saved = null;
     while (!saved && Date.now() < deadline) {
-      saved = await prisma.message.findUnique({ where: { igMessageId: mid } });
+      saved = await prisma.message.findFirst({ where: { igMessageId: mid } });
       if (!saved) await new Promise((r) => setTimeout(r, 25));
     }
     expect(saved, 'the DM is stored with nobody logged in').not.toBeNull();
