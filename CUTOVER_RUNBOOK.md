@@ -18,6 +18,10 @@ Owners: 🧑 = you, 🤖 = agent. Target maintenance window (steps 2–6): **und
 | P4 | New `api` and `web` at 0 instances, no custom domains | `northflank get service …` | yes |
 | P5 | Meta "Server IP allowlist" is empty | 🧑 Meta app → Settings → Advanced | confirmed |
 | P6 | Local backup of old prod is fresh (last 24 h) | 🧑 | yes |
+| P7 | **Cashfree production dashboard**: `https://app.siffty.com` whitelisted; webhook URL = `https://api.siffty.com/webhooks/cashfree` (path from `src/index.js`) | 🧑 screenshot or confirmation | confirmed |
+| P8 | **USD orders enabled on the LIVE Cashfree account** (USD_PRICING_ENABLED=true shows USD prices; checkout creates `order_currency: USD`). Cashfree enables currencies on request (care@cashfree.com). If not confirmed: set `USD_PRICING_ENABLED=false` before the pre-build (INR-only launch; the checkout guard then refuses INTL) | 🧑 Cashfree confirmation | confirmed, or flag set to false |
+| P9 | **Cloudflare**: `app` and `api` records will be **DNS-only (grey cloud)**. `TRUST_PROXY` unset assumes exactly one proxy hop (Northflank's ingress); an orange-cloud proxy would make every client share one rate-limit bucket | 🧑 | grey cloud |
+| P10 | Config check with expectations passes, except the two pre-cutover flags | 🤖 `node src/cli/configCheck.js --expect CASHFREE_ENV=production --expect BILLING_ENABLED=true --expect USD_PRICING_ENABLED=<P8> --expect META_APPROVED=true` | only `EMAIL_DRY_RUN` flagged |
 
 ## 1. Day before — 🧑 + 🤖, ~15 min (outside the window)
 
@@ -88,6 +92,8 @@ Owners: 🧑 = you, 🤖 = agent. Target maintenance window (steps 2–6): **und
 
 ## 6. Move the domains — 🧑 + 🤖, ~2 min
 
+0. 🧑 **Check before moving:** in Cloudflare, `app.siffty.com` and `api.siffty.com` are **DNS-only (grey cloud)** (P9). If orange, switch to grey first.
+
 1. 🧑 Northflank: `api.siffty.com` → remove it from `codeback-backend`, then add it to `siffty/api` (port `http`). Same for `app.siffty.com`: `codeback-frontend` → `siffty/web`.
 2. 🤖 Checks:
    - `https://api.siffty.com/health` answers 200 with a valid certificate (issuer, expiry, SAN), served by the new project: the response has no `[Server]` banner from the old stack, and the `api` logs show the request.
@@ -104,6 +110,8 @@ Owners: 🧑 = you, 🤖 = agent. Target maintenance window (steps 2–6): **und
 | Meta retries from T0–T1 arrive | 🤖 | `webhook_deliveries` rows with `received_at` after T1 for events sent during the window; backlog 0 |
 | A transactional email arrives (e.g. a password reset to your own address) | 🧑 | received |
 | Isolation spot-check with 2 accounts | 🧑 + 🤖 | B cannot see A's conversation (404) |
+| Instagram connect (a new or re-connected account) | 🧑 | OAuth completes; the account shows CONNECTED |
+| **Watch the first international (USD/PayPal) payment** | 🤖 | order CREATED → PAID once, one plan grant, `currency USD`. A PayPal account from India may not be able to pay your own Indian merchant account, so the first USD payment may come from a real buyer abroad. Watch `orders` with `currency='USD'` for the first days |
 | Admin health: Redis healthy, adapter `redis`, queue `bullmq`, DB connections active/max | 🧑 | green |
 | Admin self-check page `/api/admin/self-check` | 🧑 | 100 % / 100 % |
 | **Resume the release trigger:** workflow `release` gets back `vcs-push` on `master` | 🤖 | `get workflow` shows the trigger |

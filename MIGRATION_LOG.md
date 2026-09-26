@@ -26,7 +26,8 @@ History: GCP-direct (Gate 1) and Northflank BYOC (Gate 1b) were rejected on cost
 | 2 — code (Redis state, adapter, scheduler, ops hardening) | committed and pushed on `scale-prod` (2026-09-25) |
 | 2b — new project, zero missed DMs, isolation, AI mock | committed and pushed (2026-09-25) |
 | 3 — F2/F3, self-check, dev-machine tests, runbook | committed and pushed (2026-09-26) |
-| 3b — env audit, config check, guards, rehearsal, short-cutover runbook | **report delivered; batch waiting for approval** |
+| 3b — env audit, config check, guards, rehearsal, short-cutover runbook | committed and pushed (2026-09-26) |
+| 3c — final blockers (IG connect, USD, email quota, config) | **GO/NO-GO report delivered; batch waiting for approval** |
 | 4 — cutover + cleanup | — |
 
 ## Facts established
@@ -154,6 +155,24 @@ Gate 2b: Delhi region, no staging, autoscaling as above, zero-missed-DM design, 
 | After | `api` and `web` at 0 instances, autoscaling off |
 
 Pool: with `DB_POOL_SIZE=8` the worst case is 6 × (8 + 2 + 1 + 2) + 2 + 5 = **85 of 747** usable (89 % headroom).
+
+## Gate 3c (2026-09-26)
+
+- **Instagram connect on the local stack:**
+  - Meta rejected the code exchange with "redirect_uri is not identical".
+  - Cause: the local compose file overrode `INSTAGRAM_APP_SECRET` with a throwaway value for the webhook burst test. The code exchange is signed with that secret, and Meta reports a wrong secret with this misleading message.
+  - Fixed locally: the override moved to `deploy/local/docker-compose.burst.yml` (burst tests only).
+  - `scale-prod`'s OAuth path is unchanged. The failed attempts reached the code exchange, which proves state and cookie worked across both instances.
+  - Proof: the owner reconnects on the local stack (pending).
+- **USD:**
+  - Checkout now enforces `USD_PRICING_ENABLED`: a 409 `INTL_PRICING_DISABLED` response.
+  - A Cashfree connector probe (`sfy_gate3c_usd_probe_001`, $49, PayPal) was refused with "order Currency not enabled for this merchant account". The connector doesn't expose whether it's sandbox or production, so **USD enablement on the live account is unconfirmed** (runbook P8).
+- **Email quota:** alerts at 80 % of the cap and on any blocked critical email.
+- **Config check in production:**
+  - `CASHFREE_ENV`, `BILLING_ENABLED` and `USD_PRICING_ENABLED` match; `DB_POOL_SIZE=8`.
+  - `META_APPROVED` is still unset.
+  - The public web bundle bakes `NEXT_PUBLIC_CASHFREE_MODE=production` and `api.siffty.com`.
+- **Delhi unit prices** (from Northflank usage) equal the list prices: $0.01667/vCPU-h, $0.00833/GiB-h, $0.15/GB-mo.
 
 ## Open items
 
