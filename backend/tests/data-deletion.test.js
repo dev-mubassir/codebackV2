@@ -97,7 +97,9 @@ describe('C1 — Meta data deletion callback', () => {
     ).toBe(0);
   });
 
-  it('removes the user record when no other account remains', async () => {
+  // F3 (approved 2026-09-25): a Meta deletion erases the Instagram account's
+  // data only — the Siffty login survives even when it was the last account.
+  it('keeps the Siffty user even when the deleted Instagram account was their last one', async () => {
     const { user } = await createUser({});
     const igUserId = uniq('ig-del-user');
     await createAccount({ userId: user.id, igUserId, withConversation: false });
@@ -106,7 +108,8 @@ describe('C1 — Meta data deletion callback', () => {
       .post('/data-deletion/instagram')
       .send({ signed_request: signedRequest({ user_id: igUserId }) });
 
-    expect(await prisma.user.findUnique({ where: { id: user.id } })).toBeNull();
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).not.toBeNull();
+    expect(await prisma.instagramAccount.count({ where: { igUserId } })).toBe(0);
   });
 
   it('keeps the user when they still have another connected account', async () => {

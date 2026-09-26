@@ -1,0 +1,82 @@
+{
+  "_note": "Project 'siffty', region asia-south-delhi. Records of what was created (northflank create ... -f <file>); names and non-secret defaults only - the owner enters every secret value in the UI.",
+  "apiVersion": "v1.2",
+  "name": "release",
+  "description": "Push to master: build and run migrate, then build api and web (which auto-deploy).",
+  "triggers": [
+    {
+      "kind": "vcs-push",
+      "spec": {
+        "vcs": {
+          "vcsService": "github",
+          "repoUrl": "https://github.com/dev-mubassir/codebackV2",
+          "accountLogin": "dev-mubassir"
+        },
+        "branchNamePatterns": [
+          "master"
+        ]
+      }
+    }
+  ],
+  "options": {
+    "autorun": false,
+    "concurrencyPolicy": "queue"
+  },
+  "spec": {
+    "kind": "Workflow",
+    "spec": {
+      "type": "sequential",
+      "steps": [
+        {
+          "kind": "Build",
+          "ref": "migrate-build",
+          "condition": "success",
+          "spec": {
+            "id": "migrate",
+            "type": "job",
+            "branch": "master",
+            "reuseExistingBuilds": false
+          }
+        },
+        {
+          "kind": "JobRun",
+          "ref": "migrate-run",
+          "condition": "success",
+          "spec": {
+            "jobId": "migrate"
+          }
+        },
+        {
+          "kind": "Workflow",
+          "spec": {
+            "type": "parallel",
+            "steps": [
+              {
+                "kind": "Build",
+                "ref": "api-build",
+                "condition": "success",
+                "spec": {
+                  "id": "api",
+                  "type": "service",
+                  "branch": "master",
+                  "reuseExistingBuilds": false
+                }
+              },
+              {
+                "kind": "Build",
+                "ref": "web-build",
+                "condition": "success",
+                "spec": {
+                  "id": "web",
+                  "type": "service",
+                  "branch": "master",
+                  "reuseExistingBuilds": false
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

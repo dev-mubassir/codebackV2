@@ -347,7 +347,7 @@ router.patch('/conversations/:id/auto-reply', async (req, res) => {
       },
     });
 
-    console.log(`[API] AI Auto-Reply ${updated.autoReplyEnabled ? 'ENABLED' : 'DISABLED'} for conversation ${id} (contact ${updated.contact.igsid})`);
+    console.log(`[API] AI Auto-Reply ${updated.autoReplyEnabled ? 'ENABLED' : 'DISABLED'} for conversation ${id} (contact ${updated.contact.id})`);
 
     res.json({
       id: updated.id,
@@ -400,7 +400,7 @@ router.delete('/conversations/:id/messages', async (req, res) => {
       deletedCount: deleteResult.count,
     });
 
-    console.log(`[API] Cleared ${deleteResult.count} messages for conversation ${id} (contact ${conversation.contact?.igsid || 'unknown'})`);
+    console.log(`[API] Cleared ${deleteResult.count} messages for conversation ${id} (contact ${conversation.contact?.id || 'unknown'})`);
 
     res.json({
       message: 'Messages cleared',
@@ -439,7 +439,7 @@ router.delete('/conversations/:id', async (req, res) => {
       conversationId: id,
     });
 
-    console.log(`[API] Fully deleted conversation ${id} (contact ${conversation.contact?.igsid || 'unknown'})`);
+    console.log(`[API] Fully deleted conversation ${id} (contact ${conversation.contact?.id || 'unknown'})`);
 
     res.json({
       message: 'Conversation deleted',
@@ -685,7 +685,7 @@ router.post('/conversations/:id/reply', async (req, res) => {
     }
 
     // Send the message via Instagram API
-    console.log('[API] Sending reply to IGSID:', conversation.contact.igsid);
+    console.log('[API] Sending reply in conversation:', conversation.id);
 
     let igResponse;
     try {
@@ -696,7 +696,7 @@ router.post('/conversations/:id/reply', async (req, res) => {
       );
     } catch (apiError) {
       const errorData = apiError.response?.data?.error || {};
-      console.error('[API] Instagram API error:', errorData);
+      console.error('[API] Instagram API error:', { code: errorData?.error?.code ?? errorData?.code, subcode: errorData?.error?.error_subcode ?? errorData?.error_subcode });
 
       // A dead token is a different problem from a rejected message: flag the
       // account, email the owner once, and tell the user to reconnect rather
@@ -855,7 +855,7 @@ router.post('/contacts/:id/refresh-profile', refreshProfileLimiter, async (req, 
       },
     });
 
-    console.log('[API] Force-refreshed profile for contact:', updated.igsid);
+    console.log('[API] Force-refreshed profile for contact:', updated.id);
     res.json(updated);
   } catch (error) {
     console.error('[API] Error refreshing profile:', error.message);

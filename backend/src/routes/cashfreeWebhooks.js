@@ -19,7 +19,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { verifyWebhookSignature, parseCashfreeJson } = require('../lib/cashfree');
+const { verifyWebhookSignature, parseCashfreeJson, checkWebhookTimestamp } = require('../lib/cashfree');
 const { fulfillPaidOrder, recordPaymentAttempt } = require('../services/billingFulfillment');
 const { applyRefundStatus } = require('../services/refundService');
 const { isBillingEnabled } = require('../lib/billingFlags');
@@ -44,6 +44,20 @@ router.post('/', async (req, res) => {
   if (!verifyWebhookSignature(req.rawBody, signature, timestamp, secret)) {
     console.warn('[CashfreeWebhook] Rejected: invalid or missing signature.');
     return res.status(401).send('Invalid signature');
+  }
+
+  // Replay window — LOG-ONLY until sandbox confirms what timestamp a Cashfree
+  // retry carries (see lib/cashfree.js checkWebhookTimestamp).
+  const age = checkWebhookTimestamp(timestamp);
+  if (!age.withinWindow) {
+    const enforce = process.env.WEBHOOK_TIMESTAMP_ENFORCE === 'true';
+    console.warn(
+      `[CashfreeWebhook] Timestamp outside the ±5 min window ` +
+        `(skew ${age.skewMs === null ? 'unparseable' : `${Math.round(age.skewMs / 1000)}s`}; ` +
+        `event ${req.headers['x-webhook-attempt'] ? `attempt ${req.headers['x-webhook-attempt']}` : 'attempt ?'}). ` +
+        (enforce ? 'Rejected.' : 'Accepted (log-only mode).')
+    );
+    if (enforce) return res.status(401).send('Stale webhook');
   }
 
   // MALFORMED BUT SIGNED. A payload that carries a valid signature but not the

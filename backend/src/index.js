@@ -9,6 +9,9 @@
  */
 
 require('dotenv').config();
+// Before any module reads DATABASE_URL (Prisma, the session pools): build it
+// from the addon's linked parts when present — see lib/dbUrl.js.
+require('./lib/dbUrl').applyDatabaseUrl();
 const fs = require('fs');
 const path = require('path');
 
@@ -39,11 +42,15 @@ const announcementRoutes = require('./routes/announcements');
 
 const { setIO } = require('./lib/socket');
 const { assertMigrationsCurrent } = require('./lib/migrationGuard');
-const { startWorkers } = require('./jobs');
-const { corsOptions, securityHeaders, originGuard } = require('./lib/security');
+const { startWorkers, stopWorkers } = require('./jobs');
+const { corsOptions, securityHeaders, originGuard, isAllowedOrigin } = require('./lib/security');
 const { skipOnAdminPaths, buildAdminSessionMiddleware, buildAdminStore } = require('./lib/adminSession');
 const { userSessionGuard, socketSessionIsLive, startIdleSocketSweep } = require('./lib/sessionIdle');
-const { publicHealthHandler } = require('./lib/health');
+const { publicHealthHandler, livezHandler, markShuttingDown } = require('./lib/health');
+const { getRedis, isRedisConfigured, closeRedis } = require('./lib/redis');
+const { attachSocketAdapter } = require('./lib/socketAdapter');
+const { queueDriver } = require('./lib/queue');
+const prisma = require('./lib/prisma');
 const { maintenanceGuard } = require('./lib/maintenance');
 const { startSettingsRefresher } = require('./lib/settings');
 const { captureRequestContext, installConsoleErrorCapture } = require('./lib/errorRing');
@@ -95,8 +102,20 @@ app.use(cors(corsOptions));
 // Cookie parser
 app.use(cookieParser());
 
-// Trust proxy for secure cookies over ngrok
-app.set('trust proxy', 1);
+// How many reverse-proxy hops sit in front of us. It decides req.ip (every
+// rate limiter keys on it) and req.secure (the Secure cookie). Too few and the
+// client IP is the proxy's — every user shares one rate-limit bucket; too many
+// and a client can spoof X-Forwarded-For. Default 1 (one ingress hop);
+// TRUST_PROXY takes a hop count, true/false, or Express's subnet list syntax.
+function trustProxySetting(raw) {
+  const value = String(raw ?? '').trim();
+  if (value === '') return 1;
+  if (/^\d+$/.test(value)) return Number(value);
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}
+app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -171,11 +190,16 @@ if (Buffer.from(process.env.TOKEN_ENCRYPTION_KEY.trim(), 'hex').length !== 32) {
   process.exit(1);
 }
 
-// Email is not fatal, but a silent console transport in production means
-// password resets never arrive and nobody finds out until a user complains.
-if (isProduction && !(process.env.RESEND_API_KEY || '').trim()) {
-  console.warn('[Server] WARNING: RESEND_API_KEY is not set — password reset and verification');
-  console.warn('[Server]          emails will be LOGGED TO THE CONSOLE instead of sent.');
+// Email: fatal in production if it would fall back to the console transport,
+// which prints live reset and verification tokens into the log. Staging on a
+// copy of real data sets EMAIL_DRY_RUN=true instead (nothing is sent, nothing
+// sensitive is logged).
+try {
+  const transport = require('./lib/email').assertSafeEmailTransport();
+  console.log(`[Email] Transport: ${transport}${transport === 'dry-run' ? ' (EMAIL_DRY_RUN=true — nothing is sent)' : ''}`);
+} catch (err) {
+  console.error(`[Server] FATAL: ${err.message}`);
+  process.exit(1);
 }
 
 // Not fatal (unlike the secrets above) — the billing routes themselves
@@ -238,85 +262,43 @@ if (isProduction) {
 }
 
 /**
- * Session store selection.
+ * Session store: Postgres (connect-pg-simple, table user_sessions).
  *
- * Redis whenever REDIS_URL is configured — sessions then survive a restart and
- * are shared across instances, which the default MemoryStore cannot do (it also
- * leaks memory, since it never evicts expired sessions).
+ * Shared by every instance and survives restarts, with no extra
+ * infrastructure — Postgres is already a hard dependency. Sessions are
+ * deliberately NOT in Redis even when Redis is configured: Redis here holds
+ * rebuildable state (rate-limit counters, the job queue, socket pub/sub), and
+ * losing it must never log every user out.
  *
- * Without REDIS_URL we fall back to MemoryStore. That is fine for local dev and
- * single-instance use, but it means every deploy/restart logs everyone out, so
- * it warns loudly rather than failing — set REDIS_URL to remove the warning.
- * A configured-but-broken Redis is a different matter: in production that is a
- * hard failure, because silently degrading to MemoryStore is exactly the
- * outcome this is meant to prevent.
+ * (An earlier Redis branch here was never exercised and could not have worked:
+ * connect-redis@10 expects a node-redis v5 client and was handed ioredis.)
  *
- * TODO(post-review): a missing REDIS_URL currently only WARNS in production.
- * That is a deliberate accommodation for the current single-instance review
- * deployment, which has no Redis provisioned — making it fatal today would
- * simply prevent the app from booting.
- *
- * Once Redis is actually activated, tighten this: either make the missing-URL
- * case fatal in production outright, or gate it behind an explicit
- * ENFORCE_REDIS_SESSIONS=true so the strictness is opt-in per environment.
- * Until then a real multi-instance deploy can silently run on MemoryStore,
- * where sessions are per-process — users would be logged out at random as
- * requests land on different instances, and memory would grow unbounded.
+ * The pool is capped — see the connection budget in lib/prisma.js.
  */
+const SESSION_DB_POOL_MAX = 2;
+
 function buildSessionStore() {
-  const REDIS_URL = process.env.REDIS_URL;
-
-  // Redis stays the preferred store when it is actually provisioned. This
-  // branch is dormant by design — REDIS_URL is unset everywhere today.
-  if (REDIS_URL) {
-    try {
-      const IORedis = require('ioredis');
-      const { RedisStore } = require('connect-redis');
-
-      const client = new IORedis(REDIS_URL, {
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-      });
-      client.on('error', (err) => console.error('[Session] Redis client error:', err.message));
-
-      console.log('[Session] Using Redis-backed session store.');
-      return new RedisStore({ client, prefix: 'codeback:sess:' });
-    } catch (err) {
-      console.error('[Session] FATAL: REDIS_URL is set but the Redis session store failed to initialize:', err.message);
-      if (isProduction) {
-        throw new Error('Redis session store is configured but unavailable — refusing to fall back to MemoryStore in production.');
-      }
-      console.warn('[Session] Falling back to the Postgres session store (non-production only).');
-    }
-  }
-
-  // Postgres-backed sessions. This replaces the MemoryStore fallback, which
-  // was the single worst thing about the previous setup: sessions lived in one
-  // process, so every restart logged everyone out, a second instance could not
-  // see the first instance's sessions, and memory grew without bound. All of
-  // that was permitted in PRODUCTION behind nothing but a console warning.
-  //
-  // Postgres is already a hard dependency, so this needs no new infrastructure
-  // and removes the fallback path entirely — there is no longer any way to end
-  // up on MemoryStore by accident.
   try {
     const pgSession = require('connect-pg-simple')(session);
     const { Pool } = require('pg');
 
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: SESSION_DB_POOL_MAX });
     pool.on('error', (err) => console.error('[Session] Postgres session pool error:', err.message));
 
-    console.log('[Session] Using Postgres-backed session store (table: user_sessions).');
-    return new pgSession({
+    console.log('[Session] Store: postgres (table user_sessions).');
+    return {
       pool,
-      tableName: 'user_sessions',
-      // The table is owned by the session store, not by Prisma — it is
-      // deliberately absent from schema.prisma so `prisma migrate diff` does
-      // not fight the library over its shape.
-      createTableIfMissing: true,
-      // Sweep expired rows hourly; without this the table only ever grows.
-      pruneSessionInterval: 60 * 60,
-    });
+      store: new pgSession({
+        pool,
+        tableName: 'user_sessions',
+        // The table is owned by the session store, not by Prisma — it is
+        // deliberately absent from schema.prisma so `prisma migrate diff` does
+        // not fight the library over its shape.
+        createTableIfMissing: true,
+        // Sweep expired rows hourly; without this the table only ever grows.
+        pruneSessionInterval: 60 * 60,
+      }),
+    };
   } catch (err) {
     console.error('[Session] FATAL: could not initialize the Postgres session store:', err.message);
     throw new Error(
@@ -327,7 +309,7 @@ function buildSessionStore() {
 
 // Session middleware. The store is kept in a variable because the idle-socket
 // sweep (lib/sessionIdle.js) re-reads sessions from it.
-const sessionStore = buildSessionStore();
+const { store: sessionStore, pool: sessionPool } = buildSessionStore();
 const sessionMiddleware = session({
   name: 'codeback.sid',
   store: sessionStore,
@@ -401,10 +383,24 @@ app.use(express.urlencoded({ extended: true }));
 // ============================================
 const io = new SocketIO(server, {
   cors: {
-    origin: FRONTEND_URL,
+    // The same allowlist as HTTP CORS (lib/security.js), not FRONTEND_URL
+    // alone — so a second allowed origin works for sockets too.
+    origin: (origin, callback) => callback(null, isAllowedOrigin(origin)),
     credentials: true,
   },
+  // The browser's Origin on the upgrade request is checked here as well: CORS
+  // does not apply to a WebSocket handshake, so without this only the SameSite
+  // cookie stood between a hostile page and a user's socket.
+  allowRequest: (req, callback) => callback(null, isAllowedOrigin(req.headers.origin)),
 });
+
+// Across instances, room emits travel through Redis pub/sub (lib/socketAdapter.js).
+const socketAdapter = attachSocketAdapter(io);
+console.log(
+  socketAdapter === 'redis'
+    ? '[Socket.io] Adapter: redis — emits reach sockets on every instance.'
+    : '[Socket.io] Adapter: memory (REDIS_URL not set) — correct for a single instance only.'
+);
 
 // Mount session middleware directly onto Socket.io engine to verify sessions on handshake
 io.engine.use(sessionMiddleware);
@@ -412,6 +408,27 @@ io.engine.use(sessionMiddleware);
 // Make Socket.io available to every module via lib/socket.js (webhook
 // handler, background AI worker, notification service, etc.)
 setIO(io);
+
+// Redis status, once, at boot. The URL itself is never logged.
+if (isRedisConfigured()) {
+  const redis = getRedis();
+  redis.once('ready', () => console.log('[Redis] Connected.'));
+  console.log('[Redis] Configured — rate limits, email quota, queue and socket adapter use it.');
+} else {
+  console.log('[Redis] Not configured — rate limits, email quota, queue and socket adapter run in memory.');
+}
+console.log(`[Queue] Driver: ${queueDriver()}.`);
+console.log(`[Cashfree] Mode: ${require('./lib/cashfree').cashfreeEnvironment()}.`);
+if (require('./lib/ai/mock').isAiMock()) {
+  const bar = '!'.repeat(72);
+  console.warn(bar);
+  console.warn('[AI] AI_MOCK=true — every AI answer is FAKE. No provider is called.');
+  console.warn('[AI] Local/load testing only. This must NEVER be set in production secrets.');
+  if (isProduction) console.warn('[AI] NODE_ENV=production: REMOVE AI_MOCK FROM THIS ENVIRONMENT NOW.');
+  console.warn(bar);
+} else {
+  console.log('[AI] Mock: off.');
+}
 
 // Start the background AI processing worker (message classification,
 // priority scoring, brand-deal extraction, summaries). Uses Redis/BullMQ
@@ -469,6 +486,8 @@ io.on('connection', async (socket) => {
 // Public health check for an external uptime monitor: {status:"ok"} or a
 // 503, nothing else (lib/health.js). Details live behind /api/admin/health.
 app.get('/health', publicHealthHandler);
+// Liveness: no dependencies (lib/health.js livezHandler).
+app.get('/livez', livezHandler);
 
 // Handle OAuth callback if REDIRECT_URI is exactly the ngrok root.
 // `state` must be forwarded too, or the callback's CSRF check can never pass.
@@ -513,7 +532,8 @@ app.use('/api/announcements', announcementRoutes);
 // the admin router does not define falls through to the customer /api router
 // below, whose blanket requireAuth answers 401 "Log in to continue." — a
 // different answer from the one every other unknown admin path gets.
-app.use('/api/admin', buildAdminSessionMiddleware({ store: buildAdminStore() }), adminRoutes, notFoundHandler);
+const adminStore = buildAdminStore();
+app.use('/api/admin', buildAdminSessionMiddleware({ store: adminStore }), adminRoutes, notFoundHandler);
 
 // Billing checkout (must be mounted before /api, same reason as admin above
 // — apiRoutes' own blanket requireAuth would otherwise intercept every
@@ -565,6 +585,68 @@ const protocol = server instanceof https.Server ? 'https' : 'http';
  * Nothing is listening until this passes, so a behind-schema deploy fails
  * loudly at boot instead of quietly at signup.
  */
+/**
+ * Graceful shutdown (SIGTERM on every deploy and scale-in; SIGINT locally).
+ *
+ * Budget: the platform kills us shortly after SIGTERM, so everything here is
+ * bounded to SHUTDOWN_TIMEOUT_MS and a hard exit follows regardless.
+ *   1. /health starts answering 503 — the load balancer stops routing to us.
+ *   2. Stop accepting connections; tell sockets to reconnect (they land on a
+ *      live instance, and the Redis adapter keeps their rooms working).
+ *   3. Stop timers, let the queue worker finish or hand back its job
+ *      (BullMQ re-delivers it elsewhere), close the lock pool.
+ *   4. Close the session pools, Prisma and Redis.
+ */
+const SHUTDOWN_TIMEOUT_MS = 8000;
+let shuttingDown = false;
+
+async function shutdown(signal, exitCode = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Server] ${signal} received — shutting down gracefully (max ${SHUTDOWN_TIMEOUT_MS / 1000}s).`);
+  markShuttingDown();
+
+  const hardExit = setTimeout(() => {
+    console.error('[Server] Graceful shutdown timed out; exiting.');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  hardExit.unref();
+
+  const step = (name, fn) =>
+    Promise.resolve()
+      .then(fn)
+      .catch((err) => console.error(`[Server] Shutdown step "${name}" failed:`, err.message));
+
+  const httpClosed = new Promise((resolve) => server.close(() => resolve()));
+  await step('sockets', () => io.close());
+  await step('workers', () => stopWorkers());
+  // Keep-alive connections would hold server.close() open until they idle out.
+  if (typeof server.closeIdleConnections === 'function') server.closeIdleConnections();
+  await Promise.race([httpClosed, new Promise((r) => setTimeout(r, 3000).unref())]);
+  await step('session pool', async () => {
+    await sessionStore.close();
+    await sessionPool.end();
+  });
+  await step('admin session pool', async () => {
+    await adminStore.close();
+    await adminStore.dbPool.end();
+  });
+  await step('prisma', () => prisma.$disconnect());
+  await step('redis', () => closeRedis());
+
+  clearTimeout(hardExit);
+  console.log(`[Server] Shutdown complete${exitCode ? ` (exit ${exitCode})` : ''}.`);
+  process.exit(exitCode);
+}
+
+// Unhandled rejections: logged, counted, alerted on (never silent).
+// Uncaught exceptions: graceful shutdown with exit 1 (never kept running).
+// See lib/processGuards.js.
+require('./lib/processGuards').installProcessGuards({ shutdown });
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
 assertMigrationsCurrent().then(() => {
 server.listen(PORT, () => {
   console.log('');

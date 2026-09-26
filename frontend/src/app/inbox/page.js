@@ -23,7 +23,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { io } from 'socket.io-client';
 import {
   getMe, getConversations, getMessages, getAccounts,
   getConversationAnalysis, generateReply, getDraftCredits, sendReply, setConversationRead,
@@ -47,7 +46,7 @@ import {
   replyModeSendsAutomatically,
 } from '@/content/labels';
 import { formatTime, formatTimeAgo, formatCurrency } from '@/content/format';
-import { BACKEND_URL } from '@/lib/backendUrl';
+import { createSocket } from '@/lib/socket';
 import { rememberDestination } from '@/lib/pendingDestination';
 import styles from './inbox.module.css';
 
@@ -343,11 +342,37 @@ function InboxPageContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  /**
+   * After a dropped connection, reload what the bootstrap loaded: any event
+   * sent while the socket was down never arrives. The open thread only gains
+   * the messages it is missing, through the same id set the live handler uses —
+   * reopening it via selectConversation would wipe a half-written reply. It
+   * runs before the list reload because the GET marks it read server-side.
+   */
+  const catchUp = useCallback(async () => {
+    const convId = selectedConvRef.current;
+    if (convId) {
+      try {
+        const data = await getMessages(convId);
+        if (selectedConvRef.current === convId) {
+          const missed = data.messages.filter((m) => !messageIdsRef.current.has(m.id));
+          missed.forEach((m) => messageIdsRef.current.add(m.id));
+          if (missed.length) setMessages((prev) => [...prev, ...missed]);
+        }
+      } catch (err) {
+        console.error('Failed to reload messages after reconnect:', err);
+      }
+    }
+    loadConversations();
+    getAccounts().then(setAccounts).catch(() => {});
+    getNotifications().then((d) => setNotifUnreadCount(d.unreadCount || 0)).catch(() => {});
+    if (user?.features?.billing) getDraftCredits().then(setDraftCredits).catch(() => {});
+  }, [loadConversations, user]);
+
   useEffect(() => {
     if (!user) return undefined;
-    const socket = io(BACKEND_URL, { withCredentials: true });
+    const socket = createSocket({ onReconnect: catchUp });
 
-    socket.on('connect', () => socket.emit('join', { userId: user.id }));
     socket.on('new_message', handleNewMessage);
     socket.on('conversation_read', handleConversationRead);
     socket.on('analysis_completed', handleAnalysisCompleted);
@@ -357,7 +382,7 @@ function InboxPageContent() {
     socket.on('conversation_deleted', handleConversationDeleted);
 
     return () => socket.disconnect();
-  }, [user, handleNewMessage, handleConversationRead, handleAnalysisCompleted,
+  }, [user, catchUp, handleNewMessage, handleConversationRead, handleAnalysisCompleted,
     handleBrandDealDetected, handleChatCleared, handleConversationDeleted]);
 
   useEffect(() => {

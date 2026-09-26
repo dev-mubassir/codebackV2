@@ -140,15 +140,100 @@ async function checkAiFallback(now) {
   return { type: 'ai_fallback', title: 'AI fallback activated', lead: 'Traffic moved to the fallback AI model.', facts: [] };
 }
 
-const CHECKS = [checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback];
+/** DMs Meta was told we received that are still not in the inbox. */
+async function checkWebhookBacklog(now) {
+  const { olderThan10Min, unprocessed, oldestReceivedAt } = await require('../services/webhookDeliveries').backlogStats({ now });
+  if (!olderThan10Min) return null;
+  return {
+    type: 'webhook_backlog',
+    title: `${olderThan10Min} webhook deliveries unprocessed for over 10 minutes`,
+    lead: 'Stored Instagram deliveries are not reaching the inbox. The recovery sweep retries them every 2 minutes; check the logs for the last error.',
+    facts: [`unprocessed: ${unprocessed}`, `oldest: ${oldestReceivedAt ? oldestReceivedAt.toISOString() : 'n/a'}`],
+  };
+}
 
-async function recentlySent(type, now) {
+/** Redis configured but unusable for over 2 minutes. */
+async function checkRedisDown(now) {
+  const downMs = require('../lib/redis').redisDownForMs(now);
+  if (downMs < 2 * MIN) return null;
+  return {
+    type: 'redis_down',
+    title: `Redis unavailable for ${Math.round(downMs / MIN)} minute(s)`,
+    lead: 'The API keeps serving: rate limits and email quota are per-instance, webhooks are saved and processed in-process, live socket events only reach users on the same instance.',
+    facts: [`down for: ${Math.round(downMs / 1000)}s`],
+  };
+}
+
+/** More than the threshold of unhandled promise rejections in 10 minutes, all instances. */
+async function checkUnhandledRejections(now) {
+  const guards = require('../lib/processGuards');
+  const count = await guards.unhandledLast10m(now);
+  if (count <= guards.UNHANDLED_ALERT_THRESHOLD) return null;
+  return {
+    type: 'unhandled_rejections',
+    title: `${count} unhandled promise rejections in the last 10 minutes`,
+    lead: 'A background library is failing without a handler. Instances keep serving, but the cause needs fixing — search the logs for "Unhandled promise rejection".',
+    facts: [`last 10 min: ${count}`, `threshold: ${guards.UNHANDLED_ALERT_THRESHOLD}`],
+  };
+}
+
+const EMAIL_CAP_WARN_FRACTION = 0.8;
+
+/**
+ * Email capacity: warn at 80 % of the daily cap (before customer mail starts
+ * being refused), and alert on ANY blocked critical send — a password reset or
+ * verification that did not go out. Admin alerts use their own bucket, so
+ * this alert can always be delivered.
+ */
+async function checkEmailQuota() {
+  const s = await require('../lib/email/quota').sharedStats();
+  if (s.blockedCriticalToday > 0) {
+    return {
+      type: 'email_critical_blocked',
+      title: `${s.blockedCriticalToday} password-reset/verification email(s) blocked today`,
+      lead: 'The daily email cap refused critical mail. Affected users cannot reset their password or verify. Raise EMAIL_DAILY_CAP (paid Resend plan) or wait for the daily reset.',
+      facts: [`sent today: ${s.sentToday}/${s.cap}`, `blocked today: ${s.blockedToday}`],
+    };
+  }
+  if (s.sentToday >= Math.ceil(EMAIL_CAP_WARN_FRACTION * s.cap)) {
+    return {
+      type: 'email_quota_80',
+      title: `Email quota at ${Math.round((s.sentToday / s.cap) * 100)} % of today's cap`,
+      lead: `Informational mail stops at ${s.cap - s.reserve}; the last ${s.reserve} sends are reserved for password resets and verification.`,
+      facts: [`sent today: ${s.sentToday}/${s.cap}`, `blocked today: ${s.blockedToday}`],
+    };
+  }
+  return null;
+}
+
+const CHECKS = [checkEmailQuota, checkUnhandledRejections, checkAiErrorRate, checkAiDailyCost, checkUserUsageSpike, checkNoWebhooks, checkDbPing, checkJobFailures, checkAiFallback, checkWebhookBacklog, checkRedisDown];
+
+async function recentlySent(type, now, db = prisma) {
   const since = new Date(now - COOLDOWN_MS);
   const where =
     type === 'ai_fallback'
       ? { OR: [{ action: 'ALERT_SENT', targetId: type }, { action: 'AI_FALLBACK_ACTIVATED' }], createdAt: { gte: since } }
       : { action: 'ALERT_SENT', targetId: type, createdAt: { gte: since } };
-  return (await prisma.adminAuditLog.count({ where })) > 0;
+  return (await db.adminAuditLog.count({ where })) > 0;
+}
+
+const ALERT_LOCK_NAMESPACE = 726355; // the scheduler uses 726354
+
+/**
+ * Claim the right to send `alert`: check the cooldown and write the ALERT_SENT
+ * row as ONE step, under a per-type transaction lock. Checking and writing
+ * separately let two concurrent runs both see "not sent yet" and both mail
+ * the admins. Resolves true if this caller should send.
+ */
+async function claimAlert(alert, now) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ALERT_LOCK_NAMESPACE}::int, hashtext(${`alert:${alert.type}`}))`;
+    if (await recentlySent(alert.type, now, tx)) return false;
+    await tx.adminAuditLog.create({
+      data: { action: 'ALERT_SENT', targetType: 'SYSTEM', targetId: alert.type, after: { title: alert.title, facts: alert.facts } },
+    });
+    return true;
+  });
 }
 
 /**
@@ -169,13 +254,10 @@ async function runAlertChecks({ now = Date.now() } = {}) {
     }
     if (!alert) continue;
     triggered += 1;
-    if (await recentlySent(alert.type, now)) {
+    if (!(await claimAlert(alert, now))) {
       suppressed += 1;
       continue;
     }
-    await prisma.adminAuditLog.create({
-      data: { action: 'ALERT_SENT', targetType: 'SYSTEM', targetId: alert.type, after: { title: alert.title, facts: alert.facts } },
-    });
     if ((await sendAdminOpsAlert(alert)) > 0) sent += 1;
   }
   return { triggered, sent, suppressed };

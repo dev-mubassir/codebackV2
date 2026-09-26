@@ -13,10 +13,56 @@ const { PrismaClient } = require('@prisma/client');
 // Reuse a single instance across hot-reloads in dev (node --watch) too.
 const globalForPrisma = globalThis;
 
+/**
+ * Connection-pool caps, applied in production when DATABASE_URL does not set
+ * its own. Prisma's default is (CPU count x 2 + 1) — and a container reports
+ * the HOST's CPU count, so an unset pool can open dozens of connections per
+ * instance and exhaust Postgres the moment the API scales out.
+ *
+ * Budget per API instance (see MIGRATION_LOG.md for the full math):
+ *   Prisma 3 + user-session pg pool 2 + admin-session pg pool 1 + scheduler
+ *   lock pool 2 = 8 connections at most, so 6 instances fit a 100-connection
+ *   Postgres with room to spare.
+ *
+ * DB_POOL_SIZE overrides the Prisma share. Outside production nothing is
+ * added, so tests and local dev keep Prisma's default.
+ */
+const PRISMA_POOL_DEFAULT = 3;
+const PRISMA_POOL_TIMEOUT_S = 20;
+
+function withPoolDefaults(url) {
+  if (!url || process.env.NODE_ENV !== 'production') return url;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url; // not a URL Prisma would accept either; let it report that
+  }
+  const size = parseInt(process.env.DB_POOL_SIZE || '', 10);
+  if (!parsed.searchParams.has('connection_limit')) {
+    parsed.searchParams.set('connection_limit', String(Number.isFinite(size) && size > 0 ? size : PRISMA_POOL_DEFAULT));
+  }
+  if (!parsed.searchParams.has('pool_timeout')) {
+    parsed.searchParams.set('pool_timeout', String(PRISMA_POOL_TIMEOUT_S));
+  }
+  return parsed.toString();
+}
+
+function prismaPoolSize() {
+  try {
+    return Number(new URL(withPoolDefaults(process.env.DATABASE_URL)).searchParams.get('connection_limit')) || null;
+  } catch {
+    return null;
+  }
+}
+
+const datasourceUrl = withPoolDefaults(process.env.DATABASE_URL);
+
 const prisma =
   globalForPrisma.__codebackPrisma ||
   new PrismaClient({
     log: process.env.NODE_ENV === 'production' ? ['error', 'warn'] : ['error', 'warn'],
+    ...(datasourceUrl ? { datasourceUrl } : {}),
   });
 
 if (process.env.NODE_ENV !== 'production') {
@@ -24,3 +70,5 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 module.exports = prisma;
+module.exports.withPoolDefaults = withPoolDefaults;
+module.exports.prismaPoolSize = prismaPoolSize;

@@ -74,6 +74,12 @@ async function expireFinishedTrials() {
  * "Roughly" is deliberate: the window is bounded on both sides so a sweep that
  * runs hourly does not send 24 emails. Anything already inside the window when
  * the previous sweep ran has been warned.
+ *
+ * ONCE is enforced, not assumed: each warning is CLAIMED by stamping
+ * trialWarningSentAt with a conditional update before the send. The window
+ * alone used to be the only guard, so a restart or a second instance running
+ * the same sweep inside one window mailed the same user twice. Only the run
+ * whose update changed the row sends; a failed send releases the claim.
  */
 async function sendTrialEndingWarnings({ intervalMs = 6 * 60 * 60 * 1000 } = {}) {
   const now = Date.now();
@@ -85,6 +91,7 @@ async function sendTrialEndingWarnings({ intervalMs = 6 * 60 * 60 * 1000 } = {})
       planCode: 'TRIAL',
       status: 'TRIALING',
       validUntil: { gt: windowStart, lte: windowEnd },
+      trialWarningSentAt: null,
     },
     select: { id: true, user: { select: { email: true } } },
   });
@@ -92,6 +99,13 @@ async function sendTrialEndingWarnings({ intervalMs = 6 * 60 * 60 * 1000 } = {})
   let sent = 0;
   for (const entitlement of ending) {
     if (!entitlement.user?.email) continue;
+
+    const claim = await prisma.entitlement.updateMany({
+      where: { id: entitlement.id, trialWarningSentAt: null },
+      data: { trialWarningSentAt: new Date() },
+    });
+    if (claim.count === 0) continue; // another run got there first
+
     try {
       await mailer.sendTrialEnding(entitlement.user.email, {
         daysLeft: 1,
@@ -100,6 +114,10 @@ async function sendTrialEndingWarnings({ intervalMs = 6 * 60 * 60 * 1000 } = {})
       sent += 1;
     } catch (err) {
       console.error('[Jobs] Trial warning email failed:', err.message);
+      // Release the claim so a later run inside the window can try again.
+      await prisma.entitlement
+        .updateMany({ where: { id: entitlement.id }, data: { trialWarningSentAt: null } })
+        .catch((e) => console.error('[Jobs] Could not release the trial-warning claim:', e.message));
     }
   }
 

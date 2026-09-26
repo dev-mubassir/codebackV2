@@ -513,6 +513,21 @@ router.get('/stats', async (req, res) => {
 // 3b. HEALTH (Gate 3)
 // ============================================
 
+// GET /api/admin/self-check — the pre-switch secrets check (cutover step 5):
+// % of stored Instagram tokens that decrypt with this environment's
+// TOKEN_ENCRYPTION_KEY, and % of Instagram account ids whose HMAC with this
+// IG_IDENTITY_PEPPER finds its ledger row. Counts only; both must be 100 on
+// the imported data before any domain moves. Admin-only (router-level guard).
+router.get('/self-check', async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await require('../lib/secretSelfCheck').runSecretSelfCheck());
+  } catch (err) {
+    console.error('[Admin] Self-check failed:', err.message);
+    res.status(500).json({ error: "Couldn't run the self-check." });
+  }
+});
+
 // GET /api/admin/health — process, DB, sockets, jobs, webhooks, AI, email,
 // Instagram tokens, recent errors. A GET: the dashboard polls it every 30s
 // and that must not count as admin activity (it does not).

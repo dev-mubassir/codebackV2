@@ -7,9 +7,10 @@
  *     Meta's Data Deletion Request Callback. Meta posts a `signed_request`
  *     (base64url payload + HMAC-SHA256 over it, keyed with the app secret)
  *     identifying an Instagram user who asked for their data to be removed.
- *     We verify the signature, delete that account and everything hanging off
- *     it, reply with the {url, confirmation_code} shape Meta expects, and
- *     email the affected owner(s) a confirmation.
+ *     We verify the signature, delete the Meta-derived data for that
+ *     Instagram account (never a Siffty login or billing — see
+ *     eraseInstagramUserData), reply with the {url, confirmation_code} shape
+ *     Meta expects, and email the affected owner(s) a confirmation.
  *
  *   GET /data-deletion/status
  *     The human-readable status URL referenced in that reply.
@@ -39,7 +40,6 @@ const { disconnectUserSockets } = require('../lib/socket');
 // Bound as `mailer`, never `email` — see routes/auth.js. A local `email`
 // variable shadowing this module silently broke registration once already.
 const mailer = require('../lib/email');
-const { deleteUserAccount } = require('../services/accountDeletion');
 
 /** base64url -> Buffer (Meta uses URL-safe base64 without padding). */
 function b64urlDecode(value) {
@@ -95,20 +95,31 @@ function parseSignedRequest(signedRequest, appSecret) {
 }
 
 /**
- * Erase everything tied to one Instagram user id, and report enough to
- * notify each affected owner.
+ * Erase the META-DERIVED data for one Instagram user id — for every tenant
+ * that holds (or held) that Instagram account.
  *
- * ALL rows for this Instagram id, not one. igUserId is no longer globally
- * unique — disconnected rows persist as history, and a workspace transfer
- * leaves the previous owner's row behind. A deletion request from Meta covers
- * the person, not one link, so every row must go.
+ * WHAT IS ERASED (F3 scope, approved 2026-09-25): the connection itself and
+ * its encrypted token and profile (InstagramAccount), and everything that
+ * came from Instagram through it — contacts, conversations, messages, AI
+ * analyses, summaries, reply drafts, brand deals and webhook logs (all
+ * cascade from InstagramAccount / Conversation), plus the notifications that
+ * point at those conversations or brand deals (no FK, so deleted explicitly —
+ * their titles can quote DM content).
  *
- * Owner emails are read BEFORE any row is deleted: once a User row itself is
- * removed (no other connected account left), there is nothing left to read
- * it from afterward.
+ * WHAT IS NEVER ERASED: a Siffty login (User), billing, orders, payments,
+ * credits, or any OTHER connected Instagram account. Those belong to the
+ * Siffty customer, not to the Instagram user who asked Meta for deletion.
+ * This used to delete an owner's whole Siffty account when the deleted
+ * Instagram connection was their last one — including an EARLIER owner's
+ * account, after a workspace transfer.
  *
- * Returns { accountsRemoved, notifications }, where notifications has one
- * entry per distinct owner affected: { userId, email, igUsername, userDeleted }.
+ * ALL rows for this Instagram id, not one: igUserId is not globally unique —
+ * disconnected rows persist as history and a workspace transfer leaves the
+ * previous owner's row behind. A deletion request covers the person, not one
+ * link.
+ *
+ * Returns { accountsRemoved, notifications }, notifications having one entry
+ * per distinct owner affected: { userId, email, igUsername, userDeleted:false }.
  */
 async function eraseInstagramUserData(igUserId) {
   const accounts = await prisma.instagramAccount.findMany({
@@ -118,6 +129,7 @@ async function eraseInstagramUserData(igUserId) {
 
   if (accounts.length === 0) return { accountsRemoved: 0, notifications: [] };
 
+  const accountIds = accounts.map((a) => a.id);
   const ownerIds = [...new Set(accounts.map((a) => a.userId))];
   const owners = await prisma.user.findMany({
     where: { id: { in: ownerIds } },
@@ -125,38 +137,38 @@ async function eraseInstagramUserData(igUserId) {
   });
   const emailByOwner = new Map(owners.map((o) => [o.id, o.email]));
 
-  // One representative username per owner for the email — it's the same
-  // physical Instagram account regardless of how many historical rows a
-  // given owner has for it.
+  // One representative username per owner for the email.
   const usernameByOwner = new Map();
   for (const a of accounts) {
     if (!usernameByOwner.has(a.userId) && a.igUsername) usernameByOwner.set(a.userId, a.igUsername);
   }
 
-  await prisma.instagramAccount.deleteMany({
-    where: { id: { in: accounts.map((a) => a.id) } },
+  await prisma.$transaction(async (tx) => {
+    const [conversations, brandDeals] = await Promise.all([
+      tx.conversation.findMany({ where: { instagramAccountId: { in: accountIds } }, select: { id: true } }),
+      tx.brandDeal.findMany({ where: { instagramAccountId: { in: accountIds } }, select: { id: true } }),
+    ]);
+    const conversationIds = conversations.map((c) => c.id);
+    const brandDealIds = brandDeals.map((b) => b.id);
+    if (conversationIds.length || brandDealIds.length) {
+      await tx.notification.deleteMany({
+        where: { OR: [{ conversationId: { in: conversationIds } }, { brandDealId: { in: brandDealIds } }] },
+      });
+    }
+    // Cascades: contacts, conversations, messages, analyses, summaries, reply
+    // drafts, brand deals, webhook logs.
+    await tx.instagramAccount.deleteMany({ where: { id: { in: accountIds } } });
   });
 
-  // Each owning user loses their profile too, unless they still have another
-  // connected account — otherwise we keep a profile for someone who asked to
-  // be forgotten.
-  const notifications = [];
-  for (const userId of ownerIds) {
-    const remaining = await prisma.instagramAccount.count({ where: { userId } });
-    let userDeleted = false;
-    if (remaining === 0) {
-      // The shared deletion path (services/accountDeletion.js), which also
-      // ends the user's sessions and sockets and removes their AI call logs.
-      const result = await deleteUserAccount(userId).catch(() => ({ deleted: false }));
-      userDeleted = result.deleted;
-    }
-    notifications.push({
-      userId,
-      email: emailByOwner.get(userId) || null,
-      igUsername: usernameByOwner.get(userId) || null,
-      userDeleted,
-    });
-  }
+  // Live views of the deleted conversations must not linger in open tabs.
+  for (const userId of ownerIds) disconnectUserSockets(userId);
+
+  const notifications = ownerIds.map((userId) => ({
+    userId,
+    email: emailByOwner.get(userId) || null,
+    igUsername: usernameByOwner.get(userId) || null,
+    userDeleted: false,
+  }));
 
   return { accountsRemoved: accounts.length, notifications };
 }

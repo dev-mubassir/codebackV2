@@ -89,3 +89,10 @@ delete process.env.OPENAI_API_KEY;
 delete process.env.GROK_API_KEY;
 delete process.env.XAI_API_KEY;
 delete process.env.SKIP_SIGNATURE_VERIFICATION;
+delete process.env.EMAIL_DRY_RUN;
+delete process.env.TRUST_PROXY;
+
+// No scheduler timers in tests: a job firing mid-file (a purge, a sweep)
+// would change rows a test is asserting on. The scheduler is tested directly
+// (tests/scheduler-race.test.js), and workers still start for the queue.
+process.env.RUN_IN_PROCESS_SCHEDULER = 'false';

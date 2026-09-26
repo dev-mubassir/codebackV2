@@ -17,9 +17,15 @@
  * services/aiService.js + routes/webhook.js).
  */
 
-const REDIS_URL = process.env.REDIS_URL;
+const { isRedisConfigured, createRedisConnection } = require('./redis');
 
 const registry = new Map(); // queueName -> job system instance
+
+// How long an in-process jobId is remembered for dedupe, and how many at most.
+// Duplicates this guards against arrive within seconds (Meta retrying a
+// webhook); remembering forever was a slow leak — one entry per message ever.
+const SEEN_JOB_TTL_MS = 6 * 60 * 60 * 1000;
+const SEEN_JOB_MAX = 10000;
 
 /**
  * Minimal in-process queue: FIFO with bounded concurrency and exponential
@@ -35,7 +41,15 @@ class InMemoryJobQueue {
     this._pending = [];
     this._active = 0;
     this._processor = null;
-    this._seenJobIds = new Set();
+    this._seenJobIds = new Map(); // jobId -> first-seen ms, insertion-ordered
+  }
+
+  /** Drop remembered jobIds past their TTL, and the oldest beyond the cap. */
+  _forgetOldJobIds(now) {
+    for (const [id, seenAt] of this._seenJobIds) {
+      if (now - seenAt < SEEN_JOB_TTL_MS && this._seenJobIds.size <= SEEN_JOB_MAX) break;
+      this._seenJobIds.delete(id);
+    }
   }
 
   setProcessor(fn, { concurrency } = {}) {
@@ -49,15 +63,17 @@ class InMemoryJobQueue {
 
     // Idempotency: if a caller reuses the same jobId, don't enqueue twice.
     //
-    // NOTE for delayed re-enqueues: this set is never cleared, so a caller
-    // that wants the SAME logical work to run again later must vary the
-    // jobId (see jobs/index.js's throttle requeue, which suffixes the
-    // attempt number). Re-adding a used jobId is silently dropped, which
-    // would otherwise lose the message entirely.
+    // NOTE for delayed re-enqueues: a jobId is remembered for
+    // SEEN_JOB_TTL_MS, so a caller that wants the SAME logical work to run
+    // again sooner must vary the jobId (see jobs/index.js's throttle requeue,
+    // which suffixes the attempt number). Re-adding a remembered jobId is
+    // silently dropped, which would otherwise lose the message entirely.
+    const now = Date.now();
+    this._forgetOldJobIds(now);
     if (opts.jobId && this._seenJobIds.has(opts.jobId)) {
       return Promise.resolve({ id: jobId, deduped: true });
     }
-    if (opts.jobId) this._seenJobIds.add(opts.jobId);
+    if (opts.jobId) this._seenJobIds.set(opts.jobId, now);
 
     const job = {
       id: jobId,
@@ -97,6 +113,7 @@ class InMemoryJobQueue {
 
   async _run(job) {
     try {
+      if (!this._processor) return;
       await this._processor(job);
     } catch (err) {
       job.attemptsMade += 1;
@@ -123,21 +140,28 @@ class InMemoryJobQueue {
 function buildRedisJobSystem(name) {
   // Lazily required so environments without Redis configured never even
   // load ioredis/bullmq's connection machinery.
-  const IORedis = require('ioredis');
   const { Queue, Worker } = require('bullmq');
 
-  const connection = new IORedis(REDIS_URL, {
+  const connection = createRedisConnection(`queue:${name}`, {
     maxRetriesPerRequest: null, // required by BullMQ
     enableReadyCheck: false,
   });
-  connection.on('error', (err) => {
-    console.error(`[Queue:${name}] Redis connection error:`, err.message);
-  });
 
   const queue = new Queue(name, { connection });
+  // An EventEmitter 'error' with no listener throws — during a Redis outage
+  // that took the whole process down. Log it (rate-limited by lib/redis).
+  queue.on('error', (err) => console.error(`[Queue:${name}] queue error:`, err.message));
+  const workers = [];
 
   return {
     mode: 'redis',
+    async close() {
+      // Workers first: close() waits for the jobs in flight, and anything not
+      // finished is picked up again by another instance (BullMQ stalled-job
+      // recovery), so a deploy never loses queued work.
+      await Promise.all(workers.map((w) => w.close().catch(() => {})));
+      await queue.close().catch(() => {});
+    },
     add(jobName, data, opts = {}) {
       return queue.add(jobName, data, {
         attempts: opts.attempts || 3,
@@ -156,9 +180,18 @@ function buildRedisJobSystem(name) {
         async (job) => processorFn(job),
         { connection, concurrency: workerOpts.concurrency || 3 }
       );
+      worker.on('error', (err) => console.error(`[Queue:${name}] worker error:`, err.message));
       worker.on('failed', (job, err) => {
-        console.error(`[Queue:${name}] Job "${job?.name}" failed permanently:`, err.message);
+        // BullMQ fires this for EVERY failed attempt; say which one it was.
+        const attempts = job?.opts?.attempts || 1;
+        const final = (job?.attemptsMade || 0) >= attempts;
+        console.error(
+          `[Queue:${name}] Job "${job?.name}" failed (attempt ${job?.attemptsMade}/${attempts})` +
+            `${final ? ', giving up' : ', will retry'}:`,
+          err.message
+        );
       });
+      workers.push(worker);
       return worker;
     },
   };
@@ -168,6 +201,17 @@ function buildMemoryJobSystem(name, opts) {
   const q = new InMemoryJobQueue(name, opts);
   return {
     mode: 'memory',
+    async close({ drainMs = 4000 } = {}) {
+      // Stop taking new work, then let in-flight jobs finish (bounded). What
+      // is still queued in memory is not lost: webhook deliveries are in the
+      // database (recovery sweep) and unclassified messages are re-enqueued
+      // by the stalled-analysis sweep.
+      q._processor = null;
+      const deadline = Date.now() + drainMs;
+      while (q._active > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    },
     add(jobName, data, addOpts) {
       return q.add(jobName, data, addOpts);
     },
@@ -187,7 +231,7 @@ function getJobSystem(name, opts = {}) {
   if (registry.has(name)) return registry.get(name);
 
   let system;
-  if (REDIS_URL) {
+  if (isRedisConfigured()) {
     try {
       system = buildRedisJobSystem(name);
       console.log(`[Queue:${name}] Using Redis/BullMQ backend.`);
@@ -204,4 +248,18 @@ function getJobSystem(name, opts = {}) {
   return system;
 }
 
-module.exports = { getJobSystem };
+/** Close every queue (and its workers). For graceful shutdown. */
+async function closeQueues() {
+  const systems = [...registry.values()];
+  registry.clear();
+  await Promise.all(systems.map((system) => system.close()));
+}
+
+/** 'bullmq' | 'memory' for a queue that exists, else what one WOULD use. */
+function queueDriver(name = 'ai-processing') {
+  const system = registry.get(name);
+  const mode = system ? system.mode : isRedisConfigured() ? 'redis' : 'memory';
+  return mode === 'redis' ? 'bullmq' : 'memory';
+}
+
+module.exports = { getJobSystem, closeQueues, queueDriver, InMemoryJobQueue };

@@ -1,0 +1,14 @@
+{
+  "_note": "Project 'siffty', region asia-south-delhi. Created with: northflank create job manual --projectId siffty -f <file without _note>. Jobs take their git source under deployment.vcs (services use top-level vcsData).",
+  "name": "migrate",
+  "description": "prisma migrate deploy, run by the release flow before every deploy",
+  "billing": { "deploymentPlan": "nf-compute-20", "buildPlan": "nf-compute-400-16" },
+  "backoffLimit": 0,
+  "activeDeadlineSeconds": 600,
+  "deployment": {
+    "vcs": { "projectUrl": "https://github.com/dev-mubassir/codebackV2", "projectType": "github", "accountLogin": "dev-mubassir", "projectBranch": "master" },
+    "docker": { "configType": "default" }
+  },
+  "buildSettings": { "dockerfile": { "buildEngine": "buildkit", "dockerFilePath": "/backend/Dockerfile.migrate", "dockerWorkDir": "/backend", "useCache": true } },
+  "disabledCI": true
+}

@@ -5,10 +5,15 @@
  * directory may import `resend` or call a provider SDK directly. If you find a
  * bare `resend.emails.send` anywhere else in the codebase, that is a defect.
  *
- * Two transports:
+ * Three transports:
+ *   - dry-run — EMAIL_DRY_RUN=true: sends NOTHING and logs only the email type
+ *               and a hashed recipient. For staging on a copy of real data,
+ *               where a real send would mail a real customer.
  *   - resend  — used when RESEND_API_KEY is set
  *   - console — used when it is not: logs the full message AND the link, so a
- *               password reset is testable locally without sending anything
+ *               password reset is testable locally without sending anything.
+ *               NEVER in production: that log line carries live reset and
+ *               verification tokens (see assertSafeEmailTransport).
  *
  * It NEVER silently no-ops. If a send fails, the caller finds out. Callers then
  * decide whether that failure is fatal (it usually is not — see the note on
@@ -61,6 +66,28 @@ const consoleTransport = {
     return { id: `console-${Date.now()}`, transport: 'console' };
   },
 };
+
+/** A short, stable, non-reversible tag for a recipient — never the address. */
+function hashRecipient(to) {
+  return require('crypto').createHash('sha256').update(String(to).trim().toLowerCase()).digest('hex').slice(0, 12);
+}
+
+/**
+ * Dry-run transport. Deliberately TERSE, the opposite of the console one: on
+ * staging the recipients are real people, so neither the address nor a single
+ * byte of the body (reset links, names) may reach the logs.
+ */
+const dryRunTransport = {
+  name: 'dry-run',
+  async send({ to, type }) {
+    console.log(`[email:dry-run] type=${type || 'unknown'} to=${hashRecipient(to)} (not sent)`);
+    return { id: `dry-run-${Date.now()}`, transport: 'dry-run' };
+  },
+};
+
+function isDryRun() {
+  return String(process.env.EMAIL_DRY_RUN || '').trim().toLowerCase() === 'true';
+}
 
 /**
  * Resend transport. The SDK is required lazily so that a deployment without
@@ -132,6 +159,10 @@ function isUndeliverable(address) {
 }
 
 function pickTransport() {
+  // Dry-run wins over everything, including a configured provider key: it is
+  // the switch that keeps a staging copy of production from mailing customers.
+  if (isDryRun()) return dryRunTransport;
+
   // HARD GUARANTEE: tests never reach a real mailbox.
   //
   // tests/setup/env.js deletes RESEND_API_KEY, but Vitest re-injects
@@ -146,7 +177,35 @@ function pickTransport() {
   if (process.env.NODE_ENV === 'test') return consoleTransport;
 
   const key = (process.env.RESEND_API_KEY || '').trim();
-  return key ? createResendTransport(key) : consoleTransport;
+  if (key) return createResendTransport(key);
+  // Production with no provider and no dry-run: refuse rather than print live
+  // tokens to the log. assertSafeEmailTransport() stops the boot for this; the
+  // throw here is the backstop for anything that sends before or without it.
+  if (process.env.NODE_ENV === 'production') return refusingTransport;
+  return consoleTransport;
+}
+
+const refusingTransport = {
+  name: 'refused',
+  async send() {
+    throw new Error('email: no transport in production (set RESEND_API_KEY, or EMAIL_DRY_RUN=true)');
+  },
+};
+
+/**
+ * Boot check, called from src/index.js: in production the console transport
+ * must never be selected, because it logs reset and verification links in
+ * full. Throws so the process refuses to start.
+ */
+function assertSafeEmailTransport() {
+  const name = pickTransport().name;
+  if (process.env.NODE_ENV === 'production' && (name === 'console' || name === 'refused')) {
+    throw new Error(
+      'Refusing to start: NODE_ENV=production with no RESEND_API_KEY would use the console email transport, ' +
+        'which logs live reset/verification tokens. Set RESEND_API_KEY, or EMAIL_DRY_RUN=true on staging.'
+    );
+  }
+  return name;
 }
 
 /**
@@ -217,8 +276,9 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
   // a provider outage, so callers get one honest failure mode rather than two:
   // forgot-password already answers 503 uniformly for every address when the
   // transport is degraded, and that behaviour is exactly right here too.
-  const allowed = quota.check(type, to);
+  const allowed = await quota.checkShared(type, to);
   if (!allowed.ok) {
+    await quota.recordBlocked(type);
     const { sentToday, cap, reserve } = quota.stats();
     console.error(
       `[email] QUOTA BLOCKED "${subject}" (${type}) — ${allowed.detail}. ` +
@@ -236,20 +296,23 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
   // Never hand an undeliverable address to a real provider. This is checked
   // AFTER the quota (so a blocked fixture send does not consume capacity) and
   // BEFORE the transport is selected for delivery.
-  if (isUndeliverable(to) && pickTransport().name !== 'console') {
+  if (isUndeliverable(to) && !['console', 'dry-run'].includes(pickTransport().name)) {
     console.warn(
-      `[email] REFUSED to send "${subject}" to an undeliverable address (${to}). ` +
+      `[email] REFUSED to send "${subject}" to an undeliverable address (${hashRecipient(to)}). ` +
         'Reserved/fixture domains can only bounce, and bounces damage sender reputation. ' +
-        'Logging to console instead.'
+        'Logging instead.'
     );
-    return consoleTransport.send({ to, subject, text, html });
+    // Never the full console dump in production — it would print the body.
+    return process.env.NODE_ENV === 'production'
+      ? dryRunTransport.send({ to, type })
+      : consoleTransport.send({ to, subject, text, html });
   }
 
   const transport = pickTransport();
 
   let result;
   try {
-    result = await transport.send({ to, subject, text, html, replyTo });
+    result = await transport.send({ to, subject, text, html, replyTo, type });
   } catch (err) {
     // Log the FULL error server-side. This is the only place the provider's
     // own message survives, and it is usually the thing that names the cause
@@ -264,7 +327,7 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
 
   // Consume quota only on SUCCESS — a provider failure must not burn capacity
   // that a later, working send needs.
-  quota.recordSend(type, to);
+  await quota.recordSendShared(type, to);
   markTransportHealthy();
 
   const { sentToday, cap } = quota.stats();
@@ -277,6 +340,7 @@ async function deliver(to, type, { subject, text, html }, { replyTo } = {}) {
 module.exports = {
   /** Which transport WOULD be used right now. For boot logging and tests. */
   activeTransport: () => pickTransport().name,
+  assertSafeEmailTransport,
 
   /**
    * True when a recent send failed. Callers use this to avoid PROMISING

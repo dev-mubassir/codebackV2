@@ -312,7 +312,10 @@ describe('A4 — data deletion sends a confirmation once, per real deletion', ()
     expect(calls[0].to).toBe('owner@test.codeback');
     expect(calls[0].opts.confirmationCode).toBe(res.body.confirmation_code);
     expect(calls[0].opts.statusUrl).toBe(res.body.url);
-    expect(calls[0].opts.accountDeleted).toBe(true);
+    // F3 (approved 2026-09-25): a Meta deletion erases the Instagram data only;
+    // the Siffty login is never deleted by it.
+    expect(calls[0].opts.accountDeleted).toBe(false);
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).not.toBeNull();
   });
 
   it('does NOT send when a retry finds nothing left to erase (0 accounts removed)', async () => {
@@ -386,7 +389,10 @@ describe('A5 — sessions and sockets are torn down when the User row is deleted
     expect(remaining[0].sid).toBe('sid-other');
   });
 
-  it('a data-deletion request that fully deletes the owner destroys their sessions and sockets', async () => {
+  // F3 (approved 2026-09-25): a Meta deletion no longer deletes the Siffty
+  // login, so the owner stays logged in; only their live views of the erased
+  // conversations are dropped (sockets reconnect to a fresh inbox).
+  it('a data-deletion request disconnects the owner sockets but keeps their login and session', async () => {
     const { user } = await createUser({});
     const igUserId = uniq('ig-evict');
     await createAccount({ userId: user.id, igUserId });
@@ -434,6 +440,7 @@ describe('A5 — sessions and sockets are torn down when the User row is deleted
     setIO(null);
 
     const remaining = await prisma.$queryRaw`SELECT sid FROM "user_sessions" WHERE sid = ${'sid-evict-' + user.id}`;
-    expect(remaining.length, 'the deleted owner session row must be gone').toBe(0);
+    expect(remaining.length, 'the owner is not logged out by a Meta deletion').toBe(1);
+    expect(await prisma.user.findUnique({ where: { id: user.id } })).not.toBeNull();
   });
 });

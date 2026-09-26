@@ -1,11 +1,51 @@
 /**
- * Minimal in-memory fixed-window rate limiter (no external dependency).
+ * Fixed-window rate limiter, shared across instances through Redis.
  *
- * Suitable for single-instance deployments and local dev. For multi-instance
- * production, back this with Redis instead — the middleware interface is the
- * same. Keyed by client IP + route so brute-forcing one endpoint does not
- * consume another endpoint's budget.
+ * With REDIS_URL configured the counters live in Redis, so N instances enforce
+ * ONE limit rather than N of them. Without it — or while Redis is unreachable —
+ * the same window runs in this process's memory, which is exactly right for a
+ * single instance and local dev, and a safe degradation for a Redis outage
+ * (the limit loosens to per-instance; requests never hang or fail on it).
+ *
+ * Keyed by client IP + route so brute-forcing one endpoint does not consume
+ * another endpoint's budget. Redis keys hash the subject, so an email-keyed
+ * limiter never stores the address itself.
  */
+
+const crypto = require('crypto');
+const { getRedis, isRedisReady } = require('./redis');
+
+// INCR, start the window on the first hit, return [count, ms left]. One round
+// trip and atomic, so two instances can never both see "first hit".
+const FIXED_WINDOW_LUA = `
+local c = redis.call('INCR', KEYS[1])
+if c == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
+local t = redis.call('PTTL', KEYS[1])
+return {c, t}
+`;
+
+/**
+ * Count one hit against `key` in Redis. Resolves { count, resetAt }, or null
+ * when Redis is not usable right now (the caller then counts in memory).
+ */
+async function redisHit(key, windowMs) {
+  const client = getRedis();
+  if (!client || !isRedisReady()) return null;
+  try {
+    const [count, ttl] = await client.eval(FIXED_WINDOW_LUA, 1, key, windowMs);
+    return { count: Number(count), resetAt: Date.now() + Math.max(0, Number(ttl)) };
+  } catch (err) {
+    console.warn('[RateLimit] Redis unavailable, counting in memory:', err.message);
+    return null;
+  }
+}
+
+const hashKey = (value) => crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 32);
+
+/** Which store the limiters are using right now — for the admin health page. */
+function rateLimitStore() {
+  return getRedis() && isRedisReady() ? 'redis' : 'memory';
+}
 
 /**
  * Normalise a request path into a stable bucket key.
@@ -34,6 +74,9 @@ function createRateLimiter({ windowMs, max, message, keyBy } = {}) {
   const limitWindow = windowMs || 15 * 60 * 1000;
   const limitMax = max || 20;
   const hits = new Map(); // key -> { count, resetAt }
+  // Stable across instances (same code, same options), distinct between two
+  // limiters stacked on one route, so their Redis counters never merge.
+  const limiterId = hashKey(`${limitWindow}|${limitMax}|${message || ''}|${keyBy ? 'custom' : 'ip'}`).slice(0, 8);
 
   // Periodically evict expired buckets so the map does not grow unbounded.
   const timer = setInterval(() => {
@@ -44,7 +87,17 @@ function createRateLimiter({ windowMs, max, message, keyBy } = {}) {
   }, limitWindow);
   if (typeof timer.unref === 'function') timer.unref();
 
-  return function rateLimit(req, res, next) {
+  function memoryHit(key, now) {
+    let entry = hits.get(key);
+    if (!entry || entry.resetAt <= now) {
+      entry = { count: 0, resetAt: now + limitWindow };
+      hits.set(key, entry);
+    }
+    entry.count += 1;
+    return entry;
+  }
+
+  return async function rateLimit(req, res, next) {
     const now = Date.now();
     const ip = req.ip || req.connection?.remoteAddress || 'unknown';
     // `keyBy` lets a limiter bucket on something other than the IP — e.g. the
@@ -53,12 +106,8 @@ function createRateLimiter({ windowMs, max, message, keyBy } = {}) {
     const subject = typeof keyBy === 'function' ? keyBy(req) || ip : ip;
     const key = `${subject}:${normalisePath(req)}`;
 
-    let entry = hits.get(key);
-    if (!entry || entry.resetAt <= now) {
-      entry = { count: 0, resetAt: now + limitWindow };
-      hits.set(key, entry);
-    }
-    entry.count += 1;
+    const entry =
+      (await redisHit(`rl:${limiterId}:${hashKey(key)}`, limitWindow)) || memoryHit(key, now);
 
     res.setHeader('X-RateLimit-Limit', limitMax);
     res.setHeader('X-RateLimit-Remaining', Math.max(0, limitMax - entry.count));
@@ -75,4 +124,4 @@ function createRateLimiter({ windowMs, max, message, keyBy } = {}) {
   };
 }
 
-module.exports = { createRateLimiter, normalisePath };
+module.exports = { createRateLimiter, normalisePath, redisHit, rateLimitStore };

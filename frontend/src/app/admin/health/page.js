@@ -40,6 +40,65 @@ function Metric({ label, value, hint, danger }) {
   );
 }
 
+const sc = h.scaling;
+const storeLabel = (v) => (v ? sc.values[v] || v : '—');
+
+function redisStatus(r) {
+  if (r.error) return { tone: 'danger', label: sc.unavailable };
+  if (!r.configured) return { tone: 'neutral', label: sc.notConfigured };
+  return r.connected ? { tone: 'positive', label: sc.healthy } : { tone: 'danger', label: sc.unavailable };
+}
+
+/**
+ * Redis & scaling: whether the instances share state, and through what. An
+ * older backend reports neither `redis` nor pool counts, so the card is left
+ * out rather than drawn as a row of dashes; a failed probe ({ error: true })
+ * still renders, as Unavailable.
+ */
+function ScalingPanel({ redis, database }) {
+  const pool = typeof database?.activeConnections === 'number' && typeof database?.maxConnections === 'number'
+    ? database : null;
+  if (!redis && !pool) return null;
+  const r = redis && !redis.error ? redis : {};
+  const status = redis ? redisStatus(redis) : null;
+  const inProcess = r.scheduler?.inProcess;
+
+  return (
+    <section className={styles.panel}>
+      <div className={styles.panelHeader}>
+        <div>
+          <h2 className={styles.panelTitle}>{h.sections.scaling}</h2>
+          <p className={styles.panelSubtitle}>{sc.subtitle}</p>
+        </div>
+        {status && <Badge tone={status.tone}>{status.label}</Badge>}
+      </div>
+      <div className={styles.metricGrid}>
+        {redis && (
+          <>
+            <Metric label={sc.ping} value={ms(r.pingMs)} danger={r.configured && !r.connected} />
+            <Metric label={sc.adapter} value={storeLabel(r.socketAdapter)} />
+            <Metric label={sc.sessions} value={storeLabel(r.sessionStore)} />
+            <Metric label={sc.queue} value={storeLabel(r.queueDriver)} />
+            <Metric label={sc.rateLimit} value={storeLabel(r.rateLimitStore)} />
+            <Metric
+              label={sc.scheduler}
+              value={typeof inProcess === 'boolean' ? (inProcess ? sc.schedulerHere : sc.schedulerElsewhere) : '—'}
+            />
+          </>
+        )}
+        {pool && (
+          <Metric
+            label={sc.dbConnections}
+            value={`${formatCount(pool.activeConnections)} / ${formatCount(pool.maxConnections)}`}
+            hint={sc.dbConnectionsHint}
+            danger={pool.maxConnections > 0 && pool.activeConnections / pool.maxConnections >= 0.9}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
 function AiWindow({ title, s }) {
   if (!s || s.error) return <Metric label={title} value="—" />;
   return (
@@ -114,6 +173,14 @@ export default function AdminHealthPage() {
               <Metric label={h.server.uptime} value={duration(p.uptimeSeconds)} />
               <Metric label={h.server.memory} value={`${p.memoryMb?.rss ?? '—'} MB`} hint={`heap ${p.memoryMb?.heapUsed ?? '—'} / ${p.memoryMb?.heapTotal ?? '—'} MB`} />
               <Metric label={h.server.loop} value={ms(p.eventLoopLagMs?.p99)} danger={p.eventLoopLagMs?.p99 > 200} />
+              {p.unhandledRejections && (
+                <Metric
+                  label={h.server.unhandled}
+                  value={String(p.unhandledRejections.last10m)}
+                  hint={h.server.unhandledHint(p.unhandledRejections.sinceBoot)}
+                  danger={p.unhandledRejections.last10m > 0}
+                />
+              )}
               <Metric label={h.server.db} value={health.database?.ok ? ms(health.database.pingMs) : h.server.dbDown} danger={!health.database?.ok} />
               <Metric label={h.server.sockets} value={formatCount(health.sockets?.connectedClients)} />
               <Metric
@@ -124,6 +191,8 @@ export default function AdminHealthPage() {
               <Metric label={h.server.email} value={formatCount(health.email?.failures24h)} danger={health.email?.failures24h > 0} />
             </div>
           </section>
+
+          <ScalingPanel redis={health.redis} database={health.database} />
 
           <section className={styles.panel}>
             <div className={styles.panelHeader}>

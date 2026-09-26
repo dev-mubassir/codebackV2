@@ -717,10 +717,23 @@ async function maybeAutoReply({
     }
 
     const replyText = replyResult.text.trim();
-    console.log(`[AutoReply] Sending AI auto-reply to contact ${contact.igsid} (${replyText.length} chars)`);
+
+    // Stage 5.9: re-read the account right before sending. The row this job
+    // loaded is seconds old (AI calls, throttle requeues); if the owner
+    // disconnected — or the IG account moved to another workspace — in the
+    // meantime, that stale snapshot must not send from it.
+    const liveAccount = await prisma.instagramAccount.findFirst({
+      where: { id: instagramAccount.id, userId, connectionStatus: 'CONNECTED' },
+      select: { id: true, accessToken: true },
+    });
+    if (!liveAccount) {
+      console.warn(`[AutoReply] Account ${instagramAccount.id} is no longer connected to this workspace; reply not sent.`);
+      return;
+    }
+    console.log(`[AutoReply] Sending AI auto-reply in conversation ${conversation.id} (${replyText.length} chars)`);
 
     // Stage 6: Send via Instagram Graph API
-    const accessToken = decrypt(instagramAccount.accessToken);
+    const accessToken = decrypt(liveAccount.accessToken);
     let igResponse = null;
     try {
       igResponse = await instagram.sendMessage(contact.igsid, replyText, accessToken);

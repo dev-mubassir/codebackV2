@@ -1,0 +1,12 @@
+# Overlay for deploy/local/burst.js and trickle.js ONLY: a throwaway Meta app
+# secret so synthetic webhooks can be signed. While it is applied, Instagram
+# connect on the local stack CANNOT work (the OAuth code exchange is signed
+# with this secret). Remove it (plain docker compose up) afterwards.
+#   docker compose -f docker-compose.yml -f docker-compose.burst.yml up -d
+services:
+  api1:
+    environment:
+      INSTAGRAM_APP_SECRET: local-burst-signing-secret-not-real
+  api2:
+    environment:
+      INSTAGRAM_APP_SECRET: local-burst-signing-secret-not-real

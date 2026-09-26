@@ -32,7 +32,6 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { io } from 'socket.io-client';
 import {
   getMe, getAccounts, getInstagramAuthUrl, disconnectAccount,
   getDashboardSummary, getAnalyticsSummary,
@@ -52,7 +51,7 @@ import {
   tokenStatusLabel, connectionStatusLabel,
 } from '@/content/labels';
 import { formatCount, formatDate, plural, pluralWord, MIN_PERCENT_SAMPLE } from '@/content/format';
-import { BACKEND_URL } from '@/lib/backendUrl';
+import { createSocket } from '@/lib/socket';
 import { rememberDestination } from '@/lib/pendingDestination';
 import styles from './dashboard.module.css';
 
@@ -153,8 +152,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user?.id) return undefined;
-    const socket = io(BACKEND_URL, { withCredentials: true });
-    socket.on('connect', () => socket.emit('join', { userId: user.id }));
+    // After a dropped connection, reload what the page loaded at start: any
+    // event sent while it was down never arrives.
+    const socket = createSocket({
+      onReconnect: () => {
+        refreshAll();
+        getAccounts().then(setAccounts).catch(() => {});
+      },
+    });
 
     const update = () => refreshAll();
     socket.on('conversation_read', update);

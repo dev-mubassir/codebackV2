@@ -261,7 +261,8 @@ export default function PrivacyPolicyPage() {
               <strong>Messages, conversations, contacts, and analysis results</strong> are kept
               for as long as the account owner keeps them, and are erased when the owner
               deletes the conversation, purges the connected account, or closes their Siffty
-              account.
+              account, or when Instagram sends Siffty a data deletion request for that Instagram
+              account (the Siffty account itself is kept).
             </li>
             <li>
               <strong>Account and business profile data</strong> is kept until the customer

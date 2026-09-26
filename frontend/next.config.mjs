@@ -2,6 +2,11 @@ import { BACKEND_URL } from './src/lib/backendUrl.js';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // A self-contained server in .next/standalone (server.js + only the traced
+  // node_modules) for the Docker image — see frontend/Dockerfile. `next dev`
+  // and `next start` are unaffected.
+  output: 'standalone',
+
   async rewrites() {
     const backendUrl = BACKEND_URL;
     return [

@@ -27,6 +27,7 @@ const prisma = require('../prisma');
 const { ADAPTERS } = require('./adapters');
 const { DEFAULT_ACTIVE, isAllowed, apiKeyFor } = require('./models');
 const { recordAiCall } = require('./callLog');
+const { isAiMock, mockComplete } = require('./mock');
 
 const CONFIG_TTL_MS = 30 * 1000;
 const FALLBACK_AFTER_FAILURES = 5;
@@ -99,6 +100,27 @@ const isTransient = (err) => {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const MAX_RETRY_AFTER_MS = 10 * 1000; // a provider asking for longer is better served by the queue's own retry
+
+/**
+ * How long to wait before retry number `attempt` (1-based).
+ *
+ * A 429/503 that names its own wait (Retry-After, seconds or an HTTP date) is
+ * obeyed, capped. Otherwise the fixed backoff step is jittered to 50–150%, so
+ * a burst of workers that failed together does not retry together — lockstep
+ * retries against a rate-limited provider just fail again as a group.
+ */
+function retryDelayMs(attempt, err) {
+  const header = err && err.response && err.response.headers && err.response.headers['retry-after'];
+  if (header !== undefined && header !== null && header !== '') {
+    const seconds = Number(header);
+    const ms = Number.isFinite(seconds) ? seconds * 1000 : new Date(header).getTime() - Date.now();
+    if (Number.isFinite(ms) && ms >= 0) return Math.min(ms, MAX_RETRY_AFTER_MS);
+  }
+  const base = backoffMs[attempt - 1] ?? backoffMs[backoffMs.length - 1];
+  return Math.round(base * (0.5 + Math.random()));
+}
+
 function extractJSON(text) {
   if (!text || typeof text !== 'string') return null;
   const t = text.trim();
@@ -116,6 +138,13 @@ function extractJSON(text) {
  * Resolves { text, json? } or throws the last error.
  */
 async function callTarget({ provider, model }, { prompt, isJson, validate, timeout, jobType, tenantId }) {
+  // AI_MOCK (local/load tests only): no network, no key, no cost, no call log.
+  if (isAiMock()) {
+    const out = await mockComplete({ prompt, isJson, jobType });
+    if (!isJson) return { text: out.text };
+    const json = JSON.parse(out.text);
+    return { text: out.text, json };
+  }
   const apiKey = apiKeyFor(provider);
   if (!apiKey) {
     throw Object.assign(new Error(`${provider} is not configured`), { code: 'NO_PROVIDERS_CONFIGURED' });
@@ -124,7 +153,7 @@ async function callTarget({ provider, model }, { prompt, isJson, validate, timeo
   let lastErr;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    if (attempt > 0) await sleep(backoffMs[attempt - 1] ?? backoffMs[backoffMs.length - 1]);
+    if (attempt > 0) await sleep(retryDelayMs(attempt, lastErr));
     const started = Date.now();
     let out;
     try {
@@ -272,4 +301,5 @@ module.exports = {
   FALLBACK_DURATION_MS,
   _resetRouterState,
   _setBackoff,
+  retryDelayMs,
 };

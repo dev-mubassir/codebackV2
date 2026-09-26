@@ -3,7 +3,7 @@
  *
  * This is the SINGLE source for NEXT_PUBLIC_BACKEND_URL. It governs the
  * Next.js rewrite proxy (next.config.mjs), the axios client (lib/api.js),
- * the Socket.io connection (dashboard/inbox pages), and two admin CSV export
+ * the Socket.io connection (lib/socket.js), and two admin CSV export
  * links. Six places used to default independently — that duplication is how
  * one of them drifts or gets copy-pasted wrong. Every one of them imports
  * BACKEND_URL from here instead.

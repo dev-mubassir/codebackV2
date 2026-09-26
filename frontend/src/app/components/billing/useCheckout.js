@@ -32,10 +32,12 @@ const CASHFREE_SDK_SRC = 'https://sdk.cashfree.com/js/v3/cashfree.js';
  * failure mode is an opaque error on the payment page rather than anything
  * that names the mismatch. NEXT_PUBLIC_CASHFREE_MODE exists only as an
  * explicit override for the case where someone runs a production build
- * against the sandbox account on purpose.
+ * against the sandbox account on purpose. It is normalised exactly like the
+ * backend's CASHFREE_ENV (trim + lowercase), so " Sandbox" in a deploy panel
+ * cannot silently fall through to production on one side only.
  */
 function cashfreeMode() {
-  const override = process.env.NEXT_PUBLIC_CASHFREE_MODE;
+  const override = (process.env.NEXT_PUBLIC_CASHFREE_MODE || '').trim().toLowerCase();
   if (override === 'sandbox' || override === 'production') return override;
   return process.env.NODE_ENV === 'production' ? 'production' : 'sandbox';
 }
