@@ -12,13 +12,16 @@ import { prisma, createUser, createAccount, uniq } from './db.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios');
+const access = require('../../src/features/autodm/access.js');
 
 export const AUTODM_FLAGS = ['AUTODM_ENABLED', 'AUTODM_SCOPE_ALLOWLIST', 'AUTODM_SCOPE_ALL', 'AUTODM_POLL_MODE'];
 
 export function saveFlags() {
   const saved = Object.fromEntries(AUTODM_FLAGS.map((k) => [k, process.env[k]]));
   for (const k of AUTODM_FLAGS) delete process.env[k];
+  access.resetAccessCache(); // the DB (and its rollout-mode row) is reset between tests
   return () => {
+    access.resetAccessCache();
     for (const k of AUTODM_FLAGS) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
@@ -86,8 +89,18 @@ export function metaError(code, subcode, status = 400) {
   return err;
 }
 
-/** A tenant with a connected account that holds the comments scope. */
-export async function autodmTenant({ commentsGranted = true, allowlist = true } = {}) {
+/** Admin rollout mode (OFF | BETA | EVERYONE), as the admin page sets it. */
+export function setRolloutMode(mode) {
+  return access.setRolloutMode(mode, null);
+}
+
+/**
+ * A tenant with a connected account that holds the comments scope. Puts the
+ * rollout in BETA (unless told otherwise) and, with `allowlist`, names the
+ * tenant a beta user through the env bootstrap list.
+ */
+export async function autodmTenant({ commentsGranted = true, allowlist = true, mode = 'BETA' } = {}) {
+  if (mode) await access.setRolloutMode(mode, null);
   const { user, password } = await createUser({});
   const igUserId = uniq('ig');
   const account = await createAccount({ userId: user.id, igUserId });

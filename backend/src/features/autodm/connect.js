@@ -1,6 +1,6 @@
 /**
- * Instagram connect flow hooks — allowlisted users only, and only while
- * AUTODM_ENABLED is on. For everyone else both functions are no-ops, so the
+ * Instagram connect flow hooks — users with Auto DM access only
+ * (access.js hasAutoDmAccess). For everyone else they are no-ops, so the
  * scope string and subscribed_fields stay byte-identical to the pre-Auto-DM
  * flow.
  */
@@ -12,11 +12,16 @@ const log = require('./log');
 const { hasAutoDmAccess } = require('./access');
 
 /**
- * Options for lib/instagram.getAuthorizationUrl(). `undefined` for anyone not
- * allowlisted — the URL is then exactly what it always was.
+ * Options for lib/instagram.getAuthorizationUrl(). `undefined` for anyone
+ * without Auto DM access — the URL is then exactly what it always was. Never
+ * throws (any doubt = no extra scope).
  */
-function connectScopeOptions(email) {
-  return config.isScopeAllowed(email) ? { extraScopes: [config.COMMENTS_SCOPE] } : undefined;
+async function connectScopeOptions(user) {
+  try {
+    return (await hasAutoDmAccess(user)) ? { extraScopes: [config.COMMENTS_SCOPE] } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -31,7 +36,7 @@ function connectScopeOptions(email) {
  */
 async function afterInstagramConnect({ userId, email, igUserId, accessToken, grantedScopes }) {
   try {
-    if (!config.isScopeAllowed(email)) return;
+    if (!(await hasAutoDmAccess({ id: userId, email }))) return;
 
     const account = await prisma.instagramAccount.findFirst({
       where: { userId, igUserId: String(igUserId), connectionStatus: 'CONNECTED' },

@@ -175,3 +175,23 @@ Baseline (Gate 0, on code identical to origin/master): 71 files (70 passed, 1 sk
 **Tests**: full suite **81 files (80 passed, 1 skipped); 936 tests: 924 passed, 12 skipped, 0 failed** — previous run 915/12/0 + 9 new.
 
 **Flagged (not changed)**: Privacy §6 doesn't name Resend or Cashfree; backup region unverified.
+
+---
+
+## Gate 8 — admin-controlled access
+
+**Built**: `features/autodm/access.js` (one access rule + rollout mode read/write), `features/autodm/adminRoutes.js` (`/api/admin/autodm`: overview, mode, grants, revoke), migration `20261002090000_autodm_access` (CREATE TABLE + unique index + FK from the new table to users — checked by the same statement grep; applied to local dev and test DBs), frontend `/admin/autodm` page + `lib/autodmAdminApi.js`, `/autodm` redirect to the dashboard without access. Every entry point (status, API, connect scope, subscribe calls, intake, taps, worker, poller) now calls `hasAutoDmAccess`.
+
+**Existing files touched (this gate)**
+| File | Change | Diff |
+|---|---|---|
+| `backend/prisma/schema.prisma` | `AutoDmAccess` model + back-relation on User (no columns) | +17 / −0 |
+| `backend/src/routes/admin.js` | one `router.use('/autodm', …adminRouter)` after the admin auth/CSRF chain (+ comment) | +3 / −0 |
+| `backend/src/routes/auth.js` | existing touch-point line: `await autodm.connectScopeOptions(user)` | +1 / −1 |
+| `frontend/src/app/admin/_components/AdminShell.js` | one nav item "Auto DM" → /admin/autodm | +1 / −0 |
+
+**Tests**: new `tests/autodm-access.test.js` (12: modes OFF/BETA/EVERYONE × granted / env-listed / other for status, 404s and a byte-identical connect URL; kill switch over every mode; revoke → worker, intake, poller and taps inert, re-grant resumes; mode OFF stops everyone; admin endpoints unreachable for customers and anonymous users, step-up and EVERYONE confirm, grant/list/revoke audited, cross-origin refused) + 1 regression test (sorting identical in OFF, BETA-with-grant and EVERYONE). Own Auto DM tests updated for the new model (helper puts tenants in BETA; status test rewritten).
+Full suite: **82 files (81 passed, 1 skipped); 948 tests: 936 passed, 12 skipped, 0 failed** — previous run 924 + 13 new − 1 (status tests consolidated). One existing test (billing doctor) first failed because `prisma generate` was blocked by the running local backend (stale client); fixed by regenerating, no code or test change.
+Frontend: lint 0 errors; build passes (`/admin/autodm` prerenders).
+
+**Risks**: mode changes reach other pods within ~10 s; the local `.env` still has `AUTODM_ENABLED=true` + the bootstrap email, but the mode defaults to OFF, so Auto DM stays hidden locally until an admin sets Beta.

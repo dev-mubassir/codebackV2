@@ -81,6 +81,7 @@ model User {
   autoDmAutomations   AutoDmAutomation[]
   autoDmRuns          AutoDmRun[]
   autoDmImages        AutoDmImage[]
+  autoDmAccess        AutoDmAccess?
 
   @@map("users")
 }
@@ -1652,4 +1653,20 @@ model AutoDmImage {
 
   @@index([userId, createdAt])
   @@map("autodm_images")
+}
+
+// Admin-granted Auto DM access (BETA rollout mode). One row per user; the
+// rollout mode itself is the app_settings row `autodm_rollout_mode`.
+// grantedByAdminId is kept as plain text (no FK): removing an admin must not
+// remove the grants they made; the admin audit log holds the history.
+model AutoDmAccess {
+  id               String   @id @default(uuid())
+  userId           String   @unique @map("user_id")
+  grantedByAdminId String?  @map("granted_by_admin_id")
+  note             String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("autodm_access")
 }

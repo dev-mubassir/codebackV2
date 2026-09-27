@@ -1,0 +1,18 @@
+/* Admin — Auto DM rollout page. Layout only; colours/borders come from tokens. */
+
+.body { padding: var(--ui-space-4); display: flex; flex-direction: column; gap: var(--ui-space-4); }
+
+.modeRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--ui-space-3); }
+.modeSelect { min-width: 200px; }
+
+.facts { display: flex; flex-wrap: wrap; gap: var(--ui-space-3); align-items: center; font-size: var(--ui-text-sm); color: var(--ui-text-muted); }
+
+.grantForm { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) auto; gap: var(--ui-space-3); align-items: end; }
+
+@media (max-width: 760px) {
+  .grantForm { grid-template-columns: 1fr; }
+}
+
+.num { font-variant-numeric: tabular-nums; }
+.empty { padding: var(--ui-space-4); font-size: var(--ui-text-base); color: var(--ui-text-muted); }
+.hint { margin: 0; font-size: var(--ui-text-sm); color: var(--ui-text-muted); }

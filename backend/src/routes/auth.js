@@ -1065,7 +1065,7 @@ router.get('/instagram', async (req, res) => {
       process.env.INSTAGRAM_APP_ID,
       process.env.REDIRECT_URI,
       state,
-      autodm.connectScopeOptions(user.email) // undefined unless Auto DM-allowlisted
+      await autodm.connectScopeOptions(user) // undefined unless the user has Auto DM access
     );
 
     console.log('[Auth] Redirecting to Instagram OAuth');

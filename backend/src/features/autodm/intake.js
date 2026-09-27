@@ -23,6 +23,7 @@ const config = require('./config');
 const log = require('./log');
 const { selectAutomation } = require('./matcher');
 const { emitRunCreated } = require('./events');
+const { hasAutoDmAccess } = require('./access');
 const { isId, toDate } = require('./util');
 
 const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -143,9 +144,10 @@ async function handleCommentEntry(entry, { propagateErrors = false } = {}) {
 
     const account = await prisma.instagramAccount.findFirst({
       where: { igUserId: String(entry.id), connectionStatus: 'CONNECTED' },
-      select: ACCOUNT_SELECT,
+      select: { ...ACCOUNT_SELECT, user: { select: { id: true, email: true } } },
     });
     if (!account) return; // unknown or disconnected account: inert
+    if (!(await hasAutoDmAccess(account.user))) return; // no access (or revoked): inert
 
     for (const change of changes) {
       const comment = normalizeComment(change.value, entry.time);

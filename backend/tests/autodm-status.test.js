@@ -1,16 +1,17 @@
 /**
- * Auto DM — kill switch, scope allowlist, and GET /api/autodm/status.
+ * Auto DM — flags and GET /api/autodm/status. Access itself (modes, grants)
+ * is covered in autodm-access.test.js.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { buildTestApp } from './helpers/app.js';
 import { resetDb, createUser } from './helpers/db.js';
+import { saveFlags, setRolloutMode } from './helpers/autodm.js';
 import autodm from '../src/features/autodm/index.js';
 import config from '../src/features/autodm/config.js';
 
-const FLAGS = ['AUTODM_ENABLED', 'AUTODM_SCOPE_ALLOWLIST', 'AUTODM_SCOPE_ALL', 'AUTODM_POLL_MODE'];
-let saved;
+let restoreFlags;
 let app;
 let ipSeq = 0;
 const nextIp = () => `10.61.${Math.floor(ipSeq / 250)}.${(ipSeq++ % 250) + 1}`;
@@ -27,40 +28,25 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
-  saved = Object.fromEntries(FLAGS.map((k) => [k, process.env[k]]));
-  for (const k of FLAGS) delete process.env[k];
+  restoreFlags = saveFlags();
   await resetDb();
 });
 
-afterEach(() => {
-  for (const k of FLAGS) {
-    if (saved[k] === undefined) delete process.env[k];
-    else process.env[k] = saved[k];
-  }
-});
+afterEach(() => restoreFlags());
 
 describe('config flags', () => {
   it('everything is off by default', () => {
     expect(config.isEnabled()).toBe(false);
     expect(config.pollMode()).toBe('off');
-    expect(config.isScopeAllowed('a@b.co')).toBe(false);
+    expect(config.isOnAllowlist('a@b.co')).toBe(false);
   });
 
-  it('the allowlist is case- and space-insensitive, and only counts while enabled', () => {
+  it('the env list is case- and space-insensitive', () => {
     process.env.AUTODM_SCOPE_ALLOWLIST = ' Owner@Example.com , other@x.io ';
-    expect(config.isScopeAllowed('owner@example.com')).toBe(false); // kill switch still off
-    process.env.AUTODM_ENABLED = 'true';
-    expect(config.isScopeAllowed('owner@example.com')).toBe(true);
-    expect(config.isScopeAllowed('OTHER@x.io')).toBe(true);
-    expect(config.isScopeAllowed('stranger@x.io')).toBe(false);
-    expect(config.isScopeAllowed(null)).toBe(false);
-  });
-
-  it('AUTODM_SCOPE_ALL opens it to everyone (still only while enabled)', () => {
-    process.env.AUTODM_SCOPE_ALL = 'true';
-    expect(config.isScopeAllowed('anyone@x.io')).toBe(false);
-    process.env.AUTODM_ENABLED = 'true';
-    expect(config.isScopeAllowed('anyone@x.io')).toBe(true);
+    expect(config.isOnAllowlist('owner@example.com')).toBe(true);
+    expect(config.isOnAllowlist('OTHER@x.io')).toBe(true);
+    expect(config.isOnAllowlist('stranger@x.io')).toBe(false);
+    expect(config.isOnAllowlist(null)).toBe(false);
   });
 
   it('poll mode: off while disabled, allowlist by default, all/off on request, unknown = off', () => {
@@ -83,36 +69,38 @@ describe('GET /api/autodm/status', () => {
     expect(res.status).toBe(401);
   });
 
-  it('reports disabled when the kill switch is off, even for an allowlisted user', async () => {
+  it('kill switch off: exactly {enabled:false}, even for a beta user in BETA mode', async () => {
     const { user, password } = await createUser();
+    await setRolloutMode('BETA');
     process.env.AUTODM_SCOPE_ALLOWLIST = user.email;
     const agent = await login(user.email, password);
     const res = await agent.get('/api/autodm/status');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ enabled: false, available: false });
+    expect(res.body).toEqual({ enabled: false });
   });
 
-  it('is available only to allowlisted users when enabled', async () => {
+  it('BETA: available to a named beta user; everyone else sees only {enabled:false}', async () => {
     const a = await createUser();
     const b = await createUser();
     process.env.AUTODM_ENABLED = 'true';
+    await setRolloutMode('BETA');
     process.env.AUTODM_SCOPE_ALLOWLIST = a.user.email;
 
     const agentA = await login(a.user.email, a.password);
     expect((await agentA.get('/api/autodm/status')).body).toEqual({ enabled: true, available: true });
 
     const agentB = await login(b.user.email, b.password);
-    expect((await agentB.get('/api/autodm/status')).body).toEqual({ enabled: true, available: false });
+    expect((await agentB.get('/api/autodm/status')).body).toEqual({ enabled: false });
   });
 
-  it('every other route answers 404 AUTODM_DISABLED while off or not allowed', async () => {
+  it('every other route answers 404 AUTODM_DISABLED without access', async () => {
     const { user, password } = await createUser();
     const agent = await login(user.email, password);
     let res = await agent.get('/api/autodm/automations');
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('AUTODM_DISABLED');
 
-    process.env.AUTODM_ENABLED = 'true'; // on, but this user is not allowlisted
+    process.env.AUTODM_ENABLED = 'true'; // on, mode OFF by default
     res = await agent.get('/api/autodm/automations');
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('AUTODM_DISABLED');

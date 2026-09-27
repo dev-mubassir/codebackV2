@@ -16,14 +16,14 @@ You need **three Instagram accounts**:
    2. Webhooks → Instagram → subscribe the app-level fields **`comments`** and **`messaging_postbacks`** (keep `messages`, `message_reactions`, `messaging_seen`).
    3. App roles → Instagram testers: add **Business**, **Fan A** and **Fan B**, and accept the invites in each Instagram app (Settings → Website permissions → Tester invites). Without a role, Standard Access delivers no comment webhooks.
    4. The app must be **Live** (comment webhooks are not delivered in Development mode).
-2. `backend/.env` (local only):
+2. `backend/.env` (local only), then restart the backend:
    ```
    AUTODM_ENABLED=true
-   AUTODM_SCOPE_ALLOWLIST=<the email you log in to Siffty with>
    AUTODM_POLL_MODE=allowlist
    ```
-3. Start everything as in `LOCAL_DEV.md` (database, backend, frontend, tunnel). Confirm `https://api.citykirana.in/health` answers from your **phone**.
-4. Keep a log view open:
+3. Admin panel `/admin/login` → **Auto DM**: set the rollout mode to **Beta** (reason + password), then grant your Siffty login email (it must already have signed up). *(Alternatively put your email in `AUTODM_SCOPE_ALLOWLIST` — it counts as a beta user while the mode is Beta.)*
+4. Start everything as in `LOCAL_DEV.md` (database, backend, frontend, tunnel). Confirm `https://api.citykirana.in/health` answers from your **phone**.
+5. Keep a log view open:
    ```bash
    cd C:\codeback\backend && npm start 2>&1 | grep -E "\[autodm\]|\[Webhook\]|\[Auth\]"
    ```
@@ -98,11 +98,12 @@ Edit `Manual test` → Options → **Only send the link to followers** → Save 
 4. **Expect:** log `poller: 1 account(s), 1 new comment(s), 1 run(s) queued` (or the webhook arrives late via Meta's retries — either way **exactly one** run and one DM). The run log row says *found by polling* when the poller won.
 5. The poller only looks at comments after the automation was last saved, within 72 hours, top-level only.
 
-## 9. Kill switch
+## 9. Revoke, mode off, kill switch
 
-1. Set `AUTODM_ENABLED=false` in `backend/.env`, restart the backend.
-2. **Expect:** Auto DM disappears from the sidebar (reload); `/autodm` says it is not available; a new `guide` comment does nothing; normal DMs are still sorted.
-3. Set it back to `true` if you continue testing.
+1. Admin → Auto DM → **Revoke** your grant. **Expect:** the sidebar item disappears (reload), `/autodm` redirects to the dashboard, a new `guide` comment does nothing, a pending run does not send; normal DMs are still sorted. Grant again → everything resumes (a pending run within ~5 minutes).
+2. Set the mode to **Off** → same effect for everyone, within ~10 seconds.
+3. Set `AUTODM_ENABLED=false` in `backend/.env`, restart the backend → the same, regardless of the admin settings.
+4. Undo whichever you changed if you continue testing.
 
 ## 10. Clean up
 

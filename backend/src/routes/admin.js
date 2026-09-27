@@ -312,6 +312,9 @@ router.use(requireAdmin);
 router.use(adminOriginGuard);
 router.use(trackAdminActivity);
 
+// Auto DM rollout control (src/features/autodm/adminRoutes.js), behind the admin chain above.
+router.use('/autodm', require('../features/autodm').adminRouter);
+
 // GET /api/admin/me — the session, for the UI. A GET: does not count as activity.
 router.get('/me', (req, res) => {
   // `isAdmin` is part of the contract the admin shell checks

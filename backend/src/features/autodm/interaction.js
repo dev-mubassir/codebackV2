@@ -31,6 +31,16 @@ const prisma = require('../../lib/prisma');
 const config = require('./config');
 const log = require('./log');
 const { isId, normalizeText } = require('./util');
+const { hasAutoDmAccess } = require('./access');
+
+/** The account owner's access, loading the owner when the caller did not. */
+async function ownerHasAccess(account) {
+  const owner =
+    account.user && account.user.id
+      ? account.user
+      : await prisma.user.findUnique({ where: { id: account.userId }, select: { id: true, email: true } });
+  return hasAutoDmAccess(owner);
+}
 
 const PAYLOAD_RE = /^AUTODM:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):(GET|FOLLOWED)$/;
 const KEYWORD_MAX = 20;
@@ -161,10 +171,15 @@ async function isAutoDmInteraction(account, event, savedMessage) {
     if (!sender) return false;
 
     const qr = message.quick_reply && message.quick_reply.payload;
-    if (isAutoDmPayload(qr)) return await handlePayloadTap(account, sender, qr, savedMessage.id);
-
     const text = typeof message.text === 'string' ? message.text.trim() : '';
-    if (!text || text.length > KEYWORD_MAX || message.attachments) return false;
+    const isTap = isAutoDmPayload(qr);
+    if (!isTap && (!text || text.length > KEYWORD_MAX || message.attachments)) return false;
+
+    // Only a candidate (tap or short text) costs an access check. No access
+    // (or revoked) = the message is an ordinary DM.
+    if (!(await ownerHasAccess(account))) return false;
+
+    if (isTap) return await handlePayloadTap(account, sender, qr, savedMessage.id);
     return await handleKeyword(account, sender, text, savedMessage.id);
   } catch (err) {
     log.error(`interaction check failed (${err && err.code ? err.code : 'error'}); message goes to normal sorting`);
@@ -182,6 +197,7 @@ async function handlePostback(account, event) {
     if (!account || !isAutoDmPostback(event)) return false;
     const sender = senderOf(account, event);
     if (!sender) return false;
+    if (!(await ownerHasAccess(account))) return false;
     return await handlePayloadTap(account, sender, event.postback.payload, null);
   } catch (err) {
     log.error(`postback handling failed (${err && err.code ? err.code : 'error'})`);

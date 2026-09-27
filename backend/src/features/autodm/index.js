@@ -19,9 +19,11 @@ const intake = require('./intake');
 const interaction = require('./interaction');
 const connect = require('./connect');
 const worker = require('./worker');
+const access = require('./access');
 
 module.exports = {
   config,
+  hasAutoDmAccess: access.hasAutoDmAccess,
 
   // metaWebhookProcessor.processEntry
   isCommentOnlyEntry: intake.isCommentOnlyEntry,
@@ -51,5 +53,9 @@ module.exports = {
   },
   get publicRouter() {
     return require('./publicRoutes');
+  },
+  // routes/admin.js — /api/admin/autodm (behind the admin auth + origin guard)
+  get adminRouter() {
+    return require('./adminRoutes');
   },
 };

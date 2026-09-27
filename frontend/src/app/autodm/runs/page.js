@@ -95,7 +95,7 @@ function RunsContent() {
   let body;
   if (state === 'loading') body = <Skeleton lines={6} height={40} />;
   else if (state === 'error') body = <ErrorState message={autodm.loadError} onRetry={() => window.location.reload()} />;
-  else if (state === 'unavailable') body = <EmptyState title={autodm.unavailable.title} body={autodm.unavailable.body} />;
+  else if (state === 'unavailable') body = <Skeleton lines={6} height={40} />; // redirecting
   else if (error || !id) body = <ErrorState message={error || autodm.loadError} onRetry={id ? onRefresh : undefined} />;
   else if (runs === null) body = <Skeleton lines={6} height={40} />;
   else if (runs.length === 0) body = <EmptyState title={t.empty.title} body={t.empty.body} />;

@@ -55,6 +55,7 @@ const NAV_ITEMS = [
   { label: t.nav.coupons, path: '/admin/coupons', icon: 'tag' },
   { label: t.nav.payments, path: '/admin/payments', icon: 'creditCard' },
   { label: t.nav.accounts, path: '/admin/accounts', icon: 'instagram' },
+  { label: 'Auto DM', path: '/admin/autodm', icon: 'send' },
   { label: t.nav.support, path: '/admin/support', icon: 'lifeBuoy' },
   { label: t.nav.metrics, path: '/admin/metrics', icon: 'barChart' },
   { label: t.nav.controls, path: '/admin/controls', icon: 'alertTriangle' },

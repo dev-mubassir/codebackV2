@@ -11,10 +11,6 @@ export const autodm = {
   },
   pageTitle: 'Auto DM',
   pageSub: 'When someone comments on your post, Siffty sends them a DM with your link.',
-  unavailable: {
-    title: 'Auto DM is not available on your account yet',
-    body: 'It is being rolled out gradually. Nothing is needed from you.',
-  },
   noAccount: {
     title: 'Connect Instagram first',
     body: 'Auto DM replies to comments on a connected Instagram professional account.',

@@ -44,6 +44,7 @@ const config = require('./config');
 const graph = require('./graph');
 const log = require('./log');
 const { emitRunUpdated } = require('./events');
+const { hasAutoDmAccess } = require('./access');
 const { pickRandom, utf8Bytes } = require('./util');
 const {
   DEFAULT_OPENER_BUTTON,
@@ -64,6 +65,9 @@ const MAX_FOLLOW_CHECKS = 3;
 // Stay below it; the rest waits, it is never dropped.
 const PRIVATE_REPLIES_PER_HOUR = 700;
 const THROTTLE_REQUEUE_MS = 10 * 60 * 1000;
+// Owner has no Auto DM access (revoked, mode OFF): the run waits, untouched,
+// and resumes within this long after access comes back.
+const NO_ACCESS_RECHECK_MS = 5 * 60 * 1000;
 const MAX_TEXT_BYTES = 1000;
 
 // ---------------------------------------------------------------------------
@@ -287,6 +291,7 @@ async function followCheck(run, token) {
 const ACCOUNT_FIELDS = {
   id: true,
   userId: true,
+  user: { select: { id: true, email: true } },
   igUserId: true,
   connectionStatus: true,
   accessToken: true,
@@ -313,6 +318,15 @@ async function processRun(id) {
   }
   if (account.connectionStatus !== 'CONNECTED') {
     return finish(run, 'FAILED', { lastError: 'ACCOUNT_DISCONNECTED' });
+  }
+  if (!(await hasAutoDmAccess(account.user))) {
+    // Revoked (or the rollout mode is OFF): stop, don't fail, don't count an
+    // attempt. Nothing is sent; the run resumes once access is back.
+    return update(run, {
+      nextAttemptAt: new Date(Date.now() + NO_ACCESS_RECHECK_MS),
+      claimedAt: null,
+      attempts: Math.max(0, run.attempts - 1),
+    });
   }
 
   let token;

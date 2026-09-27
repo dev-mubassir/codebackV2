@@ -30,7 +30,7 @@ function EditAutomationContent() {
   let body;
   if (state === 'loading') body = <Skeleton lines={6} height={48} />;
   else if (state === 'error') body = <ErrorState message={t.loadError} onRetry={() => window.location.reload()} />;
-  else if (state === 'unavailable') body = <EmptyState title={t.unavailable.title} body={t.unavailable.body} />;
+  else if (state === 'unavailable') body = <Skeleton lines={6} height={48} />; // redirecting
   else if (error || !id) body = <ErrorState message={error || t.loadError} />;
   else if (!automation) body = <Skeleton lines={6} height={48} />;
   else body = <AutomationWizard accountId={automation.instagramAccountId} automation={automation} />;

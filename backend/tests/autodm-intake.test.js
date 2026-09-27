@@ -324,10 +324,9 @@ describe('poller (AUTODM_POLL_MODE)', () => {
     expect(runs.some((r) => r.commentId === 'c-before')).toBe(false);
   });
 
-  it('allowlist mode skips owners not on the email list; off does nothing', async () => {
+  it('allowlist poll mode skips owners who are not named beta users (even in EVERYONE); off does nothing', async () => {
     process.env.AUTODM_POLL_MODE = 'allowlist';
-    const t = await autodmTenant({ allowlist: false });
-    process.env.AUTODM_SCOPE_ALL = 'true';
+    const t = await autodmTenant({ allowlist: false, mode: 'EVERYONE' });
     const a = await createAutomation(t, { postScope: 'SPECIFIC', mediaIds: ['media-10'] });
     stubComments({ 'media-10': [polled('c-na', 'guide')] });
     await poller.sweep();

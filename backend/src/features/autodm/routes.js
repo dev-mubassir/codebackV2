@@ -1,9 +1,11 @@
 /**
  * /api/autodm — the customer API for Auto DM.
  *
- *   GET    /status                      always answers (the sidebar reads it)
- *   — everything below: 404 AUTODM_DISABLED unless AUTODM_ENABLED is on AND
- *     the caller is on the scope allowlist (or AUTODM_SCOPE_ALL) —
+ *   GET    /status                      always answers (the sidebar reads it):
+ *                                        {enabled:true, available:true} with
+ *                                        access, otherwise exactly {enabled:false}
+ *   — everything below: 404 AUTODM_DISABLED unless hasAutoDmAccess(caller)
+ *     (access.js: kill switch + admin rollout mode + grant) —
  *   GET    /accounts                    connected accounts + comments-scope state
  *   GET    /accounts/:accountId/media   recent posts/reels (post picker)
  *   GET    /automations[?accountId=]    list with run counts
@@ -31,8 +33,8 @@ const { validate } = require('../../middleware/validate');
 const { readAccountToken } = require('../../lib/crypto');
 const { handleMetaError } = require('../../lib/tokenHealth');
 const { isTokenInvalidError } = require('../../lib/instagram');
-const config = require('./config');
 const graph = require('./graph');
+const { hasAutoDmAccess } = require('./access');
 const log = require('./log');
 const v = require('./validation');
 const images = require('./images');
@@ -51,21 +53,26 @@ const autodmLimiter = createRateLimiter({
 router.use(autodmLimiter);
 router.use(requireAuth);
 
-// GET /api/autodm/status
-router.get('/status', (req, res) => {
-  const enabled = config.isEnabled();
-  res.json({
-    enabled,
-    // `available` drives the sidebar item: on only for users who may use it.
-    available: enabled && config.isScopeAllowed(req.user && req.user.email),
-  });
+// GET /api/autodm/status — a user without access learns nothing beyond "off".
+router.get('/status', async (req, res) => {
+  let access = false;
+  try {
+    access = await hasAutoDmAccess(req.user);
+  } catch {
+    access = false;
+  }
+  res.json(access ? { enabled: true, available: true } : { enabled: false });
 });
 
-// Everything below: feature on, and this user allowed.
-function requireAutoDm(req, res, next) {
-  if (!config.isEnabled() || !config.isScopeAllowed(req.user && req.user.email)) {
-    return res.status(404).json({ error: 'Auto DM is not available.', code: 'AUTODM_DISABLED' });
+// Everything below: this user has access (404, not 403 — nothing to discover).
+async function requireAutoDm(req, res, next) {
+  let access = false;
+  try {
+    access = await hasAutoDmAccess(req.user);
+  } catch {
+    access = false;
   }
+  if (!access) return res.status(404).json({ error: 'Auto DM is not available.', code: 'AUTODM_DISABLED' });
   return next();
 }
 

@@ -10,7 +10,7 @@ import request from 'supertest';
 import { createRequire } from 'node:module';
 import { buildTestApp } from './helpers/app.js';
 import { resetDb, createUser, prisma, uniq } from './helpers/db.js';
-import { saveFlags } from './helpers/autodm.js';
+import { saveFlags, setRolloutMode } from './helpers/autodm.js';
 
 const require = createRequire(import.meta.url);
 const axios = require('axios');
@@ -68,6 +68,7 @@ function stubMeta({ igUserId, permissions, refuseFields = [] }) {
 
 async function connect({ allowlisted, enabled, permissions, refuseFields }) {
   const { user, password } = await createUser({});
+  await setRolloutMode('BETA'); // the admin rollout mode; access still needs the flag + the list
   if (enabled) process.env.AUTODM_ENABLED = 'true';
   if (allowlisted) process.env.AUTODM_SCOPE_ALLOWLIST = user.email;
   const igUserId = uniq('ig-connect');

@@ -7,9 +7,9 @@
  * (and for the pre-Advanced-Access period). AUTODM_POLL_MODE = off |
  * allowlist | all.
  *
- * Every 2 minutes, for each connected account with the comments scope (and,
- * in `allowlist` mode, an owner on the email allowlist), for each ACTIVE
- * automation: read the recent comments on that automation's posts (its picked
+ * Every 2 minutes, for each connected account with the comments scope whose
+ * owner has Auto DM access (in `allowlist` mode: a named beta user — an admin
+ * grant or the env list), for each ACTIVE automation: read the recent comments on that automation's posts (its picked
  * posts, or the 10 most recent for "any post") and feed new ones to the SAME
  * intake the webhook uses. Our unique commentId is the dedupe, so no
  * "already replied?" Graph calls are made.
@@ -40,6 +40,7 @@ const graph = require('./graph');
 const log = require('./log');
 const { intakeComment, normalizeComment, ACCOUNT_SELECT } = require('./intake');
 const { runIfDue } = require('../../jobs/scheduler');
+const { hasAutoDmAccess, isBetaUser } = require('./access');
 
 const JOB_NAME = 'autodm_poll';
 
@@ -157,7 +158,7 @@ async function sweep({ now = Date.now() } = {}) {
   const states = await prisma.autoDmAccountState.findMany({
     where: { commentsGranted: true, instagramAccount: { connectionStatus: 'CONNECTED' } },
     include: {
-      user: { select: { email: true } },
+      user: { select: { id: true, email: true } },
       instagramAccount: {
         select: {
           ...ACCOUNT_SELECT,
@@ -174,7 +175,9 @@ async function sweep({ now = Date.now() } = {}) {
   const stats = { accounts: 0, fed: 0, queued: 0, paused: 0 };
   for (const state of states) {
     if (state.instagramAccount.userId !== state.userId) continue;
-    if (mode === 'allowlist' && !config.isOnAllowlist(state.user && state.user.email)) continue;
+    // Runtime check every sweep: a revoked owner's automations are skipped.
+    if (!(await hasAutoDmAccess(state.user))) continue;
+    if (mode === 'allowlist' && !(await isBetaUser(state.user))) continue;
     if ((pausedUntil.get(state.instagramAccountId) || 0) > now) {
       stats.paused += 1;
       continue;

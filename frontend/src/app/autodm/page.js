@@ -179,7 +179,7 @@ function AutoDmListContent() {
   } else if (state === 'error') {
     body = <ErrorState message={t.loadError} onRetry={() => window.location.reload()} />;
   } else if (state === 'unavailable') {
-    body = <EmptyState title={t.unavailable.title} body={t.unavailable.body} />;
+    body = <Skeleton lines={4} height={72} />; // redirecting to the dashboard; the feature stays invisible
   } else if (connected.length === 0) {
     body = <ReconnectPanel title={t.noAccount.title} body={t.noAccount.body} action={t.noAccount.action} />;
   } else if (!account) {

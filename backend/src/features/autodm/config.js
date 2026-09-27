@@ -9,20 +9,22 @@
  *                          the API answers 404, the sidebar item is hidden, and
  *                          the Instagram connect flow is byte-identical to the
  *                          pre-Auto-DM one for everybody.
- *   AUTODM_SCOPE_ALLOWLIST comma-separated Siffty user emails whose Instagram
- *                          connect asks for instagram_business_manage_comments
- *                          and subscribes the `comments` webhook field.
- *   AUTODM_SCOPE_ALL       true = every user is on the allowlist (after Meta
- *                          App Review approval).
+ *   AUTODM_SCOPE_ALLOWLIST comma-separated Siffty user emails treated as beta
+ *                          users while the admin rollout mode is BETA — a
+ *                          bootstrap next to the admin grants (access.js).
  *   AUTODM_POLL_MODE       off | allowlist | all (default allowlist). The
  *                          comment poller — insurance for comment webhooks
  *                          Meta never sends: every 2 minutes it reads recent
  *                          comments on active automations' posts and feeds
  *                          them to the same intake (unique commentId dedupes).
- *                          `allowlist` = only accounts whose owner is on the
- *                          scope allowlist; `all` = every account with the
- *                          comments scope (after approval). Any other value
- *                          is treated as `off`.
+ *                          `allowlist` = only named beta users (admin grant or
+ *                          the env list); `all` = every owner with access.
+ *                          Any other value is treated as `off`.
+ *
+ * WHO has access is decided in ONE place: access.js hasAutoDmAccess(), which
+ * combines this kill switch with the admin-controlled rollout mode
+ * (OFF | BETA | EVERYONE) and grants. AUTODM_SCOPE_ALL is no longer read —
+ * the EVERYONE mode replaces it.
  */
 
 const COMMENTS_SCOPE = 'instagram_business_manage_comments';
@@ -41,10 +43,6 @@ function flag(name) {
 
 function isEnabled() {
   return flag('AUTODM_ENABLED');
-}
-
-function isScopeAll() {
-  return flag('AUTODM_SCOPE_ALL');
 }
 
 /** 'off' | 'allowlist' | 'all' — always 'off' while the kill switch is off. */
@@ -73,20 +71,10 @@ function allowlist() {
   return cachedSet;
 }
 
-/** On the explicit email list (ignores AUTODM_SCOPE_ALL) — poll mode `allowlist`. */
+/** On the env email list (the BETA bootstrap). */
 function isOnAllowlist(email) {
   if (typeof email !== 'string' || !email.trim()) return false;
   return allowlist().has(email.trim().toLowerCase());
-}
-
-/**
- * May this Siffty user use Auto DM (and be asked for the comments scope)?
- * Always false while the kill switch is off.
- */
-function isScopeAllowed(email) {
-  if (!isEnabled()) return false;
-  if (isScopeAll()) return true;
-  return isOnAllowlist(email);
 }
 
 module.exports = {
@@ -95,8 +83,6 @@ module.exports = {
   EXTENDED_FIELDS,
   EXTENDED_FIELDS_NO_POSTBACKS,
   isEnabled,
-  isScopeAll,
   pollMode,
   isOnAllowlist,
-  isScopeAllowed,
 };

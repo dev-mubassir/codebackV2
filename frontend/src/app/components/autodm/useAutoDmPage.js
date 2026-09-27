@@ -7,6 +7,7 @@
  * comments-scope state.
  *
  * state: 'loading' | 'unavailable' | 'ready' | 'error'
+ * Without access ('unavailable') the page redirects to /dashboard.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -57,7 +58,9 @@ export default function useAutoDmPage() {
       }
       if (cancelled) return;
       if (!status?.enabled || !status?.available) {
+        // No access = the feature is invisible: go to the dashboard.
         setState('unavailable');
+        router.replace('/dashboard');
         return;
       }
       await loadAccounts();

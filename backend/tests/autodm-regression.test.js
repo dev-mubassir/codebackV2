@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { createRequire } from 'node:module';
 import { buildTestApp } from './helpers/app.js';
 import { resetDb, createUser, createAccount, grantReplyCredits, prisma, uniq } from './helpers/db.js';
-import { saveFlags, postWebhook, waitFor, dmWebhook, createAutomation } from './helpers/autodm.js';
+import { saveFlags, setRolloutMode, postWebhook, waitFor, dmWebhook, createAutomation } from './helpers/autodm.js';
 
 const require = createRequire(import.meta.url);
 const aiService = require('../src/services/aiService.js');
@@ -72,6 +72,7 @@ async function tenant({ withAutoDm }) {
   const igUserId = uniq('ig');
   const account = await createAccount({ userId: user.id, igUserId });
   if (withAutoDm) {
+    await setRolloutMode('BETA');
     process.env.AUTODM_SCOPE_ALLOWLIST = user.email;
     await prisma.autoDmAccountState.create({ data: { instagramAccountId: account.id, userId: user.id, commentsGranted: true } });
     const automation = await createAutomation({ user, account }, { triggerType: 'ANY_COMMENT', keywords: [] });
@@ -127,6 +128,18 @@ describe('a normal DM behaves identically with Auto DM off and on', () => {
       analyses: 1,
     });
     expect(on).toEqual(off);
+  });
+
+  it('the outcome is identical in every rollout mode (OFF, BETA with a grant, EVERYONE)', async () => {
+    const dm = { sender: 'buyer-2', text: 'How much for a 30-second reel?' };
+    const baseline = await runDm(await tenant({ withAutoDm: false }), dm);
+    process.env.AUTODM_ENABLED = 'true';
+    for (const mode of ['OFF', 'BETA', 'EVERYONE']) {
+      const t = await tenant({ withAutoDm: true });
+      await prisma.autoDmAccess.create({ data: { userId: t.user.id, note: 'regression' } });
+      await setRolloutMode(mode);
+      expect(await runDm(t, dm), `mode ${mode}`).toEqual(baseline);
+    }
   });
 
   it('with Auto DM on, a mid-flow commenter\'s ordinary question is still classified and auto-replied', async () => {
