@@ -74,3 +74,10 @@ One line per judgment call, with the reason. Order of preference when unsure:
 - DM preview renders only what the user typed (placeholders otherwise); the desktop note names their fallback keyword.
 - Image preview: a fresh upload shows a local object URL; a saved image loads from the public image route.
 - Visual check done on an ISOLATED local preview (backend :5050 with Auto DM on, frontend copy :3050 with its own .next) so the user's running :3000/:5000 dev servers were never touched; a throwaway local user was seeded and deleted afterwards (cascade verified: 0 rows left). "Specific posts" was not clicked in the preview, to avoid calling Meta with a fake token.
+
+## Gate 4
+- Tests drive REAL signed webhooks through the real route, durable inbox and in-memory queues; only the shared axios object (Meta HTTP) and the AI provider calls are stubbed. `tests/helpers/autodm.js` is a new helper; no existing test or helper was edited.
+- The "byte-identical" connect test compares the authorize URL with a LITERAL reconstruction of the pre-Auto-DM format and the exact `subscribed_fields` string, so any drift fails loudly.
+- The regression test compares a full outcome object (inbound status + category, conversation category/priority, outbound auto-reply, the exact send call, analysis count) between flag off and flag on with a live automation and a mid-flow run on the same account.
+- Comment-only retry test accepts either the queue's own retry or the recovery sweep (both are production paths) and asserts exactly one processed delivery and one run.
+- Kill-switch tests assert via spies that no Auto DM table query and no claim SQL run while AUTODM_ENABLED is off.

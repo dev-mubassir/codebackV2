@@ -105,3 +105,27 @@ Baseline (Gate 0, on code identical to origin/master): 71 files (70 passed, 1 sk
 **Security checks** — no `dangerouslySetInnerHTML`; all user/comment text rendered as React text; images are our own public route or Instagram's CDN thumbnails from the media API (https-only filtered server-side); links are never rendered as clickable anchors in the app (preview shows the label only); server messages shown as plain text.
 
 **Risks** — button templates may not render on Instagram desktop; the wizard says so and the reply keyword covers it.
+
+---
+
+## Gate 4 — tests
+
+**New test files** (all under `backend/tests/`; no existing test or helper edited — `git diff --name-status origin/master -- backend/tests` shows only `A` lines)
+| File | Tests | Covers |
+|---|---|---|
+| `autodm-matcher.test.js` | 25 | OpenReply's matcher cases (ported) + Devanagari, Hinglish, emoji, full-width; selection rules |
+| `autodm-intake.test.js` | 21 | keyword match / no match / exclude; SPECIFIC > ANY; paused; self-comments by id and username; duplicate webhook = one run + one DM; same commenter twice = one run; bad payload shape; disconnected account; 7-day window (intake + EXPIRED); kill switch (no Auto DM query, no claim SQL, no Meta call; seam classifies normally); WebhookLog skipped for comment-only entries; comments-only delivery retried and then creates the run; mixed delivery swallows; poller+webhook in both orders = one run; poller never before the automation's save, cap 30; allowlist mode; 368 pause |
+| `autodm-interaction.test.js` | 18 | follow gate: follows / not following → prompt → follows / 3 failures → final message, no link / FAIL_OPEN / LINK while waiting; spoofs: another tenant's run id (quick reply + postback) and wrong sender ignored AND the DM still classified; malformed payload; LINK with no run; double tap sends once; other postbacks unchanged; image then text, template rejected → text+link; image not resent on retry; public reply at most once and non-blocking; backoff → FAILED after 5 with a safe code; dead token → FAILED + account flagged; hourly cap re-queues; disconnected account |
+| `autodm-api.test.js` | 32 | CRUD end to end; RECONNECT_REQUIRED; Meta errors never passed through; 21 validation-limit rejections; Hindi within limits accepted; cross-tenant read/update/toggle/delete/run log/media/account/image all 404/400; no moving accounts; uploads (PNG, JPEG ok; SVG, GIF, fake PNG → 415; >2 MB → 413); public image only while attached, strict headers, 404 after delete; image replace deletes the old; retention (90-day runs, orphan uploads, disconnected + moved accounts); purge/user-delete cascade |
+| `autodm-connect.test.js` | 6 | non-allowlisted (feature on) and allowlisted-with-feature-off: authorize URL and subscribed_fields byte-identical, no Auto DM row; allowlisted: comments scope + second subscribe; declined scope; unreported scopes with postbacks refused → retried; everything refused → connect still succeeds |
+| `autodm-regression.test.js` | 3 | a normal DM: identical classification + auto-reply outcome with the flag off and on; a mid-flow commenter's ordinary question and a stray "LINK" are still sorted |
+| `autodm-aistatus.test.js` | 4 | `aiStatus:'autodm'` ignored by the orphan re-queue, the stalled sweep, skipped-message recovery, the billing unsorted count and the dashboard reviewed count |
+| `autodm-status.test.js`, `autodm-flow.test.js` | 8 + 4 | (Gates 1–2) flags, status route, end-to-end happy path |
+
+**Full suite** on codeback_test: **80 files (79 passed, 1 skipped); 927 tests: 915 passed, 12 skipped, 0 failed.** Baseline 806 / 794 passed / 12 skipped / 0 failed → every baseline test still passes, the same 12 are skipped, +121 new Auto DM tests.
+
+**Manual test script**: `docs/autodm/MANUAL_TEST.md` (connect with the comments scope, keyword → opener → tap → link on a phone, no-match/exclude/duplicate/self, desktop LINK fallback, follow gate both paths and 3 failures, sorting unchanged, poller fallback with the tunnel stopped, kill switch, clean up).
+
+**Security checklist** — re-verified by the tests above (tenant isolation, spoofed taps, validation limits, upload types/sizes/headers, Meta errors not leaked, kill switch inert).
+
+**Risks** — unchanged from Gate 2/3. The manual test is the only place Meta's real behaviour (postback delivery with our field set, desktop rendering, `recipient_id`) is proven.
