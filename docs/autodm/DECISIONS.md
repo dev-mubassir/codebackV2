@@ -61,3 +61,16 @@ One line per judgment call, with the reason. Order of preference when unsure:
 - Sidebar/API availability = enabled AND allowlisted (not just enabled), so real users never meet a page they cannot use before approval.
 - Account list and automation reads also check AutoDmAccountState.userId = caller (belt and braces for a moved account).
 - Graph client uses the shared axios module object (not an instance) so the suite's Meta boundary stub reaches it.
+
+## Gate 3
+- Sidebar: `navItems.js` gets an `autodmEnabled` flag (like `billingEnabled`); AppShell reads it through `useAutoDmStatus`, which calls GET /api/autodm/status (never a NEXT_PUBLIC_ flag), caches 60s across page navigations, and treats any error as "hidden". The item shows only when enabled AND allowlisted.
+- Nav label is a literal "Auto DM" in navItems.js (one line) rather than a new key in content/copy.js; all other Auto DM wording lives in `components/autodm/copy.js` so the feature stays in its own folders.
+- Nav icon `send` (existing icon set) — every nav item has an icon; that is navigation, not decoration. No icons in the Auto DM empty states, no emoji anywhere, no sample/fake rows.
+- Pages: `/autodm` (list), `/autodm/new?account=`, `/autodm/edit?id=`, `/autodm/runs?id=` — query strings rather than dynamic segments, each wrapped in Suspense (Next 16 requirement for useSearchParams in prerendered pages, same pattern as settings/inbox).
+- `frontend/src/lib/autodmApi.js` imports the existing axios instance (`api.js` untouched), so session-expiry and maintenance handling apply.
+- Effects never set state synchronously (React Compiler lint `set-state-in-effect`): fetches are started inside the effect and state is set in their callbacks, matching the existing pages; the rule was not disabled.
+- Live updates: list and run log subscribe to `autodm:run_created` / `autodm:run_updated` via the existing `createSocket()` and refetch (debounced); counts never come from the event payload.
+- Wizard validation mirrors the server (limits in one place per side); a field's error clears as soon as it is edited.
+- DM preview renders only what the user typed (placeholders otherwise); the desktop note names their fallback keyword.
+- Image preview: a fresh upload shows a local object URL; a saved image loads from the public image route.
+- Visual check done on an ISOLATED local preview (backend :5050 with Auto DM on, frontend copy :3050 with its own .next) so the user's running :3000/:5000 dev servers were never touched; a throwaway local user was seeded and deleted afterwards (cascade verified: 0 rows left). "Specific posts" was not clicked in the preview, to avoid calling Meta with a fake token.

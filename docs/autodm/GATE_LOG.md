@@ -77,3 +77,31 @@ Baseline (Gate 0, on code identical to origin/master): 71 files (70 passed, 1 sk
 - If the opener send times out after Meta actually delivered it, retries hit Meta's one-private-reply rule and the run ends FAILED (the person got the opener; a tap then falls to normal sorting). OpenReply has the same class of ambiguity.
 - An admin "re-subscribe webhooks" action (routes/admin.js, untouched) sends the base fields only and would drop `comments` for an allowlisted account until its next connect.
 - The poller reads only top-level comments and assumes the comment `from` field is returned for Instagram Login tokens (assumed from Meta docs; the webhook path does not depend on it).
+
+---
+
+## Gate 3 — frontend
+
+**Built**
+- `frontend/src/app/autodm/` — `layout.js` (metadata), `page.js` (list), `new/page.js`, `edit/page.js`, `runs/page.js`.
+- `frontend/src/app/components/autodm/` — `AutomationWizard.js`, `DmPreview.js`, `useAutoDmStatus.js`, `useAutoDmPage.js`, `copy.js`, `autodm.module.css`.
+- `frontend/src/lib/autodmApi.js` — Auto DM calls on the existing axios instance.
+
+**Screens**
+1. **Sidebar** — "Auto DM" under Messaging (after Notifications), shown only when GET /api/autodm/status says enabled + available; hidden on any error.
+2. **List (`/autodm`)** — subtitle; account picker when there is more than one connected account; one row per automation: name, post scope ("Any post" / "N selected posts"), trigger ("Any comment" / "Keywords: …"), Active/Paused toggle, five counts (Matched, DMs sent, Delivered, Waiting for follow, Failed), Run log / Edit / Delete (delete asks in a modal). "Create automation" in the top bar. Empty state: "No automations yet" + Create automation. Counts refresh live over Socket.io.
+3. **Reconnect state** — an account without the comments scope shows "Reconnect Instagram to enable Auto DM" with a button to the existing OAuth start (no builder, no create button). No connected account → "Connect Instagram first". Not allowlisted / feature off → "Auto DM is not available on your account yet".
+4. **Wizard (`/autodm/new`, `/autodm/edit`)** — step pills 1 Post · 2 Trigger · 3 Message · 4 Options (later steps unlock as you go; all open when editing). Post: name + Any post / Specific posts (grid of recent posts and reels from Instagram, multi-select). Trigger: Any comment / Keywords + exclude words. Message: first message (640 counter, "reply LINK" hint), button label, reply keyword, message with the link (640/900 counter), image upload (JPG/PNG ≤2 MB), link + button label. Options: follow gate (prompt, button label, final message), public replies (up to 3). Ends with **Save & activate** (new) or **Save changes** (edit). Live DM preview on the right (stacks below on narrow screens): opener bubble with its button, the tap, the follow prompt when on, the image, the link message with its button, and the desktop keyword note.
+5. **Run log (`/autodm/runs`)** — last 50 runs: commenter, comment (with "found by polling" when applicable), status badge (Queued, DM sent, Waiting for follow, Delivered, Not following, Failed, Expired) with a plain-language note (e.g. FAIL_OPEN, refused codes), what was sent (public reply, first DM, follow checks, image, link message), time. Refresh button + live refresh.
+
+**Existing files touched**
+| File | Change | Diff |
+|---|---|---|
+| `frontend/src/app/components/navItems.js` | `autodmEnabled` option + one conditional item `{ 'Auto DM', '/autodm', icon: 'send' }` | +4 / −1 |
+| `frontend/src/app/components/ui/AppShell.js` | import `useAutoDmStatus`; pass `autodmEnabled` to `buildNavItems` | +4 / −1 |
+
+**Checks** — `npm run lint`: 0 errors (the 24 warnings are all pre-existing `<img>` warnings in the landing page; new files have none). `npm run build`: passes; the four routes prerender. Browser check on an isolated local preview at 1100px, 711px and 375px: list, reconnect state, wizard (validation errors, Hindi keyword + text, `javascript:` link rejected, follow-gate fields, Save & activate creating a real row), edit prefill, run log, pause toggle, delete modal; no horizontal overflow at 375px; `[autodm]` server logs carried ids/statuses only.
+
+**Security checks** — no `dangerouslySetInnerHTML`; all user/comment text rendered as React text; images are our own public route or Instagram's CDN thumbnails from the media API (https-only filtered server-side); links are never rendered as clickable anchors in the app (preview shows the label only); server messages shown as plain text.
+
+**Risks** — button templates may not render on Instagram desktop; the wizard says so and the reply keyword covers it.
