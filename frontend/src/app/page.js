@@ -576,6 +576,10 @@ function LandingPageContent() {
       a: 'Siffty requests exactly two Instagram permissions, granted through Instagram’s official business login: instagram_business_basic and instagram_business_manage_messages. We never ask for your Instagram password.',
     },
     {
+      q: 'What is Auto DM?',
+      a: 'Auto DM sends a direct message to people who comment on your posts. You choose which posts and which keywords (or any comment), write the message and add your link, and Siffty sends each commenter a private reply once, through Instagram’s official API. You can require people to follow you before they get the link, and every reply is listed in a run log. Auto DM is being rolled out gradually.',
+    },
+    {
       q: 'Is automatic reply safe from infinite loops?',
       a: 'Yes. Siffty incorporates anti-loop guards, customer pacing delays, and a fail-closed architecture: if confidence is low or an anomaly is detected, it immediately hands the chat back to a human.',
     },
@@ -1327,6 +1331,48 @@ function LandingPageContent() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* SECTION 4 — AUTO DM (comment to DM) */}
+      <section className="autodm-section section-padding" id="auto-dm">
+        <div className="section-container">
+          <div className="section-header text-center">
+            <div className="section-eyebrow">
+              <span className="eyebrow-dot" />
+              <span>Auto DM</span>
+            </div>
+            <h2 className="section-title">Turn comments into conversations.</h2>
+            <p className="section-subtitle">
+              Ask people to comment a keyword on your post or reel. Siffty sends each of them a DM with your
+              link, once per person, through Instagram&apos;s official API. Your inbox sorting keeps working exactly as before.
+            </p>
+          </div>
+
+          <ol className="autodm-steps">
+            <li className="autodm-step">
+              <span className="autodm-step-num" aria-hidden="true">1</span>
+              <h3 className="autodm-step-title">Pick the posts and the keywords</h3>
+              <p className="autodm-step-text">
+                Any post, or only the ones you choose. Keywords match whole words in any language, including Hindi and Hinglish.
+              </p>
+            </li>
+            <li className="autodm-step">
+              <span className="autodm-step-num" aria-hidden="true">2</span>
+              <h3 className="autodm-step-title">They comment, Siffty replies in DM</h3>
+              <p className="autodm-step-text">
+                A private reply with a button to get the link. People on a computer can simply reply with your keyword.
+              </p>
+            </li>
+            <li className="autodm-step">
+              <span className="autodm-step-num" aria-hidden="true">3</span>
+              <h3 className="autodm-step-title">They get your link</h3>
+              <p className="autodm-step-text">
+                Optionally only after they follow you. Every reply shows up in a run log, so you can see exactly what was sent.
+              </p>
+            </li>
+          </ol>
+          <p className="autodm-note">Auto DM is being rolled out gradually.</p>
         </div>
       </section>
 

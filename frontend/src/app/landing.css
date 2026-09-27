@@ -4369,6 +4369,64 @@
    SECTION 6 — FAQ
    ========================================================================== */
 
+/* ---------- Auto DM (comment to DM) — flat surfaces, 1px borders, one accent ---------- */
+.autodm-section {
+  background: #ffffff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.autodm-steps {
+  list-style: none;
+  margin: 48px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+}
+
+.autodm-step {
+  background: #ffffff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 28px 26px;
+}
+
+.autodm-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #4169e1;
+  border-radius: 8px;
+  color: #4169e1;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.autodm-step-title {
+  margin: 16px 0 8px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-black);
+  letter-spacing: -0.01em;
+}
+
+.autodm-step-text {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--color-text-body);
+}
+
+.autodm-note {
+  margin: 24px 0 0;
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
 .faq-section {
   position: relative;
   background:
