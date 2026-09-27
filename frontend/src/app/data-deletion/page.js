@@ -9,7 +9,7 @@ export const metadata = {
   description: meta.dataDeletion.description,
 };
 
-const LAST_UPDATED = '11 September 2026';
+const LAST_UPDATED = '27 September 2026';
 
 const TOC_ITEMS = [
   { id: 'deletion-options', title: '1. Deletion Options' },
@@ -130,6 +130,7 @@ export default function DataDeletionPage() {
             <li>All contacts, conversations, and messages held for those accounts.</li>
             <li>All analysis results, conversation summaries, and extracted brand deal records.</li>
             <li>All draft replies, notifications, usage records, and stored webhook delivery logs.</li>
+            <li>All Auto DM automations, their uploaded images, and their run logs (the comments answered, commenter usernames and IDs, and what was sent).</li>
             <li>Sign-in tokens issued for password resets and email verification, your notification and automation preferences, and your trial/subscription record.</li>
           </ul>
 
@@ -138,6 +139,8 @@ export default function DataDeletionPage() {
               <strong>Important Difference:</strong> Deleting is not the same as disconnecting.
               <strong> Disconnecting</strong> an Instagram account stops Siffty processing new messages
               but keeps your history so it returns if you reconnect. <strong>Deleting</strong> erases it completely.
+              Auto DM data is the exception: its automations stop at once and all of its Auto DM data is
+              deleted within 24 hours of disconnecting.
             </p>
           </div>
         </div>

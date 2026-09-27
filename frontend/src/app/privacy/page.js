@@ -9,7 +9,7 @@ export const metadata = {
   description: meta.privacy.description,
 };
 
-const LAST_UPDATED = '11 September 2026';
+const LAST_UPDATED = '27 September 2026';
 
 const TOC_ITEMS = [
   { id: 'what-siffty-is', title: '1. What Siffty is' },
@@ -49,8 +49,10 @@ export default function PrivacyPolicyPage() {
           <p>
             Siffty is a tool for businesses and creators who receive direct messages on
             Instagram. With the account owner&apos;s authorisation, it reads incoming Instagram
-            direct messages, sorts them, and helps the owner reply. This policy describes what
-            data the service holds, why, who it is shared with, and how it is deleted.
+            direct messages, sorts them, and helps the owner reply. If the owner turns on
+            <strong> Auto DM</strong>, it also sends a direct message to people who comment on
+            the owner&apos;s posts. This policy describes what data the service holds, why, who
+            it is shared with, and how it is deleted.
           </p>
           <p>
             Siffty is operated by Siffty (proprietor: Mubassir Shah), based in India. Contact:{' '}
@@ -60,7 +62,9 @@ export default function PrivacyPolicyPage() {
             Two different groups of people appear in this policy. A <strong>customer</strong> is
             a business or creator who signs up for Siffty and connects an Instagram account.
             A <strong>message sender</strong> is anyone who sends a direct message to that
-            Instagram account. Message senders do not have Siffty accounts.
+            Instagram account, or who comments on its posts when Auto DM is on (a{' '}
+            <strong>commenter</strong>). Message senders and commenters do not have Siffty
+            accounts.
           </p>
         </div>
       </section>
@@ -128,6 +132,25 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>Where a message appears to describe a commercial collaboration, the structured details of that proposal.</li>
           </ul>
+          <p>
+            <strong>Auto DM (comment replies).</strong> When a connected account has Auto DM
+            switched on and someone comments on one of its posts, Siffty processes:
+          </p>
+          <ul>
+            <li>the comment text;</li>
+            <li>the commenter&apos;s Instagram username and Instagram-scoped ID;</li>
+            <li>the ID of the post or reel that was commented on;</li>
+            <li>
+              if the owner requires followers only, whether the commenter follows the account
+              at the moment Siffty checks.
+            </li>
+          </ul>
+          <p>
+            This is used only to deliver the automated reply the account owner set up — the
+            private reply to the comment, and the message with the owner&apos;s link. Auto DM
+            matches keywords itself; comments are never sent to Gemini or any other AI
+            service.
+          </p>
           <div className={styles.calloutBox}>
             <p>
               <strong>Message senders did not sign up for Siffty.</strong> Their data is
@@ -156,11 +179,15 @@ export default function PrivacyPolicyPage() {
               switched automatic sending on. New accounts default to manual replies only, and
               nothing is ever sent on a customer&apos;s behalf until they change that setting.
             </li>
+            <li>
+              To deliver the automated comment replies an account owner sets up with Auto DM
+              (see section 3), and to show the owner a log of what was sent.
+            </li>
             <li>To operate, secure, and debug the service.</li>
           </ul>
           <div className={styles.calloutBox}>
             <p>
-              <strong>No Data Selling:</strong> Siffty does not sell personal data and does not use message content for advertising.
+              <strong>No Data Selling:</strong> Siffty does not sell personal data — including comment data — and does not use message or comment content for advertising.
             </p>
           </div>
         </div>
@@ -213,8 +240,9 @@ export default function PrivacyPolicyPage() {
           <p>Data is shared only with:</p>
           <ul>
             <li>
-              <strong>Meta Platforms</strong> — to receive messages and to send replies through
-              the Instagram Graph API, under the permissions the account owner granted.
+              <strong>Meta Platforms</strong> — to receive messages and comments, and to send
+              replies through the Instagram Graph API, under the permissions the account owner
+              granted.
             </li>
             <li><strong>Google (Gemini)</strong> — as described in section 5.</li>
             <li><strong>Hosting and infrastructure providers</strong> — who store the data on Siffty&apos;s behalf.</li>
@@ -269,6 +297,15 @@ export default function PrivacyPolicyPage() {
               deletes their account.
             </li>
             <li>
+              <strong>Auto DM run logs</strong> — the comment text, commenter username and ID,
+              post ID and follow-check result recorded for each automated reply — are deleted
+              after <strong>90 days</strong>. All Auto DM data for an Instagram account
+              (automations, their images, and run logs) is deleted{' '}
+              <strong>within 24 hours of disconnecting</strong> that account, and immediately
+              when the account is purged, when Instagram sends a data deletion request for it,
+              or when the Siffty account is deleted.
+            </li>
+            <li>
               <strong>Trial-abuse record.</strong> To stop the same Instagram account from
               claiming repeated free trials, Siffty stores a one-way cryptographic hash of the
               Instagram account ID and the dates of trial use for up to 24 months after your
@@ -284,9 +321,11 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
           <p>
-            Disconnecting an Instagram account does not delete history — it stops Siffty
+            Disconnecting an Instagram account does not delete message history — it stops Siffty
             processing new messages while keeping past conversations so they reappear if the
-            account is reconnected. Deleting is a separate, explicit action.
+            account is reconnected. Deleting is a separate, explicit action. Auto DM data is the
+            exception: it stops at once and is deleted within 24 hours of disconnecting, as
+            described above.
           </p>
           <p>
             Removing Siffty from Instagram&apos;s settings is different from disconnecting:
@@ -311,8 +350,8 @@ export default function PrivacyPolicyPage() {
             from the profile page in the app, or by following the instructions on the{' '}
             <Link href="/data-deletion">data deletion page</Link>. Deletion removes the account,
             every connected Instagram account, and all contacts, conversations, messages,
-            analysis results, brand deal records, notifications, and webhook logs belonging to
-            them. It is immediate and cannot be undone. The only data kept afterwards is the
+            analysis results, brand deal records, notifications, webhook logs, and Auto DM
+            automations, images and run logs belonging to them. It is immediate and cannot be undone. The only data kept afterwards is the
             trial-abuse record described in section 8.
           </p>
           <p>
@@ -326,7 +365,8 @@ export default function PrivacyPolicyPage() {
           </p>
           <p>
             Message senders who want their data removed from a business&apos;s Siffty inbox
-            should contact that business, which controls the data. They may also contact
+            (or commenters, for Auto DM) should contact that business, which controls the
+            data. They may also contact
             Siffty at the address below and the request will be passed on.
           </p>
           <p>

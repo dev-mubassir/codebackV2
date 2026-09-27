@@ -9,22 +9,23 @@ export const metadata = {
   description: meta.terms.description,
 };
 
-const LAST_UPDATED = '25 September 2026';
+const LAST_UPDATED = '27 September 2026';
 
 const TOC_ITEMS = [
   { id: 'agreement', title: '1. Agreement' },
   { id: 'service-scope', title: '2. What the service does' },
   { id: 'instagram-meta', title: "3. Your Instagram account & Meta's terms" },
   { id: 'automated-replies', title: '4. Automated replies' },
-  { id: 'output-guarantee', title: '5. Automated output is not guaranteed' },
-  { id: 'plans-credits-payments', title: '6. Plans, credits and payments' },
-  { id: 'acceptable-use', title: '7. Acceptable use' },
-  { id: 'your-data', title: '8. Your data' },
-  { id: 'availability', title: '9. Availability' },
-  { id: 'liability', title: '10. Liability' },
-  { id: 'termination', title: '11. Termination' },
-  { id: 'governing-law', title: '12. Governing law' },
-  { id: 'changes', title: '13. Changes' },
+  { id: 'auto-dm', title: '5. Auto DM (comment replies)' },
+  { id: 'output-guarantee', title: '6. Automated output is not guaranteed' },
+  { id: 'plans-credits-payments', title: '7. Plans, credits and payments' },
+  { id: 'acceptable-use', title: '8. Acceptable use' },
+  { id: 'your-data', title: '9. Your data' },
+  { id: 'availability', title: '10. Availability' },
+  { id: 'liability', title: '11. Liability' },
+  { id: 'termination', title: '12. Termination' },
+  { id: 'governing-law', title: '13. Governing law' },
+  { id: 'changes', title: '14. Changes' },
 ];
 
 export default function TermsPage() {
@@ -71,7 +72,8 @@ export default function TermsPage() {
           <p>
             Siffty connects to an Instagram professional account you control, receives direct
             messages sent to it, organises them, and helps you reply — including by generating
-            draft replies with automated assistance.
+            draft replies with automated assistance. With <strong>Auto DM</strong> switched on,
+            it can also send a direct message to people who comment on your posts (section 5).
           </p>
         </div>
       </section>
@@ -143,11 +145,52 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 5. Automated output is not guaranteed */}
-      <section id="output-guarantee" className={styles.contentCard}>
+      {/* 5. Auto DM (comment replies) */}
+      <section id="auto-dm" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
             <span className={styles.sectionNumber}>5</span>
+            Auto DM (comment replies)
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
+          <p>
+            Auto DM sends a private reply, and then a message with your link, to people who
+            comment on your Instagram posts according to rules you set. It is off until you
+            create and activate an automation.
+          </p>
+          <ul>
+            <li>
+              <strong>Your content.</strong> You own, and are responsible for, every message,
+              image and link your automations send. Siffty sends them from your Instagram
+              account, as you.
+            </li>
+            <li>
+              <strong>Platform rules.</strong> You must follow Instagram&apos;s Community
+              Guidelines and Meta&apos;s Platform Terms and Developer Policies when you use Auto
+              DM, including Meta&apos;s limits on private replies (one per comment, within
+              7 days).
+            </li>
+            <li>
+              <strong>No spam or misleading links.</strong> Do not use Auto DM to send spam,
+              unsolicited promotions unrelated to the comment, misleading or deceptive links,
+              malware, or anything unlawful, and do not promise people something the link does
+              not deliver.
+            </li>
+            <li>
+              <strong>Enforcement.</strong> Siffty may pause or remove an automation, or
+              suspend Auto DM for an account, that breaks these rules or puts the Instagram
+              account or Siffty&apos;s access to Meta at risk.
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      {/* 6. Automated output is not guaranteed */}
+      <section id="output-guarantee" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>6</span>
             Automated output is not guaranteed
           </h2>
         </div>
@@ -162,11 +205,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 6. Plans, credits and payments */}
+      {/* 7. Plans, credits and payments */}
       <section id="plans-credits-payments" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>6</span>
+            <span className={styles.sectionNumber}>7</span>
             Plans, credits and payments
           </h2>
         </div>
@@ -201,11 +244,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 7. Acceptable use */}
+      {/* 8. Acceptable use */}
       <section id="acceptable-use" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>7</span>
+            <span className={styles.sectionNumber}>8</span>
             Acceptable use
           </h2>
         </div>
@@ -223,11 +266,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 8. Your data */}
+      {/* 9. Your data */}
       <section id="your-data" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>8</span>
+            <span className={styles.sectionNumber}>9</span>
             Your data
           </h2>
         </div>
@@ -244,11 +287,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 9. Availability */}
+      {/* 10. Availability */}
       <section id="availability" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>9</span>
+            <span className={styles.sectionNumber}>10</span>
             Availability
           </h2>
         </div>
@@ -261,11 +304,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 10. Liability */}
+      {/* 11. Liability */}
       <section id="liability" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>10</span>
+            <span className={styles.sectionNumber}>11</span>
             Liability
           </h2>
         </div>
@@ -279,11 +322,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 11. Termination */}
+      {/* 12. Termination */}
       <section id="termination" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>11</span>
+            <span className={styles.sectionNumber}>12</span>
             Termination
           </h2>
         </div>
@@ -298,11 +341,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 12. Governing law */}
+      {/* 13. Governing law */}
       <section id="governing-law" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>12</span>
+            <span className={styles.sectionNumber}>13</span>
             Governing law
           </h2>
         </div>
@@ -314,11 +357,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 13. Changes */}
+      {/* 14. Changes */}
       <section id="changes" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>13</span>
+            <span className={styles.sectionNumber}>14</span>
             Changes
           </h2>
         </div>

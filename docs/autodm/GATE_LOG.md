@@ -129,3 +129,20 @@ Baseline (Gate 0, on code identical to origin/master): 71 files (70 passed, 1 sk
 **Security checklist** — re-verified by the tests above (tenant isolation, spoofed taps, validation limits, upload types/sizes/headers, Meta errors not leaked, kill switch inert).
 
 **Risks** — unchanged from Gate 2/3. The manual test is the only place Meta's real behaviour (postback delivery with our field set, desktop rendering, `recipient_id`) is proven.
+
+---
+
+## Gate 5 — legal pages and landing
+
+**Existing files touched**
+| File | Change | Diff |
+|---|---|---|
+| `frontend/src/app/privacy/page.js` | Auto DM disclosures in §1, §3, §4, §6, §8 (incl. "within 24 hours of disconnecting"), §9; never-sold callout covers comment data; last updated 27 Sep 2026 | +51 / −13 |
+| `frontend/src/app/terms/page.js` | new §5 Auto DM (ownership, Community Guidelines + Meta Platform Terms, no spam/misleading links, Siffty may pause); §2 mention; later sections renumbered 6–14; last updated 27 Sep 2026 | +72 / −29 |
+| `frontend/src/app/data-deletion/page.js` | Auto DM automations/images/run logs in "what gets deleted"; disconnect exception; last updated | +4 / −1 |
+| `frontend/src/app/page.js` | one Auto DM section (3 steps, rolling-out note) + one FAQ entry "What is Auto DM?" | +46 / −0 |
+| `frontend/src/app/landing.css` | `.autodm-*` styles only (flat, 1px borders, Royal Blue accent, no gradient/shadow) | +58 / −0 |
+
+**Checks** — `npm run lint`: 0 errors; `npm run build`: passes; backend tests that read these pages (`landing-pricing-seed`, `contact-endpoint`, `refund-policy-page`): 29/29. Landing section viewed in the browser: renders, no horizontal overflow.
+
+**Risks** — pre-existing: Privacy §7 hosting location (United States vs Delhi) and the landing FAQ's permission list are out of date; raised as a separate task, not changed here.
