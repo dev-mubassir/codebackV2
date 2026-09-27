@@ -9,7 +9,7 @@ import { resetDb, createUser } from './helpers/db.js';
 import autodm from '../src/features/autodm/index.js';
 import config from '../src/features/autodm/config.js';
 
-const FLAGS = ['AUTODM_ENABLED', 'AUTODM_SCOPE_ALLOWLIST', 'AUTODM_SCOPE_ALL', 'AUTODM_POLL_FALLBACK'];
+const FLAGS = ['AUTODM_ENABLED', 'AUTODM_SCOPE_ALLOWLIST', 'AUTODM_SCOPE_ALL', 'AUTODM_POLL_MODE'];
 let saved;
 let app;
 let ipSeq = 0;
@@ -42,7 +42,7 @@ afterEach(() => {
 describe('config flags', () => {
   it('everything is off by default', () => {
     expect(config.isEnabled()).toBe(false);
-    expect(config.isPollFallbackEnabled()).toBe(false);
+    expect(config.pollMode()).toBe('off');
     expect(config.isScopeAllowed('a@b.co')).toBe(false);
   });
 
@@ -63,11 +63,17 @@ describe('config flags', () => {
     expect(config.isScopeAllowed('anyone@x.io')).toBe(true);
   });
 
-  it('the poll fallback needs the kill switch too', () => {
-    process.env.AUTODM_POLL_FALLBACK = 'true';
-    expect(config.isPollFallbackEnabled()).toBe(false);
+  it('poll mode: off while disabled, allowlist by default, all/off on request, unknown = off', () => {
+    process.env.AUTODM_POLL_MODE = 'all';
+    expect(config.pollMode()).toBe('off'); // kill switch still off
     process.env.AUTODM_ENABLED = 'true';
-    expect(config.isPollFallbackEnabled()).toBe(true);
+    expect(config.pollMode()).toBe('all');
+    delete process.env.AUTODM_POLL_MODE;
+    expect(config.pollMode()).toBe('allowlist');
+    process.env.AUTODM_POLL_MODE = 'OFF';
+    expect(config.pollMode()).toBe('off');
+    process.env.AUTODM_POLL_MODE = 'sometimes';
+    expect(config.pollMode()).toBe('off');
   });
 });
 

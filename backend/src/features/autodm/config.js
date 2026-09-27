@@ -14,17 +14,26 @@
  *                          and subscribes the `comments` webhook field.
  *   AUTODM_SCOPE_ALL       true = every user is on the allowlist (after Meta
  *                          App Review approval).
- *   AUTODM_POLL_FALLBACK   insurance for missing comment webhooks: poll the
- *                          comments of active automations' media every 30s
- *                          (allowlisted accounts only). Default false.
+ *   AUTODM_POLL_MODE       off | allowlist | all (default allowlist). The
+ *                          comment poller — insurance for comment webhooks
+ *                          Meta never sends: every 2 minutes it reads recent
+ *                          comments on active automations' posts and feeds
+ *                          them to the same intake (unique commentId dedupes).
+ *                          `allowlist` = only accounts whose owner is on the
+ *                          scope allowlist; `all` = every account with the
+ *                          comments scope (after approval). Any other value
+ *                          is treated as `off`.
  */
 
 const COMMENTS_SCOPE = 'instagram_business_manage_comments';
 
 // The existing per-account webhook fields (lib/instagram.js subscribeToWebhooks),
-// plus `comments`. Sent in a SECOND subscribed_apps call, allowlisted users only.
+// plus `comments` and `messaging_postbacks` (the opener's button tap). Sent in a
+// SECOND subscribed_apps call, allowlisted users only. If Meta refuses that set,
+// the call is retried once without messaging_postbacks.
 const BASE_FIELDS = 'messages,message_reactions,messaging_seen';
-const EXTENDED_FIELDS = `${BASE_FIELDS},comments`;
+const EXTENDED_FIELDS = `${BASE_FIELDS},comments,messaging_postbacks`;
+const EXTENDED_FIELDS_NO_POSTBACKS = `${BASE_FIELDS},comments`;
 
 function flag(name) {
   return String(process.env[name] || '').trim().toLowerCase() === 'true';
@@ -38,8 +47,13 @@ function isScopeAll() {
   return flag('AUTODM_SCOPE_ALL');
 }
 
-function isPollFallbackEnabled() {
-  return isEnabled() && flag('AUTODM_POLL_FALLBACK');
+/** 'off' | 'allowlist' | 'all' — always 'off' while the kill switch is off. */
+function pollMode() {
+  if (!isEnabled()) return 'off';
+  const raw = process.env.AUTODM_POLL_MODE;
+  if (raw === undefined || String(raw).trim() === '') return 'allowlist';
+  const v = String(raw).trim().toLowerCase();
+  return v === 'allowlist' || v === 'all' ? v : 'off';
 }
 
 let cachedRaw = null;
@@ -59,6 +73,12 @@ function allowlist() {
   return cachedSet;
 }
 
+/** On the explicit email list (ignores AUTODM_SCOPE_ALL) — poll mode `allowlist`. */
+function isOnAllowlist(email) {
+  if (typeof email !== 'string' || !email.trim()) return false;
+  return allowlist().has(email.trim().toLowerCase());
+}
+
 /**
  * May this Siffty user use Auto DM (and be asked for the comments scope)?
  * Always false while the kill switch is off.
@@ -66,16 +86,17 @@ function allowlist() {
 function isScopeAllowed(email) {
   if (!isEnabled()) return false;
   if (isScopeAll()) return true;
-  if (typeof email !== 'string' || !email.trim()) return false;
-  return allowlist().has(email.trim().toLowerCase());
+  return isOnAllowlist(email);
 }
 
 module.exports = {
   COMMENTS_SCOPE,
   BASE_FIELDS,
   EXTENDED_FIELDS,
+  EXTENDED_FIELDS_NO_POSTBACKS,
   isEnabled,
   isScopeAll,
-  isPollFallbackEnabled,
+  pollMode,
+  isOnAllowlist,
   isScopeAllowed,
 };

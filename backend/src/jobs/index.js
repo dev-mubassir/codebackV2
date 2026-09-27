@@ -87,6 +87,9 @@ const JOBS = [
   // Admin threshold alerts. First tick a full interval after boot: a fresh
   // process has no recent data, and a deploy should not page anyone.
   { name: 'admin_alerts', intervalMs: 5 * MIN, fn: () => runAlertChecks(), firstTickMs: 5 * MIN },
+  // Auto DM retention: 90-day runs, orphan uploads, and disconnected accounts'
+  // Auto DM data (every 6h keeps "within 24 hours of disconnecting").
+  { name: 'autodm_cleanup', intervalMs: 6 * HOUR, fn: () => require('../features/autodm').runCleanup() },
 ];
 
 let started = false;
@@ -116,6 +119,9 @@ function startWorkers() {
       { concurrency: 5 }
     );
 
+    // Auto DM queue loop (idles while AUTODM_ENABLED is off).
+    require('../features/autodm').startLoop();
+
     if (schedulerEnabled()) {
       for (const job of JOBS) schedule(job);
       console.log(`[Jobs] In-process scheduler ON: ${JOBS.length} jobs, each once per interval across all instances.`);
@@ -135,6 +141,7 @@ function startWorkers() {
  * what it holds, close the scheduler's lock connections.
  */
 async function stopWorkers() {
+  await require('../features/autodm').stopLoop();
   stopScheduler();
   await closeQueues();
   await closeLockPool();
