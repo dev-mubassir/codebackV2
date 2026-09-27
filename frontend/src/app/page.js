@@ -573,7 +573,7 @@ function LandingPageContent() {
     },
     {
       q: 'What permissions are required?',
-      a: 'Siffty only requires standard Instagram messaging and profile read scopes (instagram_basic, instagram_manage_messages, pages_manage_metadata) authorized via official Facebook login.',
+      a: 'Siffty requests exactly two Instagram permissions, granted through Instagram’s official business login: instagram_business_basic and instagram_business_manage_messages. We never ask for your Instagram password.',
     },
     {
       q: 'Is automatic reply safe from infinite loops?',

@@ -37,6 +37,9 @@ module.exports = {
   connectScopeOptions: connect.connectScopeOptions,
   afterInstagramConnect: connect.afterInstagramConnect,
 
+  // routes/admin.js (re-subscribe webhooks)
+  afterAdminResubscribe: connect.afterAdminResubscribe,
+
   // jobs/index.js
   startLoop: worker.startLoop,
   stopLoop: worker.stopLoop,

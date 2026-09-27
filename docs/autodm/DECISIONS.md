@@ -97,3 +97,13 @@ One line per judgment call, with the reason. Order of preference when unsure:
 - The screencast script includes the poll-fallback variant for recording before comment webhooks are delivered.
 - Reviewer instructions use placeholders; no credentials are written to the repo.
 - /tmp/openreply is left in place (outside the repo) for reference; it is not used by the build.
+
+## Gate 7 (pre-merge fixes)
+- Landing commit moved off `feature/autodm` with a non-interactive `git rebase --onto` (local, unpushed branch). A local tag `autodm-pre-gate7` keeps the old tip. The landing work now lives on `feature/autodm-landing`, rebuilt on top of `feature/autodm`.
+- Poller lock: reuses the scheduler's own exported `runIfDue()` (jobs/scheduler.js) — same advisory-lock pool (no new DB connections), a due-check inside the lock (so a second pod that gets the lock right after the first finishes skips too), and a `job_runs` row `autodm_poll` every sweep (visible on Admin → Health, pruned after 30 days like `webhook_recovery`). No change to scheduler.js.
+- Admin re-subscribe: one line in routes/admin.js after the default subscribe succeeds, calling `autodm.afterAdminResubscribe()`, which does the extended call only for an account whose Auto DM state says comments granted (same owner) AND whose owner has Auto DM access; never throws; no-op otherwise, so the admin action is byte-identical for everyone else.
+- OPENER_UNCONFIRMED = no HTTP response AND a code meaning the request may have reached Meta (ECONNABORTED/axios timeout, ETIMEDOUT, ECONNRESET, EPIPE, socket hang up). A connection that never happened (ENOTFOUND, ECONNREFUSED) keeps the normal retry — nothing was sent. A Meta error WITH a response keeps the existing backoff.
+- An unconfirmed run stores the comment's `from.id` as a provisional igsid (LINK replies match it). A GET tap carrying the unguessable run id — seen only by the opener's recipient — binds the tapper as the igsid and moves the run to OPENER_SENT; FOLLOWED taps and other run ids never bind.
+- Unconfirmed openers count toward the hourly private-reply cap (they probably went out).
+- Privacy §7 now says: hosted in India; Meta, Google (Gemini) and Resend may process data outside India. Flagged, NOT changed: §6 "Sharing" still does not list Resend (email) or Cashfree (payments) as processors; whether Northflank backups sit in the same India region is not verified from the repo.
+- Landing FAQ "What permissions are required?" now lists exactly instagram_business_basic and instagram_business_manage_messages (on `feature/autodm`); `feature/autodm-landing` adds instagram_business_manage_comments.

@@ -261,10 +261,10 @@ export default function PrivacyPolicyPage() {
         </div>
         <div className={styles.cardBody}>
           <p>
-            Siffty&apos;s service and database are hosted in the United States. Gemini,
-            described in section 5, may process content in other countries. If you use
-            Siffty from outside the United States, your data is transferred to, and stored in,
-            the United States.
+            Siffty&apos;s service and database are hosted in India. The third-party
+            processors Siffty uses — Meta (Instagram), Google (Gemini, described in section 5)
+            and Resend (email delivery) — may process data outside India. If you use Siffty
+            from outside India, your data is transferred to, and stored in, India.
           </p>
         </div>
       </section>

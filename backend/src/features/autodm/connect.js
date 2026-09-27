@@ -9,6 +9,7 @@ const prisma = require('../../lib/prisma');
 const config = require('./config');
 const graph = require('./graph');
 const log = require('./log');
+const { hasAutoDmAccess } = require('./access');
 
 /**
  * Options for lib/instagram.getAuthorizationUrl(). `undefined` for anyone not
@@ -77,4 +78,34 @@ async function subscribeExtended(igUserId, accessToken) {
   return null;
 }
 
-module.exports = { connectScopeOptions, afterInstagramConnect };
+/**
+ * The admin panel's "re-subscribe webhooks" (routes/admin.js) sends the
+ * default field set, which would silently drop `comments`. Right after that
+ * call succeeds, an account that holds the comments scope AND whose owner has
+ * Auto DM access gets the extended call too. Everyone else: nothing happens,
+ * so the admin action stays byte-identical. Never throws.
+ */
+async function afterAdminResubscribe(account, accessToken) {
+  try {
+    if (!config.isEnabled() || !account || !accessToken) return false;
+    const state = await prisma.autoDmAccountState.findUnique({
+      where: { instagramAccountId: account.id },
+      select: { commentsGranted: true, userId: true },
+    });
+    if (!state || !state.commentsGranted || state.userId !== account.userId) return false;
+    const owner = await prisma.user.findUnique({ where: { id: account.userId }, select: { id: true, email: true } });
+    if (!(await hasAutoDmAccess(owner))) return false;
+
+    const at = await subscribeExtended(account.igUserId, accessToken);
+    if (at) {
+      await prisma.autoDmAccountState.update({ where: { instagramAccountId: account.id }, data: { commentsSubscribedAt: at } });
+    }
+    log.info(`account ${account.id}: admin re-subscribe ${at ? 'restored' : 'could not restore'} the comments field`);
+    return Boolean(at);
+  } catch (err) {
+    log.error(`admin re-subscribe hook failed (${err && err.code ? err.code : graph.safeErrorCode(err)})`);
+    return false;
+  }
+}
+
+module.exports = { connectScopeOptions, afterInstagramConnect, afterAdminResubscribe, subscribeExtended };

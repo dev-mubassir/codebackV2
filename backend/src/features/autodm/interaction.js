@@ -37,9 +37,12 @@ const KEYWORD_MAX = 20;
 
 // Which run statuses a tap may move forward.
 const CLAIMABLE = {
-  GET: ['OPENER_SENT', 'AWAITING_FOLLOW'],
+  GET: ['OPENER_SENT', 'AWAITING_FOLLOW', 'OPENER_UNCONFIRMED'],
   FOLLOWED: ['AWAITING_FOLLOW'],
 };
+
+// Statuses the reply keyword (LINK) can act on.
+const KEYWORD_STATUSES = ['OPENER_SENT', 'AWAITING_FOLLOW', 'OPENER_UNCONFIRMED'];
 
 function isAutoDmPayload(payload) {
   return typeof payload === 'string' && payload.startsWith('AUTODM:');
@@ -62,18 +65,28 @@ function senderOf(account, event) {
  * transaction. A verified tap on a run that is busy or already finished still
  * counts as ours (true) but changes nothing — a double tap never re-sends.
  */
-async function claim({ account, runId, sender, action, messageId }) {
+async function claim({ account, runId, sender, action, messageId, bindSender = false }) {
   const claimed = await prisma.$transaction(async (tx) => {
     const res = await tx.autoDmRun.updateMany({
-      where: {
-        id: runId,
-        instagramAccountId: account.id,
-        userId: account.userId,
-        igsid: sender,
-        status: { in: CLAIMABLE[action] },
-        pendingAction: null,
+      where: bindSender
+        ? // OPENER_UNCONFIRMED: the tap proves the opener arrived, and to whom.
+          { id: runId, instagramAccountId: account.id, userId: account.userId, status: 'OPENER_UNCONFIRMED', pendingAction: null }
+        : {
+            id: runId,
+            instagramAccountId: account.id,
+            userId: account.userId,
+            igsid: sender,
+            status: { in: CLAIMABLE[action] },
+            pendingAction: null,
+          },
+      data: {
+        pendingAction: action,
+        nextAttemptAt: new Date(),
+        attempts: 0,
+        claimedAt: null,
+        lastError: null,
+        ...(bindSender ? { igsid: sender, status: 'OPENER_SENT', openerSentAt: new Date() } : {}),
       },
-      data: { pendingAction: action, nextAttemptAt: new Date(), attempts: 0, claimedAt: null, lastError: null },
     });
     if (messageId) {
       await tx.message.update({ where: { id: messageId }, data: { aiStatus: 'autodm' } });
@@ -95,15 +108,23 @@ async function handlePayloadTap(account, sender, payload, messageId) {
 
   // Ownership: this account, this tenant, this sender. One query decides all
   // three, so a foreign run id and a wrong sender look identical (no oracle).
+  // Exception: an OPENER_UNCONFIRMED run never learned its recipient's id
+  // (Meta's answer was lost), so a GET tap carrying its unguessable run id —
+  // which only the opener's recipient ever saw — binds the tapper to it.
   const run = await prisma.autoDmRun.findFirst({
-    where: { id: runId, instagramAccountId: account.id, userId: account.userId, igsid: sender },
-    select: { id: true },
+    where: {
+      id: runId,
+      instagramAccountId: account.id,
+      userId: account.userId,
+      OR: [{ igsid: sender }, ...(action === 'GET' ? [{ status: 'OPENER_UNCONFIRMED' }] : [])],
+    },
+    select: { id: true, status: true },
   });
   if (!run) {
     log.warn(`tap for run ${runId} rejected: not this account's run or not its recipient (account ${account.id})`);
     return false;
   }
-  return claim({ account, runId, sender, action, messageId });
+  return claim({ account, runId, sender, action, messageId, bindSender: run.status === 'OPENER_UNCONFIRMED' });
 }
 
 /** Text reply equal to the fallback keyword. */
@@ -113,7 +134,7 @@ async function handleKeyword(account, sender, text, messageId) {
       instagramAccountId: account.id,
       userId: account.userId,
       igsid: sender,
-      status: { in: ['OPENER_SENT', 'AWAITING_FOLLOW'] },
+      status: { in: KEYWORD_STATUSES },
     },
     select: { id: true, status: true, automation: { select: { fallbackKeyword: true } } },
     orderBy: { openerSentAt: 'desc' },
@@ -123,7 +144,7 @@ async function handleKeyword(account, sender, text, messageId) {
   const run = runs.find((r) => r.automation && normalizeText(r.automation.fallbackKeyword) === wanted);
   if (!run) return false;
   const action = run.status === 'AWAITING_FOLLOW' ? 'FOLLOWED' : 'GET';
-  return claim({ account, runId: run.id, sender, action, messageId });
+  return claim({ account, runId: run.id, sender, action, messageId, bindSender: run.status === 'OPENER_UNCONFIRMED' });
 }
 
 /**

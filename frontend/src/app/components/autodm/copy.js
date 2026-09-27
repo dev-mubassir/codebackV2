@@ -171,6 +171,7 @@ export const autodm = {
 export const RUN_STATUS = {
   QUEUED: { label: 'Queued', tone: 'neutral' },
   OPENER_SENT: { label: 'DM sent', tone: 'accent' },
+  OPENER_UNCONFIRMED: { label: 'DM not confirmed', tone: 'neutral' },
   AWAITING_FOLLOW: { label: 'Waiting for follow', tone: 'accent' },
   DELIVERED: { label: 'Delivered', tone: 'success' },
   NOT_FOLLOWING: { label: 'Not following', tone: 'neutral' },
@@ -182,6 +183,7 @@ export const RUN_STATUS = {
 export function runNote(code) {
   if (!code) return null;
   if (code === 'FAIL_OPEN') return 'Follow status unavailable, so the link was sent anyway.';
+  if (code === 'OPENER_UNCONFIRMED') return "Instagram didn't confirm the first DM. It is not resent (one private reply per comment); a tap or keyword reply still works.";
   if (code === 'ACCOUNT_DISCONNECTED') return 'The Instagram account was disconnected.';
   if (code === 'NO_TOKEN' || code.startsWith('META_190')) return 'Instagram needs to be reconnected.';
   if (code === 'NO_RECIPIENT') return 'Instagram did not confirm who received the first DM.';

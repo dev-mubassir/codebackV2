@@ -156,3 +156,22 @@ Baseline (Gate 0, on code identical to origin/master): 71 files (70 passed, 1 sk
 **Existing files touched**: none in this gate.
 
 **Final state**: 7 local commits on `feature/autodm` (gates 1, 2, 3, 4, 5 legal, 5 landing, 6), nothing pushed. Full suite at Gate 4: 927 tests — 915 passed, 12 skipped, 0 failed (baseline 794/12/0 + 121 new). Frontend lint 0 errors, build passes.
+
+---
+
+## Gate 7 — pre-merge fixes
+
+**Built / changed** (Auto DM module): poller sweeps through the scheduler's locked `runIfDue` (once across pods); `afterAdminResubscribe` hook; OPENER_UNCONFIRMED (graph `isUnconfirmedSendError`, worker, tap/keyword binding); new `access.js` (`hasAutoDmAccess`, extended in Gate 8); run-log label "DM not confirmed". Tests: `tests/autodm-gate7.test.js` (9).
+
+**Existing files touched**
+| File | Change | Diff |
+|---|---|---|
+| `backend/src/routes/admin.js` | resubscribe route: one `autodm.afterAdminResubscribe(...)` call (+ comment) after the default subscribe succeeds | +2 / −0 |
+| `frontend/src/app/privacy/page.js` | §7: hosted in India; Meta, Google (Gemini), Resend may process data outside India | +4 / −4 |
+| `frontend/src/app/page.js` | FAQ "What permissions are required?" lists exactly the two scopes requested today | +1 / −1 |
+
+**Branches**: landing commit removed from `feature/autodm` (rebase); `feature/autodm-landing` created from `feature/autodm` with the landing commit + a FAQ commit adding `instagram_business_manage_comments`.
+
+**Tests**: full suite **81 files (80 passed, 1 skipped); 936 tests: 924 passed, 12 skipped, 0 failed** — previous run 915/12/0 + 9 new.
+
+**Flagged (not changed)**: Privacy §6 doesn't name Resend or Cashfree; backup region unverified.

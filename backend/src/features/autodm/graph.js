@@ -66,6 +66,20 @@ function isRejectedParam(err) {
   return Boolean(meta && Number(meta.code) === 100);
 }
 
+/**
+ * A send whose outcome is UNKNOWN: the request may have reached Meta but no
+ * answer came back (timeout, connection reset mid-request). Distinct from a
+ * connection that was never made (DNS failure, refused), where nothing was
+ * sent and a retry is safe.
+ */
+const UNCONFIRMED_CODES = new Set(['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'ERR_SOCKET_CONNECTION_TIMEOUT']);
+
+function isUnconfirmedSendError(err) {
+  if (!err || err.response) return false;
+  if (UNCONFIRMED_CODES.has(err.code)) return true;
+  return /socket hang up|timeout/i.test(String(err.message || ''));
+}
+
 function autodmError(code) {
   const e = new Error(code);
   e.autodmCode = code;
@@ -210,6 +224,7 @@ module.exports = {
   safeErrorCode,
   isRateLimitError,
   isRejectedParam,
+  isUnconfirmedSendError,
   sendPrivateReply,
   sendPrivateReplyWithButton,
   replyToComment,

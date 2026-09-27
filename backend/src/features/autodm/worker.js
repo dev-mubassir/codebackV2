@@ -13,6 +13,10 @@
  *             template with ONE postback button (AUTODM:<id>:GET); if Meta
  *             rejects the template, plain text (which names the LINK
  *             keyword) → OPENER_SENT, igsid stored from recipient_id.
+ *             A timeout / connection reset during that send → the reply may
+ *             have gone out, and Meta allows only ONE per comment, so it is
+ *             never retried: OPENER_UNCONFIRMED (igsid provisionally the
+ *             commenter id). A later tap or keyword reply still works.
  *   GET       follow gate off → main message. On → follow check.
  *   FOLLOWED  follow check again.
  *   follow check: true → main message; false → follow prompt (postback
@@ -152,7 +156,10 @@ async function withTextFallback(sendTemplate, sendPlain) {
 async function throttled(run) {
   const since = new Date(Date.now() - 60 * 60 * 1000);
   const sent = await prisma.autoDmRun.count({
-    where: { instagramAccountId: run.instagramAccountId, openerSentAt: { gte: since } },
+    where: {
+      instagramAccountId: run.instagramAccountId,
+      OR: [{ openerSentAt: { gte: since } }, { status: 'OPENER_UNCONFIRMED', updatedAt: { gte: since } }],
+    },
   });
   return sent >= PRIVATE_REPLIES_PER_HOUR;
 }
@@ -188,10 +195,19 @@ async function doOpener(run, token) {
   }
 
   const label = a.openerButtonLabel || DEFAULT_OPENER_BUTTON;
-  const res = await withTextFallback(
-    () => graph.sendPrivateReplyWithButton(run.commentId, a.openerText, label, payloadFor(run, 'GET'), token),
-    () => graph.sendPrivateReply(run.commentId, { text: a.openerText }, token)
-  );
+  let res;
+  try {
+    res = await withTextFallback(
+      () => graph.sendPrivateReplyWithButton(run.commentId, a.openerText, label, payloadFor(run, 'GET'), token),
+      () => graph.sendPrivateReply(run.commentId, { text: a.openerText }, token)
+    );
+  } catch (err) {
+    if (!graph.isUnconfirmedSendError(err)) throw err;
+    // It may have been delivered; a second private reply to this comment would
+    // be refused (or worse, duplicated). Stop here, keep the run tappable.
+    log.warn(`run ${run.id}: opener outcome unknown (${graph.safeErrorCode(err)}); not retried`);
+    return finish(run, 'OPENER_UNCONFIRMED', { igsid: run.commenterId, lastError: 'OPENER_UNCONFIRMED' });
+  }
 
   const recipient = res && res.recipient_id != null ? String(res.recipient_id) : null;
   if (!recipient) log.warn(`run ${run.id}: Meta returned no recipient_id; using the commenter id`);
