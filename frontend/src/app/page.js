@@ -573,7 +573,7 @@ function LandingPageContent() {
     },
     {
       q: 'What permissions are required?',
-      a: 'Siffty requests exactly two Instagram permissions, granted through Instagram’s official business login: instagram_business_basic and instagram_business_manage_messages. We never ask for your Instagram password.',
+      a: 'Siffty requests instagram_business_basic and instagram_business_manage_messages, granted through Instagram’s official business login. If you use Auto DM, it also asks for instagram_business_manage_comments so it can reply to comments on your own posts. We never ask for your Instagram password.',
     },
     {
       q: 'What is Auto DM?',
