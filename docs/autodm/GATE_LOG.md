@@ -146,3 +146,13 @@ Baseline (Gate 0, on code identical to origin/master): 71 files (70 passed, 1 sk
 **Checks** — `npm run lint`: 0 errors; `npm run build`: passes; backend tests that read these pages (`landing-pricing-seed`, `contact-endpoint`, `refund-policy-page`): 29/29. Landing section viewed in the browser: renders, no horizontal overflow.
 
 **Risks** — pre-existing: Privacy §7 hosting location (United States vs Delhi) and the landing FAQ's permission list are out of date; raised as a separate task, not changed here.
+
+---
+
+## Gate 6 — release
+
+**Built**: `docs/autodm/RELEASE.md` — merge checklist, Northflank variables per stage (A dark → B owner → C approved), post-deploy smoke test proving sorting is unchanged (flag off, then flag on), rollback table (flag off + restart; redeploy the previous build if pods crash-loop; never drop the migration), the human Meta steps in order, and the App Review draft for `instagram_business_manage_comments` (usage description, ~3-minute screencast script with a poll-fallback variant, reviewer test instructions with placeholders), plus known risks.
+
+**Existing files touched**: none in this gate.
+
+**Final state**: 7 local commits on `feature/autodm` (gates 1, 2, 3, 4, 5 legal, 5 landing, 6), nothing pushed. Full suite at Gate 4: 927 tests — 915 passed, 12 skipped, 0 failed (baseline 794/12/0 + 121 new). Frontend lint 0 errors, build passes.

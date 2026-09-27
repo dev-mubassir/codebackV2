@@ -89,3 +89,11 @@ One line per judgment call, with the reason. Order of preference when unsure:
 - Landing: one section ("SECTION 4 — AUTO DM", the numbering already skipped 4) and one FAQ entry; no pricing change, no "unlimited" claim. Both say "Auto DM is being rolled out gradually" — the page is public while the feature is allowlist-only, and the landing must not promise something a visitor cannot use yet.
 - Legal and landing are committed separately, so the landing commit can be held back or reverted on its own if the merge happens before general availability.
 - Two pre-existing inaccuracies found (NOT changed — outside this feature): Privacy §7 says hosting is in the United States (production is in Delhi since the cutover), and the landing FAQ "What permissions are required?" lists Facebook-login scopes the app never requests. Raised as a separate task.
+
+## Gate 6
+- RELEASE.md uses three stages: A = merged dark (`AUTODM_ENABLED=false`), B = owner-only (`true` + allowlist), C = after approval (`AUTODM_SCOPE_ALL=true`). Flags are `api` service-level variables (same place as RUN_IN_PROCESS_SCHEDULER), and every change needs an `api` restart (OPERATIONS.md).
+- Flag verification uses `GET /api/autodm/status`, not `configCheck --expect`, because that CLI only accepts a fixed key list and extending it would touch an existing file.
+- The App Review usage paragraph is adapted from OpenReply's META_APP_REVIEW.md (comments-permission paragraph only) and rewritten for Siffty's actual behaviour (private reply via the Private Replies API, optional public reply, owner's own media, poller fallback, retention).
+- The screencast script includes the poll-fallback variant for recording before comment webhooks are delivered.
+- Reviewer instructions use placeholders; no credentials are written to the repo.
+- /tmp/openreply is left in place (outside the repo) for reference; it is not used by the build.
