@@ -269,3 +269,12 @@ Frontend: lint 0 errors.
 **Tests**: new `tests/autodm-landing.test.js` (11): constants = backend seed; the exact row strings; section position (directly after #how-it-works, old section gone); each card's row, the trial line, exactly one footnote linking to `/terms#fair-use`, no limit numbers typed into the page; FAQ text; no gradient/emoji/invented numbers in the section, reduced-motion CSS present; Terms numbered 1–15 without gaps with §8 Fair use and its five points; Privacy §6 names exactly the five processors; availability: kill switch off → false with no rollout-mode read, public, cached 60 s, no cookie; true only for EVERYONE; flips by itself after the cache.
 Frontend: lint 0 errors (24 warnings, all pre-existing); build passes.
 Full suite: **85 files (84 passed, 1 skipped); 987 tests: 975 passed, 12 skipped, 0 failed** — previous run (Gate 9) 964/12/0 + 11 new.
+
+---
+
+## Gate 11 — release prep
+
+**Full suite on the final code**: **85 files (84 passed, 1 skipped); 987 tests: 975 passed, 12 skipped, 0 failed** — vs the Gate 8 run (936 passed, 12 skipped, 0 failed): +39 new tests (9A: 8, 9B: 20, 10: 11), one Gate 4 regression test replaced 1-for-1 because Gate 9A changed its rule. No existing (master) test was edited, skipped or deleted.
+**Frontend**: lint 0 errors (24 pre-existing warnings); `npm run build` passes (`/`, `/terms`, `/privacy`, `/autodm*`, `/admin/autodm`, `/billing`).
+**RELEASE.md**: commit table through Gate 11; merge checklist with the third migration and the "Coming soon" expectation; enforcement stays OFF until billing is re-enabled; new "Rollout order" table (A dark → B owner → review with a "No limits" reviewer → C EVERYONE → D enforcement ON with billing); rollback row for enforcement; new risks. MANUAL_TEST.md: step 7 split (a never-commented DM is sorted; a Fan A DM within 24 h shows the Auto DM label), new step 10 (limits).
+**Branch**: `feature/autodm-landing` deleted with `git branch -d` after `git merge-base --is-ancestor` confirmed its tip (0db03bb) is in `feature/autodm`. Nothing pushed; master untouched.
