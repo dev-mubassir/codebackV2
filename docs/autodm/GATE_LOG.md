@@ -233,3 +233,39 @@ Full suite: **84 files (83 passed, 1 skipped); 976 tests: 964 passed, 12 skipped
 Frontend: lint 0 errors.
 
 **Risks**: the local DB migration was applied while the owner's backend was running; `prisma generate` succeeded this time (no DLL lock). Usage emails use the shared deferrable email quota (Resend 100/day) — at scale these notices compete with trial emails.
+
+---
+
+## Gate 10 — landing highlight, pricing, Terms
+
+**Branches**: `feature/autodm` was fast-forwarded to `feature/autodm-landing` (its two commits — the Gate 5 landing section and the FAQ scope commit — are now literally in `feature/autodm`), then Gate 9 was committed on top, then this gate reworks the section.
+
+**Built**
+- `frontend/src/app/components/landing/AutoDmShowcase.js` — the section (left: copy, 4 benefits, CTA; right: animated phone mock of the commenter's Instagram).
+- `frontend/src/lib/autodmAvailability.js` — one shared request per page to `GET /api/public/autodm-availability`; the "Coming soon" badge is always in the layout and only changes visibility.
+- `frontend/src/content/autodmPlans.js` — the ONE place the public pages read Auto DM numbers (pricing rows, Terms fair use); pinned to the backend seed by `tests/autodm-landing.test.js`.
+- `backend/src/features/autodm/availability.js` — `{ available: AUTODM_ENABLED && mode === 'EVERYONE' }`, cached 60 s (server + `Cache-Control: public, max-age=60`), rate-limited, no user data; kill switch off = no DB query.
+
+**Screens changed** (checked in the browser against the local dev server; widths by viewport emulation)
+| Screen | Desktop (1280) | Tablet (768) / mobile (360) |
+|---|---|---|
+| Landing — Auto DM section, now directly after "How it works" (the AI sorting walkthrough) and before "Capabilities" | Two columns: eyebrow "Auto DM" + "Coming soon" badge, headline "Turn every comment into a DM.", subline, 4 benefits (comment → DM with link/image/text; only followers get the link; Hindi and Hinglish keywords; no AI credits), "Start free trial" CTA. Right: a 300×620 flat phone that loops the flow (~14 s): reel → `@you LINK` → `@yourbrand Sent you a DM!` → DM "Replied to your comment: LINK" with **Send me the link** → tap → "Follow to unlock" with **I've followed** → tap → image card + "Here's your free guide" with an **Open guide** link card. Flat #f7f9ff band with 1px Royal Blue-tint borders; no gradients, no emoji, no stats; handles are illustrative (@yourbrand, @you, @ria.creates, @karan.fit). | One column below 960px: the phone is centred under the text (measured: stacked, centred). No horizontal scroll at 360, 768 or 1280 (scrollWidth = viewport). Headline 2.5rem (≤960px) / 2.05rem (≤480px). |
+| Landing — motion | Text column and phone use the page's own reveal-on-scroll (added to its observer's selector, same easing/timing). The loop plays only while the phone is ≥20% visible and the tab is visible: 0 DOM updates measured while scrolled away. CLS measured over a full loop: **0**. | Same. Reduced motion (forced by overriding `matchMedia`): static phone showing the whole conversation (all 9 steps visible, 0 updates). |
+| Landing — pricing | Under the title: "Your free trial includes Auto DM: 30 automations · 1,000 Auto DMs". Starter: "Auto DM: 100 automations · 10,000 Auto DMs/month"; Pro: "Auto DM: Unlimited* automations · Unlimited* Auto DMs"; Enterprise: "Auto DM: custom limits" — each with a small "Coming soon" badge. One footnote under the cards: "*Fair use applies. See Terms §8." → `/terms#fair-use`. Nothing else about limits. | Cards stack as before; the rows wrap inside the card. |
+| Landing — FAQ | "What permissions are required?" → "Siffty requests instagram_business_basic and instagram_business_manage_messages. Auto DM additionally requests instagram_business_manage_comments. We never ask for your Instagram password." | Same. |
+| `/terms` | New §8 **Fair use** (Unlimited = no fixed monthly count for one business's normal use; fair use 100,000 Auto DMs per Siffty account per calendar month and 500 active automations; Meta's 750 private replies/hour/account on every plan; above fair use sends may be queued or slowed and we may contact you; spam/reselling/automated abuse → suspension). Old §8–14 → §9–15; table of contents and badges renumbered; last updated 28 Sep 2026. | Same legal card layout. |
+| `/privacy` | §6 names exactly: Meta (Instagram), Google (Gemini), Resend (email), Cashfree Payments (payments), Northflank (hosting); "authorities where the law requires" kept as a sentence. Last updated 28 Sep 2026. | Same. |
+| Gate 9 screens (for completeness) | Auto DM page: usage card above the list (Auto DMs x / y with bar and reset date, automations x / y, notices); `/admin/autodm`: Limits panel (enforcement select, plan-limits table + edit dialog), "No limits" checkbox and column, "Usage this period"; billing page: Auto DM panel after the usage strip; inbox rows: "Auto DM" badge. | Usage card stats stack below 600px; admin tables scroll inside their wrapper like the other admin tables. Not opened in a browser (needs a signed-in session on the tunnel frontend); covered by the build and the backend tests. |
+
+**Existing files touched**
+| File | Change | Diff |
+|---|---|---|
+| `backend/src/index.js` | one mount: `/api/public` → the Auto DM availability router (public, no user data) | +1 / −0 |
+| `frontend/src/app/page.js` | imports; the page's reveal selector gains `.autodm-reveal`; old 3-step section removed, `<AutoDmShowcase />` after #how-it-works; pricing trial line, 3 card rows, 1 footnote; FAQ answer | +20 / −44 |
+| `frontend/src/app/landing.css` | the `.autodm-*` block replaced (section, phone, motion, reduced motion, pricing rows, footnote) | +476 / −26 |
+| `frontend/src/app/terms/page.js` | §8 Fair use (numbers from the constants file), renumbering, date | +61 / −22 |
+| `frontend/src/app/privacy/page.js` | §6 processors, date | +16 / −5 |
+
+**Tests**: new `tests/autodm-landing.test.js` (11): constants = backend seed; the exact row strings; section position (directly after #how-it-works, old section gone); each card's row, the trial line, exactly one footnote linking to `/terms#fair-use`, no limit numbers typed into the page; FAQ text; no gradient/emoji/invented numbers in the section, reduced-motion CSS present; Terms numbered 1–15 without gaps with §8 Fair use and its five points; Privacy §6 names exactly the five processors; availability: kill switch off → false with no rollout-mode read, public, cached 60 s, no cookie; true only for EVERYONE; flips by itself after the cache.
+Frontend: lint 0 errors (24 warnings, all pre-existing); build passes.
+Full suite: **85 files (84 passed, 1 skipped); 987 tests: 975 passed, 12 skipped, 0 failed** — previous run (Gate 9) 964/12/0 + 11 new.

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import LegalLayout from '@/app/components/public/LegalLayout';
 import { meta, legal } from '@/content/copy';
 import { SUPPORT_EMAIL } from '@/content/contact';
+import { AUTODM_FAIR_USE } from '@/content/autodmPlans';
 import styles from '@/app/components/public/public.module.css';
 
 export const metadata = {
@@ -9,7 +10,9 @@ export const metadata = {
   description: meta.terms.description,
 };
 
-const LAST_UPDATED = '27 September 2026';
+const LAST_UPDATED = '28 September 2026';
+
+const n = (x) => x.toLocaleString('en-IN');
 
 const TOC_ITEMS = [
   { id: 'agreement', title: '1. Agreement' },
@@ -19,13 +22,14 @@ const TOC_ITEMS = [
   { id: 'auto-dm', title: '5. Auto DM (comment replies)' },
   { id: 'output-guarantee', title: '6. Automated output is not guaranteed' },
   { id: 'plans-credits-payments', title: '7. Plans, credits and payments' },
-  { id: 'acceptable-use', title: '8. Acceptable use' },
-  { id: 'your-data', title: '9. Your data' },
-  { id: 'availability', title: '10. Availability' },
-  { id: 'liability', title: '11. Liability' },
-  { id: 'termination', title: '12. Termination' },
-  { id: 'governing-law', title: '13. Governing law' },
-  { id: 'changes', title: '14. Changes' },
+  { id: 'fair-use', title: '8. Fair use' },
+  { id: 'acceptable-use', title: '9. Acceptable use' },
+  { id: 'your-data', title: '10. Your data' },
+  { id: 'availability', title: '11. Availability' },
+  { id: 'liability', title: '12. Liability' },
+  { id: 'termination', title: '13. Termination' },
+  { id: 'governing-law', title: '14. Governing law' },
+  { id: 'changes', title: '15. Changes' },
 ];
 
 export default function TermsPage() {
@@ -244,11 +248,46 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 8. Acceptable use */}
-      <section id="acceptable-use" className={styles.contentCard}>
+      {/* 8. Fair use */}
+      <section id="fair-use" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
             <span className={styles.sectionNumber}>8</span>
+            Fair use
+          </h2>
+        </div>
+        <div className={styles.cardBody}>
+          <p>
+            Where a plan shows &quot;Unlimited&quot; (marked with an asterisk), such as Auto DM on Pro, it
+            means there is no fixed monthly count for the normal use of one business.
+          </p>
+          <ul>
+            <li>
+              <strong>Fair use.</strong> Fair use is {n(AUTODM_FAIR_USE.monthlyDms)} Auto DMs per Siffty
+              account per calendar month, and {n(AUTODM_FAIR_USE.activeAutomations)} active automations.
+            </li>
+            <li>
+              <strong>Meta&apos;s limit.</strong> Meta&apos;s own limit of{' '}
+              {n(AUTODM_FAIR_USE.metaPrivateRepliesPerHour)} private replies per hour per Instagram
+              account applies on every plan.
+            </li>
+            <li>
+              <strong>Above fair use.</strong> Sends may be queued or slowed, and we may contact you
+              about a custom plan.
+            </li>
+            <li>
+              <strong>Abuse.</strong> Spam, reselling, or automated abuse of the service can lead to
+              suspension (see section 9).
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      {/* 9. Acceptable use */}
+      <section id="acceptable-use" className={styles.contentCard}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardTitle}>
+            <span className={styles.sectionNumber}>9</span>
             Acceptable use
           </h2>
         </div>
@@ -266,11 +305,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 9. Your data */}
+      {/* 10. Your data */}
       <section id="your-data" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>9</span>
+            <span className={styles.sectionNumber}>10</span>
             Your data
           </h2>
         </div>
@@ -287,11 +326,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 10. Availability */}
+      {/* 11. Availability */}
       <section id="availability" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>10</span>
+            <span className={styles.sectionNumber}>11</span>
             Availability
           </h2>
         </div>
@@ -304,11 +343,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 11. Liability */}
+      {/* 12. Liability */}
       <section id="liability" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>11</span>
+            <span className={styles.sectionNumber}>12</span>
             Liability
           </h2>
         </div>
@@ -322,11 +361,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 12. Termination */}
+      {/* 13. Termination */}
       <section id="termination" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>12</span>
+            <span className={styles.sectionNumber}>13</span>
             Termination
           </h2>
         </div>
@@ -341,11 +380,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 13. Governing law */}
+      {/* 14. Governing law */}
       <section id="governing-law" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>13</span>
+            <span className={styles.sectionNumber}>14</span>
             Governing law
           </h2>
         </div>
@@ -357,11 +396,11 @@ export default function TermsPage() {
         </div>
       </section>
 
-      {/* 14. Changes */}
+      {/* 15. Changes */}
       <section id="changes" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
-            <span className={styles.sectionNumber}>14</span>
+            <span className={styles.sectionNumber}>15</span>
             Changes
           </h2>
         </div>

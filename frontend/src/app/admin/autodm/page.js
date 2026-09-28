@@ -466,7 +466,7 @@ export default function AdminAutoDmPage() {
           <p className={s.hint}>
             Every Siffty user will see Auto DM, and their next Instagram connect will ask for comment access. Only do
             this after Meta has approved instagram_business_manage_comments. The &quot;Coming soon&quot; badges on the
-            landing and pricing pages disappear within a minute.
+            landing and pricing pages disappear within about two minutes.
           </p>
         </Modal>
       )}

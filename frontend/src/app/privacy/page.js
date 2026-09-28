@@ -9,7 +9,7 @@ export const metadata = {
   description: meta.privacy.description,
 };
 
-const LAST_UPDATED = '27 September 2026';
+const LAST_UPDATED = '28 September 2026';
 
 const TOC_ITEMS = [
   { id: 'what-siffty-is', title: '1. What Siffty is' },
@@ -237,17 +237,28 @@ export default function PrivacyPolicyPage() {
           </h2>
         </div>
         <div className={styles.cardBody}>
-          <p>Data is shared only with:</p>
+          <p>Data is shared only with these processors, each for the purpose named:</p>
           <ul>
             <li>
-              <strong>Meta Platforms</strong> — to receive messages and comments, and to send
+              <strong>Meta (Instagram)</strong> — to receive messages and comments, and to send
               replies through the Instagram Graph API, under the permissions the account owner
               granted.
             </li>
             <li><strong>Google (Gemini)</strong> — as described in section 5.</li>
-            <li><strong>Hosting and infrastructure providers</strong> — who store the data on Siffty&apos;s behalf.</li>
-            <li><strong>Authorities</strong> — where required by law.</li>
+            <li>
+              <strong>Resend (email)</strong> — to deliver Siffty&apos;s emails to you, such as
+              sign-in, verification, billing and usage notices.
+            </li>
+            <li>
+              <strong>Cashfree Payments (payments)</strong> — to process payments. Card and bank
+              details are entered on Cashfree&apos;s checkout and never reach Siffty.
+            </li>
+            <li>
+              <strong>Northflank (hosting)</strong> — which runs Siffty&apos;s service and database
+              on Siffty&apos;s behalf.
+            </li>
           </ul>
+          <p>Data is also disclosed to authorities where the law requires it.</p>
         </div>
       </section>
 

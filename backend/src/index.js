@@ -521,6 +521,7 @@ app.use('/data-deletion', dataDeletionRoutes);
 // customer API — mounted before /api, whose blanket requireAuth would shadow it.
 app.use('/public/autodm', require('./features/autodm').publicRouter);
 app.use('/api/autodm', require('./features/autodm').apiRouter, notFoundHandler);
+app.use('/api/public', require('./features/autodm').availabilityRouter); // public, no user data
 
 // Contact and Enterprise enquiries. Public and session-optional, and NOT behind
 // BILLING_ENABLED — support cannot depend on a billing flag. Mounted before

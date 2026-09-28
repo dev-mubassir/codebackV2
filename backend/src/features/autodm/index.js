@@ -54,6 +54,10 @@ module.exports = {
   get publicRouter() {
     return require('./publicRoutes');
   },
+  // src/index.js — /api/public/autodm-availability (landing "Coming soon" badges)
+  get availabilityRouter() {
+    return require('./availability');
+  },
   // routes/admin.js — /api/admin/autodm (behind the admin auth + origin guard)
   get adminRouter() {
     return require('./adminRoutes');

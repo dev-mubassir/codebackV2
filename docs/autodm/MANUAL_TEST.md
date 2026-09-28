@@ -85,10 +85,12 @@ Edit `Manual test` → Options → **Only send the link to followers** → Save 
 
 (If Meta cannot tell whether someone follows, the link is sent anyway and the run log says "Follow status unavailable, so the link was sent anyway" — that is the intended fail-open.)
 
-## 7. Sorting is untouched
+## 7. Sorting is untouched — and Auto DM conversations are not sorted
 
-1. From Fan A, send a normal DM: `Hi, what is your price for one reel?`
+1. From an account that has **not** commented (not Fan A or Fan B), send a normal DM: `Hi, what is your price for one reel?`
 2. **Expect:** it lands in the inbox, gets its category as usual, and auto-reply behaves exactly as your reply mode says. No `[autodm]` line for it.
+3. From **Fan A** (who got the link within the last 24 hours), send `Thanks! Also, do you edit wedding reels?`
+4. **Expect:** it appears in the inbox with a small **Auto DM** label instead of a category, is not classified and gets no auto-reply (log `message <id>: Auto DM conversation, not sorted`), and no AI credit is used. Once 24 hours have passed with no Auto DM activity for Fan A, their next DM is sorted normally.
 
 ## 8. Poller fallback (missed webhook)
 
@@ -105,7 +107,15 @@ Edit `Manual test` → Options → **Only send the link to followers** → Save 
 3. Set `AUTODM_ENABLED=false` in `backend/.env`, restart the backend → the same, regardless of the admin settings.
 4. Undo whichever you changed if you continue testing.
 
-## 10. Clean up
+## 10. Limits (enforcement)
+
+1. The Auto DM page shows the usage meter: `N / 1,000 in your trial` (or your plan's numbers) and the automation count.
+2. Admin → Auto DM → **Limits**: edit **Trial** to 1 Auto DM (reason + password), set enforcement **On**.
+3. A fresh commenter comments `guide`. **Expect:** no DM; the run log shows **Held** ("this period's Auto DMs were used up"); the Auto DM page shows the "All … Auto DMs are used" notice; you get the 100% email (and the 80% one on the way).
+4. Set enforcement **Off**. **Expect:** within ~2 minutes the held run goes out as normal.
+5. Undo: set Trial back to 1,000 (or leave the default), enforcement **Off** — it stays off until billing is enabled.
+
+## 11. Clean up
 
 - Delete the `Manual test` automation (its runs and image go with it).
 - Remove the Fan accounts from Instagram testers if you no longer need them.
