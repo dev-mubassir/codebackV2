@@ -25,6 +25,7 @@ import { logout } from '@/lib/api';
 import { broadcastSession } from '@/lib/sessionChannel';
 import SessionGuard from '@/app/components/SessionGuard';
 import AnnouncementBanner from '@/app/components/AnnouncementBanner';
+import useAutoDmStatus from '@/app/components/autodm/useAutoDmStatus';
 import { nav as navCopy } from '@/content/copy';
 import s from './AppShell.module.css';
 
@@ -51,7 +52,9 @@ export default function AppShell({
 
   // Billing stays gated. The backend 404s those routes while BILLING_ENABLED
   // is false, so an ungated entry is a dead link during Meta App Review.
-  const sections = buildNavItems({ billingEnabled: Boolean(user?.features?.billing) });
+  // Auto DM is gated the same way, on the backend's GET /api/autodm/status.
+  const autodmEnabled = useAutoDmStatus(Boolean(user));
+  const sections = buildNavItems({ billingEnabled: Boolean(user?.features?.billing), autodmEnabled });
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 

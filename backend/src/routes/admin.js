@@ -312,6 +312,9 @@ router.use(requireAdmin);
 router.use(adminOriginGuard);
 router.use(trackAdminActivity);
 
+// Auto DM rollout control (src/features/autodm/adminRoutes.js), behind the admin chain above.
+router.use('/autodm', require('../features/autodm').adminRouter);
+
 // GET /api/admin/me — the session, for the UI. A GET: does not count as activity.
 router.get('/me', (req, res) => {
   // `isAdmin` is part of the contract the admin shell checks
@@ -1203,6 +1206,8 @@ router.post('/accounts/:id/resubscribe-webhook', async (req, res) => {
       await recordAdminAudit(req, { action: 'WEBHOOK_RESUBSCRIBE_FAILED', targetType: 'INSTAGRAM_ACCOUNT', targetId: account.id, reason });
       return res.status(502).json({ error: "Couldn't resubscribe with Meta. Try again later.", code: 'META_UNAVAILABLE' });
     }
+    // Auto DM: restores the `comments` field for accounts with Auto DM access (no-op otherwise; never throws).
+    await require('../features/autodm').afterAdminResubscribe(account, readAccountToken(account));
 
     await recordAdminAudit(req, { action: 'WEBHOOK_RESUBSCRIBE', targetType: 'INSTAGRAM_ACCOUNT', targetId: account.id, reason });
     res.json({ message: `Resubscribed webhooks for @${account.igUsername || account.igUserId}` });

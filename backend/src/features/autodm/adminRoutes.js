@@ -1,0 +1,293 @@
+/**
+ * /api/admin/autodm — Auto DM rollout control for admins.
+ *
+ * Mounted INSIDE routes/admin.js after requireAdmin, adminOriginGuard and
+ * trackAdminActivity, so the existing admin session, role check and CSRF
+ * origin guard apply; a non-admin gets the admin router's usual 404.
+ *
+ *   GET    /                  mode, kill switch, enforcement, plan limits,
+ *                              grants with per-user counts, usage this period
+ *   PUT    /mode              { mode, reason, confirm? }   (step-up; EVERYONE needs confirm: 'EVERYONE')
+ *   PUT    /enforcement       { mode: OFF|ON, reason }     (step-up)
+ *   PUT    /plan-limits/:planCode { maxAutomations, monthlyDms, displayUnlimited, reason } (step-up)
+ *   POST   /grants            { email, note, noLimits? }   (the user must exist)
+ *   PUT    /grants/:userId/limits { noLimits, reason }     ("No limits": tester / Meta reviewer)
+ *   DELETE /grants/:userId    { reason }                   (also removes "No limits")
+ *
+ * Every change is written to the admin audit log. No tokens, no message or
+ * comment content — ids, emails, counts only.
+ */
+
+const express = require('express');
+const prisma = require('../../lib/prisma');
+const { recordAdminAudit } = require('../../lib/adminAudit');
+const { requireStepUp } = require('../../middleware/adminAuth');
+const { validate, z } = require('../../middleware/validate');
+const config = require('./config');
+const log = require('./log');
+const { MODES, MODE_KEY, getRolloutMode, setRolloutMode } = require('./access');
+const limits = require('./limits');
+
+const router = express.Router();
+
+const reason = z.string().trim().min(3, 'give a reason (3 to 500 characters)').max(500, 'give a reason (3 to 500 characters)');
+
+const modeBody = z
+  .object({ mode: z.enum(MODES), reason, confirm: z.string().optional() })
+  .strict();
+const grantBody = z
+  .object({
+    email: z.string().trim().toLowerCase().min(3).max(254).regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'enter a valid email address'),
+    note: reason,
+    noLimits: z.boolean().optional(),
+  })
+  .strict();
+const enforcementBody = z.object({ mode: z.enum(limits.ENFORCEMENT_MODES), reason }).strict();
+const count = z.number().int('must be a whole number').min(0).max(limits.MAX_LIMIT);
+const planParams = z.object({ planCode: z.string().regex(/^[A-Z][A-Z0-9_]{1,31}$/, 'unknown plan') }).strict();
+const planLimitsBody = z
+  .object({ maxAutomations: count, monthlyDms: count, displayUnlimited: z.boolean(), reason })
+  .strict();
+const noLimitsBody = z.object({ noLimits: z.boolean(), reason }).strict();
+const revokeParams = z.object({ userId: z.string().uuid('must be a valid id') }).strict();
+const revokeBody = z.object({ reason }).strict();
+
+const wrap = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch((err) => {
+    log.error(`admin ${req.method} ${req.path} failed (${err && err.code ? err.code : 'error'})`);
+    if (!res.headersSent) res.status(500).json({ error: "Couldn't complete that. Try again." });
+  });
+
+async function grantCounts(userIds) {
+  const out = new Map(userIds.map((id) => [id, { automations: 0, dmsSent: 0, failures: 0 }]));
+  if (userIds.length === 0) return out;
+  const [automations, sent, failed] = await Promise.all([
+    prisma.autoDmAutomation.groupBy({ by: ['userId'], where: { userId: { in: userIds } }, _count: { _all: true } }),
+    prisma.autoDmRun.groupBy({ by: ['userId'], where: { userId: { in: userIds }, openerSentAt: { not: null } }, _count: { _all: true } }),
+    prisma.autoDmRun.groupBy({ by: ['userId'], where: { userId: { in: userIds }, status: 'FAILED' }, _count: { _all: true } }),
+  ]);
+  for (const g of automations) out.get(g.userId).automations = g._count._all;
+  for (const g of sent) out.get(g.userId).dmsSent = g._count._all;
+  for (const g of failed) out.get(g.userId).failures = g._count._all;
+  return out;
+}
+
+const USAGE_ROWS = 50;
+
+/** The latest usage row per user (their current or last period), most used first. */
+async function usageList() {
+  const rows = await prisma.$queryRaw`
+    SELECT DISTINCT ON ("user_id") "user_id", "period_start", "plan_code", "used"
+      FROM "autodm_usage"
+     ORDER BY "user_id", "period_start" DESC`;
+  const top = rows.sort((a, b) => Number(b.used) - Number(a.used)).slice(0, USAGE_ROWS);
+  if (top.length === 0) return [];
+  const ids = top.map((r) => r.user_id);
+  const [users, exempt] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, email: true } }),
+    prisma.autoDmExemption.findMany({ where: { userId: { in: ids } }, select: { userId: true } }),
+  ]);
+  const emailOf = new Map(users.map((u) => [u.id, u.email]));
+  const exemptSet = new Set(exempt.map((e) => e.userId));
+  const out = [];
+  for (const r of top) {
+    const l = await limits.getPlanLimits(r.plan_code || 'TRIAL');
+    out.push({
+      userId: r.user_id,
+      email: emailOf.get(r.user_id) || null,
+      planCode: r.plan_code || null,
+      periodStart: r.period_start,
+      used: Number(r.used),
+      limit: l.monthlyDms,
+      displayUnlimited: l.displayUnlimited,
+      noLimits: exemptSet.has(r.user_id),
+    });
+  }
+  return out;
+}
+
+// GET /api/admin/autodm
+router.get(
+  '/',
+  wrap(async (req, res) => {
+    const grants = await prisma.autoDmAccess.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: { userId: true, note: true, createdAt: true, grantedByAdminId: true, user: { select: { email: true, name: true } } },
+    });
+    const counts = await grantCounts(grants.map((g) => g.userId));
+    const exempt = new Set(
+      (await prisma.autoDmExemption.findMany({ where: { userId: { in: grants.map((g) => g.userId) } }, select: { userId: true } })).map(
+        (e) => e.userId
+      )
+    );
+    const setting = await prisma.appSetting.findUnique({ where: { key: MODE_KEY }, select: { updatedAt: true, updatedBy: true } });
+    const enforcementSetting = await prisma.appSetting.findUnique({ where: { key: limits.ENFORCEMENT_KEY }, select: { updatedAt: true } });
+    res.json({
+      killSwitchOn: config.isEnabled(),
+      mode: await getRolloutMode(),
+      modes: MODES,
+      modeUpdatedAt: setting ? setting.updatedAt : null,
+      pollMode: config.pollMode(),
+      envAllowlistCount: String(process.env.AUTODM_SCOPE_ALLOWLIST || '').split(',').filter((s) => s.trim()).length,
+      grants: grants.map((g) => ({
+        userId: g.userId,
+        email: g.user.email,
+        name: g.user.name,
+        note: g.note,
+        grantedAt: g.createdAt,
+        grantedByAdminId: g.grantedByAdminId,
+        counts: counts.get(g.userId),
+        noLimits: exempt.has(g.userId),
+      })),
+      enforcement: await limits.getEnforcement(),
+      enforcementModes: limits.ENFORCEMENT_MODES,
+      enforcementUpdatedAt: enforcementSetting ? enforcementSetting.updatedAt : null,
+      planLimits: await limits.listPlanLimits(),
+      usage: await usageList(),
+    });
+  })
+);
+
+// PUT /api/admin/autodm/enforcement — OFF: count and show usage, block nothing.
+router.put(
+  '/enforcement',
+  requireStepUp,
+  validate({ body: enforcementBody }),
+  wrap(async (req, res) => {
+    const { before, after } = await limits.setEnforcement(req.body.mode, req.admin.id);
+    await recordAdminAudit(req, {
+      action: 'AUTODM_ENFORCEMENT',
+      targetType: 'SETTING',
+      targetId: limits.ENFORCEMENT_KEY,
+      reason: req.body.reason,
+      before: { value: before },
+      after: { value: after },
+    });
+    log.info(`limit enforcement ${before} -> ${after} by admin ${req.admin.id}`);
+    res.json({ enforcement: after });
+  })
+);
+
+// PUT /api/admin/autodm/plan-limits/:planCode
+router.put(
+  '/plan-limits/:planCode',
+  requireStepUp,
+  validate({ params: planParams, body: planLimitsBody }),
+  wrap(async (req, res) => {
+    let change;
+    try {
+      change = await limits.setPlanLimits(req.params.planCode, req.body, req.admin.id);
+    } catch (err) {
+      if (err && err.code === 'NO_PLAN') return res.status(404).json({ error: 'That plan does not exist.' });
+      throw err;
+    }
+    await recordAdminAudit(req, {
+      action: 'AUTODM_PLAN_LIMITS',
+      targetType: 'PLAN',
+      targetId: req.params.planCode,
+      reason: req.body.reason,
+      before: change.before,
+      after: change.after,
+    });
+    log.info(`plan limits for ${req.params.planCode} changed by admin ${req.admin.id}`);
+    res.json({ planCode: req.params.planCode, ...change.after });
+  })
+);
+
+// PUT /api/admin/autodm/mode
+router.put(
+  '/mode',
+  requireStepUp,
+  validate({ body: modeBody }),
+  wrap(async (req, res) => {
+    const { mode } = req.body;
+    if (mode === 'EVERYONE' && req.body.confirm !== 'EVERYONE') {
+      return res.status(400).json({ error: 'Confirm turning Auto DM on for everyone.', code: 'CONFIRM_REQUIRED' });
+    }
+    const { before, after } = await setRolloutMode(mode, req.admin.id);
+    await recordAdminAudit(req, {
+      action: 'AUTODM_ROLLOUT_MODE',
+      targetType: 'SETTING',
+      targetId: MODE_KEY,
+      reason: req.body.reason,
+      before: { value: before },
+      after: { value: after },
+    });
+    log.info(`rollout mode ${before} -> ${after} by admin ${req.admin.id}`);
+    res.json({ mode: after });
+  })
+);
+
+// POST /api/admin/autodm/grants
+router.post(
+  '/grants',
+  validate({ body: grantBody }),
+  wrap(async (req, res) => {
+    const user = await prisma.user.findUnique({ where: { email: req.body.email }, select: { id: true, email: true } });
+    if (!user) return res.status(404).json({ error: 'No Siffty user has that email. They need to sign up first.', code: 'NO_USER' });
+
+    const existing = await prisma.autoDmAccess.findUnique({ where: { userId: user.id }, select: { id: true } });
+    await prisma.autoDmAccess.upsert({
+      where: { userId: user.id },
+      create: { userId: user.id, grantedByAdminId: req.admin.id, note: req.body.note },
+      update: { grantedByAdminId: req.admin.id, note: req.body.note },
+    });
+    const wasExempt = await limits.isExempt(user.id);
+    if (req.body.noLimits) await limits.setExempt(user.id, true, { note: req.body.note, adminId: req.admin.id });
+    const noLimits = wasExempt || Boolean(req.body.noLimits);
+    await recordAdminAudit(req, {
+      action: 'AUTODM_ACCESS_GRANT',
+      targetType: 'USER',
+      targetId: user.id,
+      reason: req.body.note,
+      before: { granted: Boolean(existing), noLimits: wasExempt },
+      after: { granted: true, noLimits },
+    });
+    log.info(`access granted to user ${user.id} by admin ${req.admin.id}${noLimits ? ' (no limits)' : ''}`);
+    res.status(existing ? 200 : 201).json({ userId: user.id, email: user.email, granted: true, noLimits });
+  })
+);
+
+// PUT /api/admin/autodm/grants/:userId/limits — "No limits" on or off.
+router.put(
+  '/grants/:userId/limits',
+  validate({ params: revokeParams, body: noLimitsBody }),
+  wrap(async (req, res) => {
+    const user = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { id: true } });
+    if (!user) return res.status(404).json({ error: 'That user no longer exists.' });
+    const { before, after } = await limits.setExempt(user.id, req.body.noLimits, { note: req.body.reason, adminId: req.admin.id });
+    await recordAdminAudit(req, {
+      action: 'AUTODM_NO_LIMITS',
+      targetType: 'USER',
+      targetId: user.id,
+      reason: req.body.reason,
+      before: { noLimits: before },
+      after: { noLimits: after },
+    });
+    log.info(`no-limits ${after ? 'on' : 'off'} for user ${user.id} by admin ${req.admin.id}`);
+    res.json({ userId: user.id, noLimits: after });
+  })
+);
+
+// DELETE /api/admin/autodm/grants/:userId — automations become inert; no data is deleted.
+router.delete(
+  '/grants/:userId',
+  validate({ params: revokeParams, body: revokeBody }),
+  wrap(async (req, res) => {
+    const removed = await prisma.autoDmAccess.deleteMany({ where: { userId: req.params.userId } });
+    if (removed.count === 0) return res.status(404).json({ error: 'That user has no Auto DM grant.' });
+    const exemption = await limits.setExempt(req.params.userId, false);
+    await recordAdminAudit(req, {
+      action: 'AUTODM_ACCESS_REVOKE',
+      targetType: 'USER',
+      targetId: req.params.userId,
+      reason: req.body.reason,
+      before: { granted: true, noLimits: exemption.before },
+      after: { granted: false, noLimits: false },
+    });
+    log.info(`access revoked from user ${req.params.userId} by admin ${req.admin.id}`);
+    res.json({ userId: req.params.userId, granted: false });
+  })
+);
+
+module.exports = router;

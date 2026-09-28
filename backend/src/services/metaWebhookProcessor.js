@@ -17,12 +17,20 @@ const prisma = require('../lib/prisma');
 const instagram = require('../lib/instagram');
 const { decrypt } = require('../lib/crypto');
 const { emitToUser } = require('../lib/socket');
+const autodm = require('../features/autodm');
 
 /**
  * Process a single entry from the webhook payload.
  * entry.id = the Instagram User ID that received the event.
  */
 async function processEntry(entry, fullBody) {
+  // Auto DM: an entry of comment `changes` only (no `messaging`) never reaches
+  // the DM path or WebhookLog. Inert while AUTODM_ENABLED is off. Errors retry
+  // the delivery only when the whole delivery is comments.
+  if (autodm.isCommentOnlyEntry(entry)) {
+    return autodm.handleCommentEntry(entry, { propagateErrors: autodm.isCommentOnlyDelivery(fullBody) });
+  }
+
   const igUserId = String(entry.id);
 
   // Redact payload sensitive tokens/secrets before storing in WebhookLog
@@ -106,6 +114,9 @@ async function processEntry(entry, fullBody) {
         console.log('[Webhook] Read receipt for account:', account.id);
       } else if (messagingEvent.reaction) {
         console.log('[Webhook] Reaction for account:', account.id);
+      } else if (autodm.isAutoDmPostback(messagingEvent)) {
+        // Auto DM button tap. Every other postback falls through as before.
+        await autodm.handlePostback(account, messagingEvent);
       }
     }
 
@@ -370,6 +381,11 @@ async function handleIncomingMessage(account, messagingEvent) {
       unread: conversation.unread,
     },
   });
+
+  // Auto DM seam: a tap/LINK reply for an Auto DM run is handed over (and the
+  // message marked aiStatus 'autodm') instead of being classified. Returns
+  // false on any error or while AUTODM_ENABLED is off (then no DB query).
+  if (await autodm.isAutoDmInteraction(account, messagingEvent, savedMessage)) return;
 
   // Step 5: Queue AI analysis to run in the background. This never blocks
   // the webhook and is safe to call even if it later fails — the message is

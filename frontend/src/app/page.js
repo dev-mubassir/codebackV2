@@ -8,8 +8,13 @@ import Link from 'next/link';
 import './landing.css';
 import { getMe } from '@/lib/api';
 import { errors } from '@/content/copy';
+import AutoDmShowcase from '@/app/components/landing/AutoDmShowcase';
+import { useAutoDmAvailability, comingSoonProps } from '@/lib/autodmAvailability';
+import { autodmPlanRow } from '@/content/autodmPlans';
 
 function LandingPageContent() {
+  const autodmAvailable = useAutoDmAvailability();
+  const autodmSoon = comingSoonProps(autodmAvailable);
   const router = useRouter();
   const searchParams = useSearchParams();
   const errorCode = searchParams.get('error');
@@ -194,7 +199,7 @@ function LandingPageContent() {
     }
 
     const targets = document.querySelectorAll(
-      '.workflow-step-card, .testimonial-card, .pricing-card'
+      '.workflow-step-card, .testimonial-card, .pricing-card, .autodm-reveal'
     );
 
     targets.forEach((el) => {
@@ -573,7 +578,11 @@ function LandingPageContent() {
     },
     {
       q: 'What permissions are required?',
-      a: 'Siffty only requires standard Instagram messaging and profile read scopes (instagram_basic, instagram_manage_messages, pages_manage_metadata) authorized via official Facebook login.',
+      a: 'Siffty requests instagram_business_basic and instagram_business_manage_messages. Auto DM additionally requests instagram_business_manage_comments. We never ask for your Instagram password.',
+    },
+    {
+      q: 'What is Auto DM?',
+      a: 'Auto DM sends a direct message to people who comment on your posts. You choose which posts and which keywords (or any comment), write the message and add your link, and Siffty sends each commenter a private reply once, through Instagram’s official API. You can require people to follow you before they get the link, and every reply is listed in a run log. Auto DM is being rolled out gradually.',
     },
     {
       q: 'Is automatic reply safe from infinite loops?',
@@ -1129,6 +1138,9 @@ function LandingPageContent() {
         </div>
       </section>
 
+      {/* AUTO DM — directly after the AI sorting walkthrough (components/landing/AutoDmShowcase.js) */}
+      <AutoDmShowcase />
+
       {/* SECTION 2 — CAPABILITIES */}
       <section 
         className="capabilities-section" 
@@ -1514,6 +1526,9 @@ function LandingPageContent() {
               <span>Pricing</span>
             </div>
             <h2 className="section-title">One payment, thirty days. Stop whenever you like.</h2>
+            <p className="pricing-trial-autodm">
+              Your free trial includes Auto DM: {autodmPlanRow('TRIAL')} <span {...autodmSoon}>Coming soon</span>
+            </p>
           </div>
 
           <div className="pricing-grid">
@@ -1536,6 +1551,7 @@ function LandingPageContent() {
                 <li><span className="check-bullet">✓</span> 125 AI drafts</li>
                 <li><span className="check-bullet">✓</span> Unlimited AI classifications</li>
                 <li><span className="check-bullet">✓</span> Unused replies roll over</li>
+                <li className="tier-autodm"><span className="check-bullet">✓</span> Auto DM: {autodmPlanRow('STARTER')} <span {...autodmSoon}>Coming soon</span></li>
               </ul>
 
               <Link href="/register" className="btn-tier btn-tier-secondary">
@@ -1569,6 +1585,7 @@ function LandingPageContent() {
                 <li><span className="check-bullet">✓</span> <strong>500 AI drafts</strong></li>
                 <li><span className="check-bullet">✓</span> <strong>Unlimited AI classifications</strong></li>
                 <li><span className="check-bullet">✓</span> Unused replies roll over</li>
+                <li className="tier-autodm"><span className="check-bullet">✓</span> <strong>Auto DM: {autodmPlanRow('PRO')}</strong> <span {...autodmSoon}>Coming soon</span></li>
               </ul>
 
               <Link href="/register" className="btn-tier btn-tier-primary">
@@ -1605,6 +1622,7 @@ function LandingPageContent() {
                 <li><span className="check-bullet">✓</span> Unused replies roll over</li>
                 <li><span className="check-bullet">✓</span> Dedicated Account Manager</li>
                 <li><span className="check-bullet">✓</span> Custom Webhook SLAs</li>
+                <li className="tier-autodm"><span className="check-bullet">✓</span> Auto DM: custom limits <span {...autodmSoon}>Coming soon</span></li>
               </ul>
 
               <Link href="/register" className="btn-tier btn-tier-secondary">
@@ -1617,6 +1635,10 @@ function LandingPageContent() {
               </Link>
             </div>
           </div>
+
+          <p className="pricing-fair-use">
+            *Fair use applies. See <Link href="/terms#fair-use">Terms §8</Link>.
+          </p>
 
           {/* Add-ons — what the billing page sells on top of a plan. Prices MUST
               match the addon_pack_prices / extra_ig_account_prices seed

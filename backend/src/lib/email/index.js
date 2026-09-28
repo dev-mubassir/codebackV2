@@ -380,6 +380,10 @@ module.exports = {
   sendTrialEnding: (to, { daysLeft, dashboardUrl }) =>
     deliver(to, 'trialEnding', templates.trialEnding({ daysLeft, dashboardUrl })),
 
+  // DEFERRABLE — Auto DM usage at 80% / 100% of the period's allowance (once each per period).
+  sendAutoDmUsage: (to, { level, used, limit, resetsAt, url }) =>
+    deliver(to, 'autodmUsage', templates.autodmUsage({ level, used, limit, resetsAt, url })),
+
   // CRITICAL — internal ops alert, not customer-facing. See quota.js's
   // CRITICAL_TYPES comment: money is unaccounted for until a human looks.
   sendBillingReconciliationMismatch: (to, { mismatches, checked }) =>

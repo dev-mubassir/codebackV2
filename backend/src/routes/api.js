@@ -127,7 +127,7 @@ router.get('/conversations', async (req, res) => {
           where: { direction: 'inbound' },
           orderBy: { createdAt: 'desc' },
           take: 1,
-          select: { createdAt: true },
+          select: { createdAt: true, aiStatus: true },
         },
         summaryRecord: { select: { summary: true, stage: true } },
         brandDeals: {
@@ -166,6 +166,7 @@ router.get('/conversations', async (req, res) => {
         summary: summaryRecord?.summary || null,
         stage: summaryRecord?.stage || null,
         latestBrandDeal: brandDeals?.[0] || null,
+        autoDm: messages?.[0]?.aiStatus === 'autodm', // latest DM went to Auto DM: the inbox shows its label, not a category
       };
     });
 

@@ -76,6 +76,14 @@ model User {
   authTokens        AuthToken[]
   authIdentities    AuthIdentity[]
   entitlement       Entitlement?
+  // Auto DM back-relations (no columns on this table).
+  autoDmAccountStates AutoDmAccountState[]
+  autoDmAutomations   AutoDmAutomation[]
+  autoDmRuns          AutoDmRun[]
+  autoDmImages        AutoDmImage[]
+  autoDmAccess        AutoDmAccess?
+  autoDmUsage         AutoDmUsage[]
+  autoDmExemption     AutoDmExemption?
 
   @@map("users")
 }
@@ -181,6 +189,11 @@ model InstagramAccount {
   conversations Conversation[]
   webhookLogs   WebhookLog[]
   brandDeals    BrandDeal[]
+  // Auto DM back-relations (no columns on this table).
+  autoDmState       AutoDmAccountState?
+  autoDmAutomations AutoDmAutomation[]
+  autoDmRuns        AutoDmRun[]
+  autoDmMediaStates AutoDmMediaState[]
 
   @@unique([userId, igUserId])
   @@index([userId])
@@ -1367,7 +1380,8 @@ model Plan {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  prices PlanPrice[]
+  prices      PlanPrice[]
+  autoDmLimit AutoDmPlanLimit?
 
   @@map("billing_plans")
 }
@@ -1514,4 +1528,217 @@ model Announcement {
 
   @@index([isActive, startsAt, endsAt])
   @@map("announcements")
+}
+
+// ============================================
+// AUTO DM (comment-to-DM) — code in src/features/autodm/.
+//
+// Four NEW tables and nothing else: no column on any existing table changes.
+// Inert unless AUTODM_ENABLED=true. Every row hangs off an InstagramAccount
+// and/or a User with ON DELETE CASCADE, so purge, the Meta data-deletion
+// callback and account deletion remove it. A soft disconnect keeps the
+// InstagramAccount row, so the daily `autodm_cleanup` job deletes the Auto DM
+// data of disconnected accounts within 24 hours (docs/autodm/DECISIONS.md).
+// ============================================
+
+// Per connected account: what Meta granted at the last connect, and the
+// poll-fallback cursor. Granted scopes were never stored before Auto DM.
+model AutoDmAccountState {
+  id                   String    @id @default(uuid())
+  instagramAccountId   String    @unique @map("instagram_account_id")
+  userId               String    @map("user_id")
+  grantedScopes        String?   @map("granted_scopes") // comma-separated, as reported by Meta
+  commentsGranted      Boolean   @default(false) @map("comments_granted")
+  commentsSubscribedAt DateTime? @map("comments_subscribed_at")
+  pollCursorAt         DateTime? @map("poll_cursor_at") // AUTODM_POLL_FALLBACK: newest comment seen
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("autodm_account_states")
+}
+
+// One automation per rule. Validation limits live in features/autodm/validation.js.
+model AutoDmAutomation {
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  instagramAccountId String   @map("instagram_account_id")
+  name               String
+  status             String   @default("active") // active | paused
+  postScope          String   @default("ANY") @map("post_scope") // ANY | SPECIFIC
+  mediaIds           String[] @default([]) @map("media_ids")
+  triggerType        String   @default("ANY_COMMENT") @map("trigger_type") // ANY_COMMENT | KEYWORDS
+  keywords           String[] @default([])
+  excludeKeywords    String[] @default([]) @map("exclude_keywords")
+  publicReplyEnabled Boolean  @default(false) @map("public_reply_enabled")
+  publicReplies      String[] @default([]) @map("public_replies")
+  openerText         String   @map("opener_text")
+  openerButtonLabel  String   @map("opener_button_label")
+  fallbackKeyword    String   @map("fallback_keyword")
+  mainText           String   @map("main_text")
+  linkUrl            String?  @map("link_url")
+  linkLabel          String?  @map("link_label")
+  followGateEnabled  Boolean  @default(false) @map("follow_gate_enabled")
+  followPromptText   String?  @map("follow_prompt_text")
+  followButtonLabel  String?  @map("follow_button_label")
+  followFailText     String?  @map("follow_fail_text")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  runs             AutoDmRun[]
+  image            AutoDmImage?
+
+  @@index([instagramAccountId, status])
+  @@index([userId])
+  @@map("autodm_automations")
+}
+
+// One row per matched comment. Doubles as the DB-backed job queue:
+// pendingAction + nextAttemptAt say what is due, claimedAt is the lease
+// (claimed with FOR UPDATE SKIP LOCKED). Deleted after 90 days.
+model AutoDmRun {
+  id                 String    @id @default(uuid())
+  userId             String    @map("user_id")
+  instagramAccountId String    @map("instagram_account_id")
+  automationId       String    @map("automation_id")
+  commentId          String    @unique @map("comment_id") // idempotency: one run per comment
+  commenterId        String    @map("commenter_id")
+  commenterUsername  String?   @map("commenter_username")
+  commentText        String?   @map("comment_text") // truncated; shown in the run log only
+  mediaId            String?   @map("media_id")
+  source             String    @default("webhook") // webhook | poll
+  igsid              String? // recipient_id returned by the private reply
+  status             String    @default("QUEUED") // QUEUED | SENDING | WAITING_QUOTA | OPENER_SENT | OPENER_UNCONFIRMED | AWAITING_FOLLOW | DELIVERED | NOT_FOLLOWING | FAILED | EXPIRED
+  pendingAction      String?   @map("pending_action") // OPENER | GET | FOLLOWED; NULL = nothing due
+  followChecks       Int       @default(0) @map("follow_checks")
+  attempts           Int       @default(0)
+  nextAttemptAt      DateTime? @map("next_attempt_at")
+  claimedAt          DateTime? @map("claimed_at")
+  lastError          String?   @map("last_error") // safe code only, never Meta's text
+  commentCreatedAt   DateTime  @map("comment_created_at")
+  publicReplyAt      DateTime? @map("public_reply_at")
+  openerSentAt       DateTime? @map("opener_sent_at")
+  mainImageSentAt    DateTime? @map("main_image_sent_at")
+  deliveredAt        DateTime? @map("delivered_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  automation       AutoDmAutomation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@unique([automationId, commenterId]) // one DM per person per automation
+  @@index([pendingAction, nextAttemptAt])
+  @@index([instagramAccountId, igsid])
+  @@index([automationId, createdAt])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status, userId]) // the quota sweep: held (WAITING_QUOTA) runs per user
+  @@map("autodm_runs")
+}
+
+// Main-message image, served publicly (Meta fetches it) at
+// GET /public/autodm/images/:id — only while attached to an automation.
+model AutoDmImage {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  automationId String?  @unique @map("automation_id") // NULL until the automation is saved
+  contentType  String   @map("content_type") // image/jpeg | image/png, from magic bytes
+  byteSize     Int      @map("byte_size")
+  data         Bytes
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  automation AutoDmAutomation? @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("autodm_images")
+}
+
+// Admin-granted Auto DM access (BETA rollout mode). One row per user; the
+// rollout mode itself is the app_settings row `autodm_rollout_mode`.
+// grantedByAdminId is kept as plain text (no FK): removing an admin must not
+// remove the grants they made; the admin audit log holds the history.
+model AutoDmAccess {
+  id               String   @id @default(uuid())
+  userId           String   @unique @map("user_id")
+  grantedByAdminId String?  @map("granted_by_admin_id")
+  note             String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("autodm_access")
+}
+
+// Auto DM plan limits (Gate 9B). One row per plan the admin has edited; a plan
+// without a row uses the defaults in features/autodm/limits.js (the seed).
+model AutoDmPlanLimit {
+  id               String   @id @default(uuid())
+  planId           String   @unique @map("plan_id")
+  maxAutomations   Int      @map("max_automations")
+  monthlyDms       Int      @map("monthly_dms") // per billing period (the entitlement cycle)
+  displayUnlimited Boolean  @default(false) @map("display_unlimited") // shown as "Unlimited*" (fair use)
+  updatedByAdminId String?  @map("updated_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@map("autodm_plan_limits")
+}
+
+// Auto DMs used per user per billing period (period = the entitlement's
+// cycleStartedAt). 1 Auto DM = 1 person who received the opening DM.
+model AutoDmUsage {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  periodStart DateTime  @map("period_start")
+  planCode    String?   @map("plan_code")
+  used        Int       @default(0)
+  warned80At  DateTime? @map("warned_80_at")
+  warned100At DateTime? @map("warned_100_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodStart])
+  @@index([periodStart])
+  @@map("autodm_usage")
+}
+
+// "No limits" (testers, the Meta reviewer): usage is counted, never blocked.
+model AutoDmExemption {
+  id               String   @id @default(uuid())
+  userId           String   @unique @map("user_id")
+  grantedByAdminId String?  @map("granted_by_admin_id")
+  note             String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("autodm_exemptions")
+}
+
+// Poller state per post: when it was published (fixes how often it is polled)
+// and when it was last polled. Shared by every pod.
+model AutoDmMediaState {
+  id                 String    @id @default(uuid())
+  instagramAccountId String    @map("instagram_account_id")
+  mediaId            String    @map("media_id")
+  mediaCreatedAt     DateTime? @map("media_created_at")
+  lastPolledAt       DateTime? @map("last_polled_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([instagramAccountId, mediaId])
+  @@map("autodm_media_states")
 }

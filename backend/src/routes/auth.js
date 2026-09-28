@@ -42,6 +42,7 @@ const sessionIdle = require('../lib/sessionIdle');
 const { deleteUserAccount } = require('../services/accountDeletion');
 const coupons = require('../services/coupons');
 const { getSetting } = require('../lib/settings');
+const autodm = require('../features/autodm');
 
 // Throttle credential endpoints to blunt brute-force / credential-stuffing.
 const loginLimiter = createRateLimiter({
@@ -1063,7 +1064,8 @@ router.get('/instagram', async (req, res) => {
     const authUrl = instagram.getAuthorizationUrl(
       process.env.INSTAGRAM_APP_ID,
       process.env.REDIRECT_URI,
-      state
+      state,
+      await autodm.connectScopeOptions(user) // undefined unless the user has Auto DM access
     );
 
     console.log('[Auth] Redirecting to Instagram OAuth');
@@ -1348,6 +1350,16 @@ router.get('/instagram/callback', async (req, res) => {
       // Non-fatal — the account is saved, webhooks can be retried
       console.error('[Auth] Webhook subscription failed:', err.response?.data || err.message);
     }
+
+    // Auto DM (allowlisted users only; never throws): record the granted
+    // scopes and add the `comments` field in a SECOND subscribe call.
+    await autodm.afterInstagramConnect({
+      userId: currentUserId,
+      email: connectingUser.email,
+      igUserId,
+      accessToken: longTokenData.access_token,
+      grantedScopes: [...granted],
+    });
 
     // Step 7: Re-establish the session on a FRESH id. Completing OAuth is a
     // privilege transition like any login.

@@ -26,7 +26,7 @@ const REQUIRED_SCOPES = ['instagram_business_basic', 'instagram_business_manage_
  * started the flow and the browser that returns to the callback. The caller
  * generates it, stores it on the session, and verifies it on return.
  */
-function getAuthorizationUrl(appId, redirectUri, state) {
+function getAuthorizationUrl(appId, redirectUri, state, { extraScopes = [] } = {}) {
   // Request only what the product actually exercises, and only what can be
   // demonstrated on camera for App Review.
   //
@@ -36,7 +36,10 @@ function getAuthorizationUrl(appId, redirectUri, state) {
   // messages/message_reactions/messaging_seen only. Asking for permissions
   // with no demonstrable use case is a standard App Review rejection, and it
   // over-scopes every tenant's token in the meantime.
-  const scopes = REQUIRED_SCOPES.join(',');
+  //
+  // `extraScopes` is Auto DM's (src/features/autodm/connect.js): the comments
+  // scope, for allowlisted users only. Without it the URL is unchanged.
+  const scopes = REQUIRED_SCOPES.concat(extraScopes.filter((s) => !REQUIRED_SCOPES.includes(s))).join(',');
 
   return (
     `https://www.instagram.com/oauth/authorize` +

@@ -4369,6 +4369,514 @@
    SECTION 6 — FAQ
    ========================================================================== */
 
+/* ---------- Auto DM (comment to DM) — flat surfaces, 1px borders, one accent (#4169e1) ----------
+   components/landing/AutoDmShowcase.js. Motion = the page's own easing and
+   timing (cubic-bezier(0.16, 1, 0.3, 1), 0.6 s), transitions only. Every mock
+   element is always in the layout; only opacity and transforms change, inside
+   a fixed-size phone, so the page never shifts. */
+.autodm-section {
+  background: #f7f9ff;
+  border-top: 1px solid rgba(65, 105, 225, 0.14);
+  border-bottom: 1px solid rgba(65, 105, 225, 0.14);
+}
+
+.autodm-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: 64px;
+  align-items: center;
+}
+
+.autodm-eyebrow-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.autodm-eyebrow-row .section-eyebrow {
+  margin-bottom: 0;
+}
+
+/* "Coming soon": always in the layout, hidden (not removed) once available. */
+.autodm-soon {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid #4169e1;
+  border-radius: var(--radius-pill);
+  background: #ffffff;
+  color: #4169e1;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.autodm-soon-hidden {
+  visibility: hidden;
+}
+
+.autodm-title {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 3.1rem;
+  font-weight: 800;
+  color: var(--color-black);
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin: 0 0 18px;
+  max-width: 560px;
+}
+
+.autodm-sub {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: var(--color-text-body);
+  margin: 0 0 28px;
+  max-width: 520px;
+}
+
+.autodm-benefits {
+  list-style: none;
+  margin: 0 0 34px;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.autodm-benefits li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--color-text-body);
+}
+
+.autodm-benefits strong {
+  color: var(--color-black);
+  font-weight: 700;
+}
+
+.autodm-benefit-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #4169e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4169e1;
+}
+
+/* ---- The phone ---- */
+.autodm-demo {
+  display: flex;
+  justify-content: center;
+}
+
+.autodm-phone {
+  position: relative;
+  width: 300px;
+  height: 620px;
+  flex: none;
+  border: 1px solid #d4d4d8;
+  border-radius: 42px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.autodm-phone-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 26px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-black);
+}
+
+.autodm-phone-notch {
+  position: absolute;
+  left: 50%;
+  top: 11px;
+  width: 86px;
+  height: 22px;
+  margin-left: -43px;
+  border-radius: var(--radius-pill);
+  background: #0c0c0e;
+}
+
+.autodm-screen {
+  position: absolute;
+  top: 44px;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.autodm-screen-post.is-away {
+  opacity: 0;
+  transform: translateX(-28px);
+}
+
+.autodm-screen-dm {
+  opacity: 0;
+  transform: translateX(28px);
+}
+
+.autodm-screen-dm.is-here {
+  opacity: 1;
+  transform: none;
+}
+
+.autodm-anim {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.autodm-anim.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+/* Screen 1: the reel and its comments */
+.autodm-reel {
+  position: relative;
+  height: 262px;
+  border-radius: 18px;
+  background: #4169e1;
+  overflow: hidden;
+}
+
+.autodm-reel-play {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  width: 0;
+  height: 0;
+  margin: -14px 0 0 -9px;
+  border-top: 14px solid transparent;
+  border-bottom: 14px solid transparent;
+  border-left: 22px solid rgba(255, 255, 255, 0.9);
+}
+
+.autodm-reel-caption {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #ffffff;
+}
+
+.autodm-comments {
+  padding: 14px 4px 0;
+}
+
+.autodm-comments-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.autodm-comment {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.autodm-comment p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--color-text-body);
+}
+
+.autodm-comment b {
+  color: var(--color-black);
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.autodm-comment-reply {
+  margin-left: 32px;
+}
+
+.autodm-avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border-card);
+  background: #f4f5f8;
+}
+
+.autodm-avatar-a { background: #e4e7ff; }
+.autodm-avatar-b { background: #f1f5f9; }
+.autodm-avatar-you { background: #0c0c0e; border-color: #0c0c0e; }
+.autodm-avatar-brand { background: #4169e1; border-color: #4169e1; }
+
+/* Screen 2: the DM thread */
+.autodm-dm-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 4px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.autodm-dm-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-black);
+}
+
+.autodm-dm-viewport {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+.autodm-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 2px;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.autodm-context {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.autodm-bubble {
+  max-width: 82%;
+  padding: 9px 12px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.autodm-bubble p {
+  margin: 0;
+}
+
+.autodm-in {
+  align-self: flex-start;
+  background: #f4f5f8;
+  border: 1px solid var(--border-card);
+  color: var(--color-black);
+}
+
+.autodm-out {
+  align-self: flex-end;
+  background: #4169e1;
+  border: 1px solid #4169e1;
+  color: #ffffff;
+}
+
+.autodm-btn {
+  position: relative;
+  display: block;
+  margin-top: 9px;
+  padding: 7px 10px;
+  border: 1px solid #4169e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #4169e1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+  overflow: hidden;
+  transition: background-color 0.2s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.autodm-btn.is-pressed {
+  background: rgba(65, 105, 225, 0.12);
+  transform: scale(0.97);
+}
+
+.autodm-tap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  background: rgba(65, 105, 225, 0.35);
+  animation: autodmTap 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  pointer-events: none;
+}
+
+@keyframes autodmTap {
+  from { transform: scale(0.3); opacity: 1; }
+  to { transform: scale(2.4); opacity: 0; }
+}
+
+.autodm-image {
+  position: relative;
+  align-self: flex-start;
+  width: 150px;
+  height: 86px;
+  border-radius: 14px;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
+  overflow: hidden;
+}
+
+.autodm-image-page {
+  position: absolute;
+  left: 44px;
+  top: 14px;
+  width: 50px;
+  height: 62px;
+  border: 1px solid #4169e1;
+  border-radius: 6px;
+  background: #ffffff;
+  z-index: 2;
+}
+
+.autodm-image-page::before,
+.autodm-image-page::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  height: 4px;
+  border-radius: 2px;
+  background: #4169e1;
+}
+
+.autodm-image-page::before { top: 12px; }
+.autodm-image-page::after { top: 22px; right: 20px; background: #c7d2fe; }
+
+.autodm-image-page-back {
+  left: 56px;
+  top: 8px;
+  border-color: #c7d2fe;
+  z-index: 1;
+}
+
+.autodm-image-page-back::before,
+.autodm-image-page-back::after {
+  display: none;
+}
+
+.autodm-link {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-card);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.autodm-link-title {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #4169e1;
+}
+
+.autodm-link-url {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+/* Reduced motion: the whole conversation, still. */
+.autodm-phone.is-static .autodm-screen,
+.autodm-phone.is-static .autodm-anim,
+.autodm-phone.is-static .autodm-thread {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .autodm-screen,
+  .autodm-anim,
+  .autodm-thread,
+  .autodm-btn {
+    transition: none;
+  }
+
+  .autodm-tap {
+    display: none;
+  }
+}
+
+/* ---- Pricing: Auto DM rows and the one fair-use footnote ---- */
+.pricing-trial-autodm {
+  margin: 4px auto 0;
+  font-size: 0.95rem;
+  color: var(--color-text-body);
+}
+
+.tier-features-list .autodm-soon,
+.pricing-trial-autodm .autodm-soon {
+  margin-left: 6px;
+  padding: 2px 8px;
+  font-size: 0.62rem;
+}
+
+.pricing-fair-use {
+  margin: 20px 0 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.landing-root .pricing-fair-use a {
+  color: #4169e1;
+  text-decoration: underline;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 960px) {
+  .autodm-layout {
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+
+  .autodm-title {
+    font-size: 2.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .autodm-title {
+    font-size: 2.05rem;
+  }
+
+  .autodm-sub {
+    font-size: 1rem;
+  }
+}
+
 .faq-section {
   position: relative;
   background:

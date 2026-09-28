@@ -20,7 +20,7 @@ import { nav } from '@/content/copy';
  * from a NEXT_PUBLIC_ mirror — a second copy on the frontend could be set
  * differently from the backend's and would show a nav entry to a 404.
  */
-export function buildNavItems({ billingEnabled = false } = {}) {
+export function buildNavItems({ billingEnabled = false, autodmEnabled = false } = {}) {
   return [
     {
       section: nav.sections.overview,
@@ -31,6 +31,8 @@ export function buildNavItems({ billingEnabled = false } = {}) {
       items: [
         { label: nav.inbox, path: '/inbox', icon: 'inbox' },
         { label: nav.notifications, path: '/notifications', icon: 'bell' },
+        // Auto DM: gated like billing, on GET /api/autodm/status (AppShell).
+        ...(autodmEnabled ? [{ label: 'Auto DM', path: '/autodm', icon: 'send' }] : []),
       ],
     },
     {

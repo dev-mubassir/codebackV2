@@ -48,6 +48,7 @@ import TrialStateCard from '@/app/components/billing/TrialStateCard';
 import { trialCardState, replacesPlanPanels, TRIAL_CARD } from '@/lib/trialState';
 import CreditsCard from '@/app/components/billing/CreditsCard';
 import UsageStrip from '@/app/components/billing/UsageStrip';
+import AutoDmBillingRow from '@/app/components/autodm/AutoDmBillingRow';
 import AddonShelf from '@/app/components/billing/AddonShelf';
 import ProUpgradeCallout from '@/app/components/billing/ProUpgradeCallout';
 import OrderHistory from '@/app/components/billing/OrderHistory';
@@ -359,6 +360,7 @@ function BillingPageContent({ user }) {
             </div>
 
             <UsageStrip summary={summary} />
+            <AutoDmBillingRow />
           </>
         )}
 
