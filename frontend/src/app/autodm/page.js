@@ -16,6 +16,7 @@ import { getInstagramAuthUrl } from '@/lib/api';
 import { createSocket } from '@/lib/socket';
 import { listAutomations, setAutomationStatus, deleteAutomation, apiErrorMessage } from '@/lib/autodmApi';
 import useAutoDmPage from '@/app/components/autodm/useAutoDmPage';
+import UsageMeter from '@/app/components/autodm/UsageMeter';
 import { autodm as t } from '@/app/components/autodm/copy';
 import s from '@/app/components/autodm/autodm.module.css';
 
@@ -52,7 +53,7 @@ function AutomationRow({ a, onToggle, onDelete, busy }) {
           checked={a.status === 'active'}
           disabled={busy}
           onChange={(v) => onToggle(a, v)}
-          label={a.status === 'active' ? t.active : t.paused}
+          label={a.status === 'active' ? t.active : a.status === 'paused_limit' ? t.pausedLimit : t.paused}
         />
       </div>
       <div className={s.counts}>
@@ -82,6 +83,7 @@ function AutoDmListContent() {
   const [actionError, setActionError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [usageKey, setUsageKey] = useState(0);
   const refreshTimer = useRef(null);
 
   const connected = useMemo(() => accounts.filter((a) => a.connectionStatus === 'CONNECTED'), [accounts]);
@@ -131,7 +133,10 @@ function AutoDmListContent() {
     const socket = createSocket();
     const bump = () => {
       clearTimeout(refreshTimer.current);
-      refreshTimer.current = setTimeout(load, 1500);
+      refreshTimer.current = setTimeout(() => {
+        load();
+        setUsageKey((k) => k + 1);
+      }, 1500);
     };
     socket.on('autodm:run_created', bump);
     socket.on('autodm:run_updated', bump);
@@ -147,6 +152,7 @@ function AutoDmListContent() {
     try {
       await setAutomationStatus(a.id, active ? 'active' : 'paused');
       setAutomations((list) => list.map((x) => (x.id === a.id ? { ...x, status: active ? 'active' : 'paused' } : x)));
+      setUsageKey((k) => k + 1);
     } catch (err) {
       setActionError(apiErrorMessage(err, t.toggleError));
     } finally {
@@ -223,6 +229,7 @@ function AutoDmListContent() {
       </header>
 
       {actionError && <p className={s.errNote} role="alert">{actionError}</p>}
+      {state === 'ready' && account && account.ready && <UsageMeter refreshKey={usageKey} />}
       {body}
 
       {confirmDelete && (

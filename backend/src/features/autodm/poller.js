@@ -9,15 +9,23 @@
  *
  * Every 2 minutes, for each connected account with the comments scope whose
  * owner has Auto DM access (in `allowlist` mode: a named beta user — an admin
- * grant or the env list), for each ACTIVE automation: read the recent comments on that automation's posts (its picked
- * posts, or the 10 most recent for "any post") and feed new ones to the SAME
- * intake the webhook uses. Our unique commentId is the dedupe, so no
+ * grant or the env list): work out the POSTS its active automations watch —
+ * every picked post, plus the 3 most recent posts when any automation is on
+ * "any post" — and read each post's comments ONCE, however many automations
+ * share it (Gate 9B: users can have 100–500 automations). New comments go to
+ * the SAME intake the webhook uses; our unique commentId is the dedupe, so no
  * "already replied?" Graph calls are made.
  *
- *   lookback: 72 hours — and never before the automation was last saved, so
+ *   tiers:    a post under 48 hours old is read every sweep (2 minutes), one
+ *             2–7 days old every 15 minutes, older ones every 60 minutes. When
+ *             a post was published and last read is kept per post in
+ *             autodm_media_states, shared by every pod (a post's publish time
+ *             is fetched once);
+ *   lookback: 72 hours — and never before the automation was last saved
+ *             (intake ignores automations saved after the comment), so
  *             creating or re-activating an automation never DMs people who
  *             commented before it existed (Siffty change);
- *   cap:      30 new comments per automation per sweep (a viral post drains
+ *   cap:      30 new comments per post per sweep (a viral post drains
  *             gradually instead of bursting into the comment API);
  *   backoff:  error 368 or any other Meta rate-limit code pauses that account
  *             for 15 minutes.
@@ -46,9 +54,19 @@ const JOB_NAME = 'autodm_poll';
 
 const SWEEP_EVERY_MS = 2 * 60 * 1000;
 const LOOKBACK_MS = 72 * 60 * 60 * 1000;
-const MAX_NEW_PER_AUTOMATION = 30;
-const RECENT_MEDIA_LIMIT = 10;
+const MAX_NEW_PER_MEDIA = 30;
+const RECENT_MEDIA_LIMIT = 3; // "any post" automations watch the latest 3 posts
 const RATE_LIMIT_PAUSE_MS = 15 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/** How often a post is read, by its age. Unknown age = treated as new. */
+function pollIntervalFor(mediaCreatedAt, now) {
+  if (!mediaCreatedAt) return SWEEP_EVERY_MS;
+  const age = now - new Date(mediaCreatedAt).getTime();
+  if (age < 48 * HOUR_MS) return SWEEP_EVERY_MS;
+  if (age < 7 * 24 * HOUR_MS) return 15 * 60 * 1000;
+  return 60 * 60 * 1000;
+}
 
 let lastSweepAt = 0;
 const pausedUntil = new Map(); // instagramAccountId -> epoch ms
@@ -88,9 +106,12 @@ async function sweepAccount(state, now, stats) {
 
   const automations = await prisma.autoDmAutomation.findMany({
     where: { instagramAccountId: account.id, userId: account.userId, status: 'active' },
-    select: { id: true, postScope: true, mediaIds: true, updatedAt: true },
+    select: { postScope: true, mediaIds: true, updatedAt: true },
   });
   if (automations.length === 0) return;
+  // Nothing written before the oldest active automation was saved can match
+  // (intake also checks each automation's own save time).
+  const since = Math.max(now - LOOKBACK_MS, Math.min(...automations.map((a) => new Date(a.updatedAt).getTime())));
 
   const intakeAccount = {
     id: account.id,
@@ -99,53 +120,75 @@ async function sweepAccount(state, now, stats) {
     igUsername: account.igUsername,
     connectionStatus: account.connectionStatus,
   };
-  const commentsCache = new Map();
-  let recentMedia = null;
 
-  const commentsFor = async (mediaId) => {
-    if (!commentsCache.has(mediaId)) commentsCache.set(mediaId, await graph.listComments(mediaId, token));
-    return commentsCache.get(mediaId);
-  };
+  // The posts to watch: every picked post, plus the latest 3 for "any post".
+  const published = new Map(); // mediaId -> Date | null (from listMedia)
+  const watched = new Set();
+  for (const a of automations) if (a.postScope === 'SPECIFIC') for (const id of a.mediaIds || []) watched.add(String(id));
+  if (automations.some((a) => a.postScope !== 'SPECIFIC')) {
+    for (const m of await graph.listMedia(token, { limit: RECENT_MEDIA_LIMIT })) {
+      const id = String(m.id);
+      watched.add(id);
+      const ts = m.timestamp ? new Date(m.timestamp) : null;
+      published.set(id, ts && !Number.isNaN(ts.getTime()) ? ts : null);
+    }
+  }
+  if (watched.size === 0) return;
 
-  for (const automation of automations) {
-    let mediaIds;
-    if (automation.postScope === 'SPECIFIC') {
-      mediaIds = automation.mediaIds || [];
-    } else {
-      if (recentMedia === null) recentMedia = (await graph.listMedia(token, { limit: RECENT_MEDIA_LIMIT })).map((m) => String(m.id));
-      mediaIds = recentMedia;
+  const mediaIds = [...watched];
+  const states = new Map(
+    (
+      await prisma.autoDmMediaState.findMany({
+        where: { instagramAccountId: account.id, mediaId: { in: mediaIds } },
+        select: { mediaId: true, mediaCreatedAt: true, lastPolledAt: true },
+      })
+    ).map((m) => [m.mediaId, m])
+  );
+
+  for (const mediaId of mediaIds) {
+    const known = states.get(mediaId);
+    let createdAt = known && known.mediaCreatedAt ? known.mediaCreatedAt : published.get(mediaId) || null;
+    if (!known && !createdAt) createdAt = await graph.getMediaTimestamp(mediaId, token); // once per post
+
+    if (known && known.lastPolledAt && now - new Date(known.lastPolledAt).getTime() < pollIntervalFor(createdAt, now)) {
+      stats.skippedMedia += 1;
+      continue;
     }
 
-    const since = Math.max(now - LOOKBACK_MS, new Date(automation.updatedAt).getTime());
+    const raws = await graph.listComments(mediaId, token);
+    stats.mediaPolled += 1;
+    await prisma.autoDmMediaState.upsert({
+      where: { instagramAccountId_mediaId: { instagramAccountId: account.id, mediaId } },
+      create: { instagramAccountId: account.id, mediaId, mediaCreatedAt: createdAt, lastPolledAt: new Date(now) },
+      update: { lastPolledAt: new Date(now), ...(createdAt ? { mediaCreatedAt: createdAt } : {}) },
+    });
+
     const candidates = [];
-    for (const mediaId of mediaIds) {
-      for (const raw of await commentsFor(mediaId)) {
-        const comment = normalizeComment({ ...raw, media: { id: mediaId } }, now);
-        if (!comment) continue;
-        if (comment.createdAt.getTime() < since) continue;
-        if (comment.commenterId === String(account.igUserId)) continue;
-        candidates.push(comment);
-      }
+    for (const raw of raws) {
+      const comment = normalizeComment({ ...raw, media: { id: mediaId } }, now);
+      if (!comment) continue;
+      if (comment.createdAt.getTime() < since) continue;
+      if (comment.commenterId === String(account.igUserId)) continue;
+      candidates.push(comment);
     }
     if (candidates.length === 0) continue;
 
     // Already handled (run exists) = skip. One query, no Graph calls.
-    const known = await prisma.autoDmRun.findMany({
+    const handled = await prisma.autoDmRun.findMany({
       where: { commentId: { in: candidates.map((c) => c.commentId) } },
       select: { commentId: true },
     });
-    const knownIds = new Set(known.map((k) => k.commentId));
+    const handledIds = new Set(handled.map((k) => k.commentId));
 
     const fresh = candidates
-      .filter((c) => !knownIds.has(c.commentId))
+      .filter((c) => !handledIds.has(c.commentId))
       .sort((a, b) => a.createdAt - b.createdAt) // earliest commenter first
-      .slice(0, MAX_NEW_PER_AUTOMATION);
+      .slice(0, MAX_NEW_PER_MEDIA);
 
     for (const comment of fresh) {
       const outcome = await intakeComment(intakeAccount, comment, { source: 'poll', now });
       stats.fed += 1;
       if (outcome === 'queued') stats.queued += 1;
-      knownIds.add(comment.commentId);
     }
   }
 }
@@ -172,7 +215,7 @@ async function sweep({ now = Date.now() } = {}) {
     },
   });
 
-  const stats = { accounts: 0, fed: 0, queued: 0, paused: 0 };
+  const stats = { accounts: 0, mediaPolled: 0, skippedMedia: 0, fed: 0, queued: 0, paused: 0 };
   for (const state of states) {
     if (state.instagramAccount.userId !== state.userId) continue;
     // Runtime check every sweep: a revoked owner's automations are skipped.
@@ -215,4 +258,15 @@ function resetPollerState() {
   pausedUntil.clear();
 }
 
-module.exports = { maybePoll, sweepOnce, sweep, resetPollerState, JOB_NAME, SWEEP_EVERY_MS, LOOKBACK_MS, MAX_NEW_PER_AUTOMATION };
+module.exports = {
+  maybePoll,
+  sweepOnce,
+  sweep,
+  resetPollerState,
+  pollIntervalFor,
+  JOB_NAME,
+  SWEEP_EVERY_MS,
+  LOOKBACK_MS,
+  MAX_NEW_PER_MEDIA,
+  RECENT_MEDIA_LIMIT,
+};

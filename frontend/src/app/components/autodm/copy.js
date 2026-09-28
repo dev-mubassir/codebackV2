@@ -55,6 +55,7 @@ export const autodm = {
   },
   active: 'Active',
   paused: 'Paused',
+  pausedLimit: 'Paused (plan limit)',
 
   wizard: {
     newTitle: 'New automation',
@@ -163,9 +164,33 @@ export const autodm = {
   },
 };
 
+/** The usage meter and its notices (UsageMeter.js). Numbers come from the API. */
+export const usage = {
+  label: 'Auto DMs',
+  thisMonth: 'this month',
+  inTrial: 'in your trial',
+  unlimited: 'Unlimited*',
+  unlimitedShort: 'Unlimited*',
+  resets: (date) => `Resets ${date}`,
+  automations: 'Automations',
+  active: 'active',
+  billingHeading: 'Auto DM',
+  open: 'Open Auto DM',
+  billingHelp: (date) => `1 Auto DM = 1 person who got your first DM. Follow-ups and the link are free. Resets ${date}.`,
+  warn80: (used, limit, date) => `You've used ${used} of ${limit} Auto DMs. When you reach ${limit}, new comments wait until ${date} or until you upgrade.`,
+  limit: (limit, date, held) =>
+    `All ${limit} Auto DMs for this period are used. New comments are held, not dropped${held ? ` (${held} waiting)` : ''}: they send on ${date} or as soon as you upgrade. Comments older than 7 days can no longer get a DM.`,
+  noPlan: (held) =>
+    `Your trial or plan has ended, so Auto DMs are paused. New comments are held for up to 7 days${held ? ` (${held} waiting)` : ''} and send as soon as you renew.`,
+  pausedForLimit: (count, max) =>
+    `${count} automation${count === 1 ? ' was' : 's were'} paused because your plan allows ${max} active. Pause another one to turn it back on.`,
+};
+
 /** Run status → label and badge tone. Warning is kept for things the user must act on. */
 export const RUN_STATUS = {
   QUEUED: { label: 'Queued', tone: 'neutral' },
+  SENDING: { label: 'Sending', tone: 'neutral' },
+  WAITING_QUOTA: { label: 'Held', tone: 'warning' },
   OPENER_SENT: { label: 'DM sent', tone: 'accent' },
   OPENER_UNCONFIRMED: { label: 'DM not confirmed', tone: 'neutral' },
   AWAITING_FOLLOW: { label: 'Waiting for follow', tone: 'accent' },
@@ -179,6 +204,8 @@ export const RUN_STATUS = {
 export function runNote(code) {
   if (!code) return null;
   if (code === 'FAIL_OPEN') return 'Follow status unavailable, so the link was sent anyway.';
+  if (code === 'QUOTA') return "Held: this period's Auto DMs were used up. It sends when your plan renews or you upgrade (within 7 days of the comment).";
+  if (code === 'NO_PLAN') return 'Held: no active trial or plan. It sends when you renew (within 7 days of the comment).';
   if (code === 'OPENER_UNCONFIRMED') return "Instagram didn't confirm the first DM. It is not resent (one private reply per comment); a tap or keyword reply still works.";
   if (code === 'ACCOUNT_DISCONNECTED') return 'The Instagram account was disconnected.';
   if (code === 'NO_TOKEN' || code.startsWith('META_190')) return 'Instagram needs to be reconnected.';

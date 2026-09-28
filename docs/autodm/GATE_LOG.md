@@ -195,3 +195,41 @@ Full suite: **82 files (81 passed, 1 skipped); 948 tests: 936 passed, 12 skipped
 Frontend: lint 0 errors; build passes (`/admin/autodm` prerenders).
 
 **Risks**: mode changes reach other pods within ~10 s; the local `.env` still has `AUTODM_ENABLED=true` + the bootstrap email, but the mode defaults to OFF, so Auto DM stays hidden locally until an admin sets Beta.
+
+---
+
+## Gate 9A — AI sorting ignores Auto DM conversations
+
+**Built** (`interaction.js`, same seam, same fail-safe): an inbound DM from a sender who has an Auto DM run on that account with activity (`updated_at`) in the last 24 hours — any status except the pre-send ones (QUEUED, SENDING, WAITING_QUOTA) — while the owner has access, is stored and shown as today but marked `aiStatus 'autodm'`: no classification, no auto-reply, no AI credits. The DM itself never extends the window. A socket event `autodm:conversation` tells the open inbox. Order of checks: kill switch (no query) → cached rollout mode (OFF = no per-message query) → existing tap / LINK handling → one indexed run lookup → the owner's access. Any error → false → normal sorting.
+
+**Existing files touched**
+| File | Change | Diff |
+|---|---|---|
+| `backend/src/routes/api.js` | conversation list: the latest inbound message's `aiStatus` is selected, and `autoDm: true` is returned when it is `'autodm'` | +2 / −1 |
+| `frontend/src/app/inbox/page.js` | approved touch point: the row shows a small "Auto DM" badge instead of the category when `conv.autoDm`; listens to `autodm:conversation`; `analysis_completed` clears the flag | +12 / −2 |
+
+**Tests**: new `tests/autodm-window.test.js` (8): a reply in the window is stored/shown but not sorted (no Gemini call, no credit, ledger and counters unchanged, no auto-reply, list shows `autoDm`); every post-send status opens the window, QUEUED/WAITING_QUOTA don't; attachments too; another account's run never opens this account's window; after 24 h the DM is sorted; someone who never commented is sorted identically to a tenant without Auto DM; kill switch off / mode OFF / no access / revoked → byte-identical sorting; a failing check → normal sorting. `tests/autodm-regression.test.js`: the Gate 4 test "a mid-flow commenter's ordinary question is still classified" encoded the old rule and was replaced (this branch's own test, rule changed by this gate) with "a commenter whose run went quiet 24+ hours ago is classified and auto-replied".
+
+## Gate 9B — plan limits, usage, enforcement
+
+**Built**
+- `limits.js` — per-plan limits (seed in code: TRIAL 30/1,000; STARTER 100/10,000; PRO 500/100,000 shown "Unlimited*"; ENTERPRISE = Pro's until set; unknown = TRIAL's), admin edits in `autodm_plan_limits`, the enforcement switch (app_settings `autodm_enforcement`, OFF default), "No limits" exemptions.
+- `quota.js` — period = the entitlement's `cycleStartedAt` (calendar month without an entitlement); atomic reserve before the opener (`UPDATE … used = used + 1 WHERE id = … AND used < limit RETURNING`, in one transaction with QUEUED → SENDING); release on a definite failure; WAITING_QUOTA hold (never dropped) + a locked sweep every 2 min (`runIfDue('autodm_quota')`) that expires holds at 7 days, releases them oldest-first when there is room (period reset, upgrade, higher limit, enforcement off), and pauses automations over the limit after a downgrade (`paused_limit`, newest N kept, nothing deleted); 80% / 100% notices once per period (email + banner).
+- Worker: reserve before the opener; SENDING runs never reserve twice. Routes: 409 `AUTOMATION_LIMIT` on create / edit / activate past the limit; `GET /api/autodm/usage`. Admin: `PUT /enforcement`, `PUT /plan-limits/:planCode` (both step-up), `PUT /grants/:userId/limits`, grants take `noLimits`, overview adds enforcement, plan limits and per-user usage; all audited.
+- Poller: one comments call per post however many automations share it; posts under 48 h read every 2 min, 2–7 days every 15 min, older every 60 min; "any post" reads the latest 3; state per post in `autodm_media_states` (shared by pods; a post's publish time fetched once); intake ignores automations saved after a polled comment.
+- Migration `20261003090000_autodm_limits`: 4 CREATE TABLE, their indexes, FKs from them, and one CREATE INDEX on `autodm_runs` (status, user_id) — checked by the statement grep; applied to local dev and test DBs. The diff tool also proposed `ALTER TABLE "user_sessions" RENAME CONSTRAINT …` (pre-existing drift between the local DB and the schema) — left out.
+- Frontend: usage meter + notices on the Auto DM page, run labels "Held" / "Sending", "Paused (plan limit)"; admin page: enforcement switch, plan-limits editor, "No limits" on grants, usage table; billing page row.
+
+**Existing files touched**
+| File | Change | Diff |
+|---|---|---|
+| `backend/prisma/schema.prisma` | 4 new models; back-relations on User, InstagramAccount and Plan (no columns); one index on AutoDmRun | +74 / −2 |
+| `backend/src/lib/email/index.js` | one sender `sendAutoDmUsage` (deferrable tier) | +4 / −0 |
+| `backend/src/lib/email/templates.js` | one template `autodmUsage` (80% / 100%) | +28 / −0 |
+| `frontend/src/app/billing/page.js` | approved touch point: one `<AutoDmBillingRow />` (renders nothing without Auto DM access) + its import | +2 / −0 |
+
+**Tests**: new `tests/autodm-quota.test.js` (20): 20 concurrent sends at limit−1 → exactly one sends; only the opener counts, a definite failure is released; an unconfirmed opener counts; held at the limit and released on a period roll (`rollCycle`); released on upgrade; NO_PLAN held then released; 7-day expiry; enforcement off releases holds; notices at 80% and 100% once, none while off; enforcement OFF counts but never blocks; "No limits" never blocked (even with no plan); automation limit on create / activate / edit; downgrade keeps the newest N; paused_limit takes no comments; poller one call per post, tiers, latest 3, publish time fetched once; tier table; usage isolation between tenants; customers can't reach the new admin endpoints; step-up + audit for enforcement and plan limits, grant with "No limits", toggle, revoke removes it; admin usage list.
+Full suite: **84 files (83 passed, 1 skipped); 976 tests: 964 passed, 12 skipped, 0 failed** — previous run 936/12/0 + 28 new (9A: 8; 9B: 20; the replaced regression test is 1-for-1).
+Frontend: lint 0 errors.
+
+**Risks**: the local DB migration was applied while the owner's backend was running; `prisma generate` succeeded this time (no DLL lock). Usage emails use the shared deferrable email quota (Resend 100/day) — at scale these notices compete with trial emails.

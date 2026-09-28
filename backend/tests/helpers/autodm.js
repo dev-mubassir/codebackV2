@@ -13,6 +13,8 @@ import { prisma, createUser, createAccount, uniq } from './db.js';
 const require = createRequire(import.meta.url);
 const axios = require('axios');
 const access = require('../../src/features/autodm/access.js');
+const limits = require('../../src/features/autodm/limits.js');
+const quota = require('../../src/features/autodm/quota.js');
 
 export const AUTODM_FLAGS = ['AUTODM_ENABLED', 'AUTODM_SCOPE_ALLOWLIST', 'AUTODM_SCOPE_ALL', 'AUTODM_POLL_MODE'];
 
@@ -20,8 +22,12 @@ export function saveFlags() {
   const saved = Object.fromEntries(AUTODM_FLAGS.map((k) => [k, process.env[k]]));
   for (const k of AUTODM_FLAGS) delete process.env[k];
   access.resetAccessCache(); // the DB (and its rollout-mode row) is reset between tests
+  limits.resetLimitsCache();
+  quota.resetQuotaState();
   return () => {
     access.resetAccessCache();
+    limits.resetLimitsCache();
+    quota.resetQuotaState();
     for (const k of AUTODM_FLAGS) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];

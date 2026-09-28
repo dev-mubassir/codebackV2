@@ -13,9 +13,12 @@
  *   GET    /automations/:id
  *   PUT    /automations/:id
  *   PATCH  /automations/:id/status      { status: active | paused }
+ *                                        (activating is refused past the plan's
+ *                                        automation limit while enforcement is ON)
  *   DELETE /automations/:id
  *   GET    /automations/:id/runs        last 50 runs (the run log)
  *   POST   /images                      raw JPG/PNG body, ≤2 MB
+ *   GET    /usage                       this period's Auto DMs, limits, notices
  *
  * Tenant isolation: every query filters by req.userId (and the account ids
  * requireWorkspace resolved). Another tenant's id is a plain 404 — never 403,
@@ -38,6 +41,7 @@ const { hasAutoDmAccess } = require('./access');
 const log = require('./log');
 const v = require('./validation');
 const images = require('./images');
+const quota = require('./quota');
 
 const router = express.Router();
 
@@ -87,6 +91,18 @@ const wrap = (fn) => (req, res, next) =>
   });
 
 const notFound = (res) => res.status(404).json({ error: 'That automation no longer exists.' });
+
+/** 409 when one more active automation would exceed the plan (enforcement ON). */
+async function automationLimitResponse(req, res, excludeId = null) {
+  const block = await quota.automationLimitBlock(req.userId, excludeId);
+  if (!block) return false;
+  res.status(409).json({
+    error: `Your plan allows ${block.max.toLocaleString('en-IN')} active automations. Pause one, or upgrade your plan to add more.`,
+    code: 'AUTOMATION_LIMIT',
+    max: block.max,
+  });
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Serialisers — explicit fields only
@@ -341,6 +357,7 @@ router.post(
 
     const image = await usableImage(req, b.imageId);
     if (b.imageId && !image) return res.status(400).json({ error: 'imageId: that image is no longer available. Upload it again.' });
+    if (b.status === 'active' && (await automationLimitResponse(req, res))) return undefined;
 
     const id = crypto.randomUUID();
     await prisma.$transaction(async (tx) => {
@@ -383,6 +400,7 @@ router.put(
     const currentImageId = existing.image ? existing.image.id : null;
     const image = await usableImage(req, b.imageId, existing.id);
     if (b.imageId && !image) return res.status(400).json({ error: 'imageId: that image is no longer available. Upload it again.' });
+    if (b.status === 'active' && existing.status !== 'active' && (await automationLimitResponse(req, res, existing.id))) return undefined;
 
     await prisma.$transaction(async (tx) => {
       await tx.autoDmAutomation.update({ where: { id: existing.id }, data: automationData(b) });
@@ -404,6 +422,14 @@ router.patch(
   '/automations/:id/status',
   validate({ params: v.idParams, body: v.statusBody }),
   wrap(async (req, res) => {
+    if (req.body.status === 'active') {
+      const current = await prisma.autoDmAutomation.findFirst({
+        where: { id: req.params.id, userId: req.userId, instagramAccountId: { in: req.ownedAccountIds } },
+        select: { status: true },
+      });
+      if (!current) return notFound(res);
+      if (current.status !== 'active' && (await automationLimitResponse(req, res, req.params.id))) return undefined;
+    }
     const result = await prisma.autoDmAutomation.updateMany({
       where: { id: req.params.id, userId: req.userId, instagramAccountId: { in: req.ownedAccountIds } },
       data: { status: req.body.status },
@@ -452,6 +478,18 @@ router.get(
 // ---------------------------------------------------------------------------
 
 router.post('/images', images.rawImageBody, wrap(images.uploadImage));
+
+// ---------------------------------------------------------------------------
+// Usage (the meter on the Auto DM page; the row on the billing page)
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/usage',
+  wrap(async (req, res) => {
+    const u = await quota.usage(req.userId);
+    res.json({ ...u, periodStart: u.periodStart.toISOString(), periodEnd: u.periodEnd.toISOString() });
+  })
+);
 
 module.exports = router;
 module.exports.requireAutoDm = requireAutoDm;

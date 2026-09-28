@@ -142,9 +142,13 @@ describe('a normal DM behaves identically with Auto DM off and on', () => {
     }
   });
 
-  it('with Auto DM on, a mid-flow commenter\'s ordinary question is still classified and auto-replied', async () => {
+  // Gate 9A changed this rule: a DM from someone with Auto DM activity in the
+  // last 24 hours is Auto DM's conversation, not sorted (autodm-window.test.js
+  // covers it). 24 hours after the run's last activity they are sorted again.
+  it('with Auto DM on, a commenter whose run went quiet 24+ hours ago is classified and auto-replied', async () => {
     process.env.AUTODM_ENABLED = 'true';
     const t = await tenant({ withAutoDm: true });
+    await prisma.$executeRaw`UPDATE "autodm_runs" SET "updated_at" = (NOW() AT TIME ZONE 'UTC') - INTERVAL '25 hours' WHERE "igsid" = 'mid-flow-fan'`;
     const out = await runDm(t, { sender: 'mid-flow-fan', text: 'Also, do you edit wedding reels?' });
     expect(out.inbound.aiStatus).toBe('completed');
     expect(out.sends).toHaveLength(1);

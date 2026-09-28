@@ -508,6 +508,34 @@ const templates = {
     };
   },
 
+  autodmUsage({ level, used, limit, resetsAt, url }) {
+    const n = (x) => Number(x).toLocaleString('en-IN');
+    const date = resetsAt ? new Date(resetsAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' }) : null;
+    const full = level >= 100;
+    const subject = full ? "You've used all your Auto DMs for this billing period" : "You've used 80% of your Auto DMs";
+    const lead = `You've sent ${n(used)} of ${n(limit)} Auto DMs this billing period.`;
+    const next = full
+      ? `New comments that match your automations are held, not dropped. They send automatically when your plan renews${date ? ` on ${date}` : ''} or when you upgrade. Instagram only allows the reply within 7 days of the comment, so held comments older than that expire.`
+      : `When you reach ${n(limit)}, new comments wait until your plan renews${date ? ` on ${date}` : ''} or you upgrade. Nothing is lost for up to 7 days.`;
+    return {
+      subject,
+      text: `${lead}
+
+${next}
+
+${url}
+
+Siffty · ${SUPPORT_EMAIL}
+`,
+      html: wrap(
+        escapeHtml(subject),
+        `<p style="margin:0;font-size:15px;line-height:1.5;">${escapeHtml(lead)}</p>
+         <p style="margin:12px 0 0;font-size:15px;line-height:1.5;">${escapeHtml(next)}</p>
+         ${button(url, 'Open Auto DM')}`
+      ),
+    };
+  },
+
   trialEnding({ daysLeft, dashboardUrl }) {
     const when = daysLeft <= 0 ? 'has ended' : daysLeft === 1 ? 'ends tomorrow' : `ends in ${daysLeft} days`;
     return {

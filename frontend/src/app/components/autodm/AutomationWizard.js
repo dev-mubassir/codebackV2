@@ -560,7 +560,7 @@ export default function AutomationWizard({ accountId, automation = null }) {
     try {
       const body = toBody(form, accountId, automation ? undefined : 'active');
       if (automation) {
-        body.status = automation.status;
+        body.status = automation.status === 'paused_limit' ? 'paused' : automation.status; // paused for the plan limit stays paused
         await updateAutomation(automation.id, body);
       } else {
         await createAutomation(body);

@@ -263,6 +263,7 @@ function InboxPageContent() {
       priorityScore: data.priorityScore ?? c.priorityScore,
       needsAttention: data.needsAttention ?? c.needsAttention,
       summary: data.summary || c.summary,
+      autoDm: false,
     } : c)));
 
     if (selectedConvRef.current === data.conversationId) {
@@ -275,6 +276,12 @@ function InboxPageContent() {
         summary: { ...(prev?.summary || {}), summary: data.summary || prev?.summary?.summary },
       }));
     }
+  }, []);
+
+  // Auto DM took this conversation's latest DM (not sorted): label, not category.
+  const handleAutoDmConversation = useCallback((data) => {
+    if (!data?.conversationId) return;
+    setConversations((prev) => prev.map((c) => (c.id === data.conversationId ? { ...c, autoDm: true } : c)));
   }, []);
 
   const handleBrandDealDetected = useCallback((data) => {
@@ -377,13 +384,14 @@ function InboxPageContent() {
     socket.on('conversation_read', handleConversationRead);
     socket.on('analysis_completed', handleAnalysisCompleted);
     socket.on('brand_deal_detected', handleBrandDealDetected);
+    socket.on('autodm:conversation', handleAutoDmConversation);
     socket.on('notification', () => setNotifUnreadCount((c) => c + 1));
     socket.on('chat_cleared', handleChatCleared);
     socket.on('conversation_deleted', handleConversationDeleted);
 
     return () => socket.disconnect();
   }, [user, catchUp, handleNewMessage, handleConversationRead, handleAnalysisCompleted,
-    handleBrandDealDetected, handleChatCleared, handleConversationDeleted]);
+    handleBrandDealDetected, handleAutoDmConversation, handleChatCleared, handleConversationDeleted]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -681,7 +689,9 @@ function InboxPageContent() {
                       </span>
                       <span className={styles.rowPreview}>{conv.lastMessage || empty.messages.title}</span>
                       <span className={styles.rowTags}>
-                        {meta
+                        {conv.autoDm
+                          ? <Badge size="sm" tone="accent">Auto DM</Badge>
+                          : meta
                           ? <Badge size="sm" tone={categoryTone(meta.id, meta.tone)}>{meta.label}</Badge>
                           : <Badge size="sm" tone="neutral">{customerTypeLabel('unknown').label}</Badge>}
                         {type && (

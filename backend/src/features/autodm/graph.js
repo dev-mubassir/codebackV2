@@ -198,6 +198,18 @@ async function listMedia(token, { limit = 24 } = {}) {
   return Array.isArray(res.data && res.data.data) ? res.data.data : [];
 }
 
+/** When one media item was published (poller tiers). null if Meta does not say. */
+async function getMediaTimestamp(mediaId, token) {
+  const res = await axios.get(`${GRAPH}/${encodeURIComponent(mediaId)}`, {
+    params: { fields: 'id,timestamp' },
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: TIMEOUT_MS,
+  });
+  const ts = res.data && res.data.timestamp;
+  const d = ts ? new Date(ts) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+}
+
 /** Top-level comments on one media item (poller), newest first per Meta. */
 async function listComments(mediaId, token, { limit = 50 } = {}) {
   const res = await axios.get(`${GRAPH}/${encodeURIComponent(mediaId)}/comments`, {
@@ -234,6 +246,7 @@ module.exports = {
   sendButtonTemplate,
   getFollowStatus,
   listMedia,
+  getMediaTimestamp,
   listComments,
   subscribeWithComments,
 };

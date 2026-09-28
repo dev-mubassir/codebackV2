@@ -56,6 +56,12 @@ export async function getAutomationRuns(id) {
   return data;
 }
 
+/** This billing period's Auto DMs, limits and notices (the meter). */
+export async function getAutoDmUsage() {
+  const { data } = await api.get('/api/autodm/usage');
+  return data;
+}
+
 /** Raw bytes; the server decides the type from the file's magic bytes. */
 export async function uploadAutoDmImage(file) {
   const { data } = await api.post('/api/autodm/images', file, {

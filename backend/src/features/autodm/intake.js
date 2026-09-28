@@ -72,9 +72,12 @@ async function intakeComment(account, comment, { source = 'webhook', now = Date.
   if (isSelfComment(account, comment)) return 'self';
   if (now - comment.createdAt.getTime() >= PRIVATE_REPLY_WINDOW_MS) return 'too_old';
 
-  const automations = await prisma.autoDmAutomation.findMany({
+  let automations = await prisma.autoDmAutomation.findMany({
     where: { instagramAccountId: account.id, userId: account.userId, status: 'active' },
   });
+  // A polled comment never reaches an automation saved after it was written:
+  // creating or re-activating an automation never DMs earlier commenters.
+  if (source === 'poll') automations = automations.filter((a) => new Date(a.updatedAt).getTime() <= comment.createdAt.getTime());
   if (automations.length === 0) return 'no_automation';
 
   const winner = selectAutomation(automations, comment);

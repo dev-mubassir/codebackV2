@@ -27,6 +27,11 @@
  *   main message: image (if any, once) → text; with a link, a web_url
  *             button template, falling back to text + link → DELIVERED.
  *
+ * Quota (Gate 9B, quota.js): before the opener, one Auto DM is reserved
+ * atomically and the run moves QUEUED → SENDING; out of quota or without an
+ * active plan (enforcement ON) the run waits as WAITING_QUOTA instead — never
+ * dropped. A definite send failure gives the reservation back.
+ *
  * Failures: exponential backoff, 5 attempts → FAILED. A dead token flags the
  * account (existing lib/tokenHealth) and fails at once. Meta rate limits back
  * off 15 minutes. Private replies are throttled per account below Meta's
@@ -45,6 +50,7 @@ const graph = require('./graph');
 const log = require('./log');
 const { emitRunUpdated } = require('./events');
 const { hasAutoDmAccess } = require('./access');
+const quota = require('./quota');
 const { pickRandom, utf8Bytes } = require('./util');
 const {
   DEFAULT_OPENER_BUTTON,
@@ -169,10 +175,9 @@ async function throttled(run) {
 }
 
 async function doOpener(run, token) {
-  const a = run.automation;
-
   if (Date.now() - new Date(run.commentCreatedAt).getTime() >= PRIVATE_REPLY_WINDOW_MS) {
     log.info(`run ${run.id}: comment older than 7 days, expired`);
+    if (run.status === 'SENDING') await quota.release(run); // nothing was sent: not an Auto DM
     return finish(run, 'EXPIRED');
   }
 
@@ -185,6 +190,30 @@ async function doOpener(run, token) {
       attempts: Math.max(0, run.attempts - 1),
     });
   }
+
+  // Quota: reserve one Auto DM (QUEUED → SENDING). A SENDING run already holds
+  // its reservation (a crash after reserving): never reserve twice.
+  if (run.status !== 'SENDING') {
+    const outcome = await quota.reserve(run);
+    if (outcome === 'MOVED') return null;
+    if (outcome !== 'OK') {
+      log.info(`run ${run.id}: held (${outcome === 'NO_PLAN' ? 'no active plan' : 'Auto DM allowance used up'})`);
+      return finish(run, 'WAITING_QUOTA', { lastError: outcome });
+    }
+    run = { ...run, status: 'SENDING' };
+  }
+
+  try {
+    return await sendOpener(run, token);
+  } catch (err) {
+    // A definite failure: nobody got the DM, so the Auto DM is not used.
+    await quota.release(run).catch((e) => log.error(`run ${run.id}: could not release its reservation (${e && e.code ? e.code : 'error'})`));
+    throw err;
+  }
+}
+
+async function sendOpener(run, token) {
+  const a = run.automation;
 
   // Public reply: optional, AT MOST ONCE (stamped before posting, so a crash
   // can never post it twice), and never blocks the private reply.
@@ -364,7 +393,7 @@ async function processRun(id) {
 let timer = null;
 let running = null;
 
-/** One pass: due runs, then (when due) the comment poller. */
+/** One pass: due runs, then (when due) the comment poller and the quota sweep. */
 async function tick() {
   if (!config.isEnabled()) return; // idle: no database access at all
   try {
@@ -377,6 +406,7 @@ async function tick() {
       }
     }
     await require('./poller').maybePoll();
+    await quota.maybeSweep();
   } catch (err) {
     log.error(`tick failed (${err && err.code ? err.code : 'error'})`);
   }

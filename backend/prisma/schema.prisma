@@ -82,6 +82,8 @@ model User {
   autoDmRuns          AutoDmRun[]
   autoDmImages        AutoDmImage[]
   autoDmAccess        AutoDmAccess?
+  autoDmUsage         AutoDmUsage[]
+  autoDmExemption     AutoDmExemption?
 
   @@map("users")
 }
@@ -191,6 +193,7 @@ model InstagramAccount {
   autoDmState       AutoDmAccountState?
   autoDmAutomations AutoDmAutomation[]
   autoDmRuns        AutoDmRun[]
+  autoDmMediaStates AutoDmMediaState[]
 
   @@unique([userId, igUserId])
   @@index([userId])
@@ -1377,7 +1380,8 @@ model Plan {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  prices PlanPrice[]
+  prices      PlanPrice[]
+  autoDmLimit AutoDmPlanLimit?
 
   @@map("billing_plans")
 }
@@ -1609,7 +1613,7 @@ model AutoDmRun {
   mediaId            String?   @map("media_id")
   source             String    @default("webhook") // webhook | poll
   igsid              String? // recipient_id returned by the private reply
-  status             String    @default("QUEUED") // QUEUED | OPENER_SENT | AWAITING_FOLLOW | DELIVERED | NOT_FOLLOWING | FAILED | EXPIRED
+  status             String    @default("QUEUED") // QUEUED | SENDING | WAITING_QUOTA | OPENER_SENT | OPENER_UNCONFIRMED | AWAITING_FOLLOW | DELIVERED | NOT_FOLLOWING | FAILED | EXPIRED
   pendingAction      String?   @map("pending_action") // OPENER | GET | FOLLOWED; NULL = nothing due
   followChecks       Int       @default(0) @map("follow_checks")
   attempts           Int       @default(0)
@@ -1634,6 +1638,7 @@ model AutoDmRun {
   @@index([automationId, createdAt])
   @@index([userId])
   @@index([createdAt])
+  @@index([status, userId]) // the quota sweep: held (WAITING_QUOTA) runs per user
   @@map("autodm_runs")
 }
 
@@ -1669,4 +1674,71 @@ model AutoDmAccess {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("autodm_access")
+}
+
+// Auto DM plan limits (Gate 9B). One row per plan the admin has edited; a plan
+// without a row uses the defaults in features/autodm/limits.js (the seed).
+model AutoDmPlanLimit {
+  id               String   @id @default(uuid())
+  planId           String   @unique @map("plan_id")
+  maxAutomations   Int      @map("max_automations")
+  monthlyDms       Int      @map("monthly_dms") // per billing period (the entitlement cycle)
+  displayUnlimited Boolean  @default(false) @map("display_unlimited") // shown as "Unlimited*" (fair use)
+  updatedByAdminId String?  @map("updated_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@map("autodm_plan_limits")
+}
+
+// Auto DMs used per user per billing period (period = the entitlement's
+// cycleStartedAt). 1 Auto DM = 1 person who received the opening DM.
+model AutoDmUsage {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  periodStart DateTime  @map("period_start")
+  planCode    String?   @map("plan_code")
+  used        Int       @default(0)
+  warned80At  DateTime? @map("warned_80_at")
+  warned100At DateTime? @map("warned_100_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodStart])
+  @@index([periodStart])
+  @@map("autodm_usage")
+}
+
+// "No limits" (testers, the Meta reviewer): usage is counted, never blocked.
+model AutoDmExemption {
+  id               String   @id @default(uuid())
+  userId           String   @unique @map("user_id")
+  grantedByAdminId String?  @map("granted_by_admin_id")
+  note             String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("autodm_exemptions")
+}
+
+// Poller state per post: when it was published (fixes how often it is polled)
+// and when it was last polled. Shared by every pod.
+model AutoDmMediaState {
+  id                 String    @id @default(uuid())
+  instagramAccountId String    @map("instagram_account_id")
+  mediaId            String    @map("media_id")
+  mediaCreatedAt     DateTime? @map("media_created_at")
+  lastPolledAt       DateTime? @map("last_polled_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([instagramAccountId, mediaId])
+  @@map("autodm_media_states")
 }
