@@ -10,6 +10,7 @@
 const router = require('../lib/ai/router');
 const { keyConfigured } = require('../lib/ai/models');
 const { validateClassification, validateSummary } = require('../lib/ai/schema');
+const { classifyWithClefOrFallback } = require('../lib/ai/clefClassifier');
 const {
   CATEGORIES,
   CUSTOMER_TYPES,
@@ -494,9 +495,8 @@ async function analyzeConversation({
   aiStats.totalCalls++;
   aiStats.messagesAnalyzed++;
 
-  const prompt = buildClassificationPrompt({ messageText, contactUsername, recentMessages, businessProfile });
-
-  try {
+  const callGemini = async () => {
+    const prompt = buildClassificationPrompt({ messageText, contactUsername, recentMessages, businessProfile });
     const result = await router.callAI({ prompt, isJson: true, jobType: 'classification', tenantId, validate: validateClassification });
     noteSuccess(result);
     const { json, model, provider } = result;
@@ -514,12 +514,27 @@ async function analyzeConversation({
       priorityScore: scored.score,
       priority: scored.priority,
       failed: false,
-      // A provider was actually called and charged us. `billable` — not
-      // `!failed` — is what the billing layer counts, because a call that
-      // returns unparseable output still costs money (see the catch below).
       billable: true,
       rawResponse: json,
     };
+  };
+
+  try {
+    const analysis = await classifyWithClefOrFallback({
+      messageText,
+      preferences,
+      fallbackFn: callGemini,
+      computePriorityScore,
+    });
+
+    if (analysis.provider === 'cloudflare') {
+      aiStats.aiSuccess++;
+      aiStats.categoryCounts[analysis.category] = (aiStats.categoryCounts[analysis.category] || 0) + 1;
+      aiStats.lastSuccessfulProvider = 'cloudflare';
+      aiStats.lastSuccessfulModel = analysis.model;
+    }
+
+    return analysis;
   } catch (error) {
     aiStats.aiFailures++;
     console.warn(`[AIService] Analysis fallback triggered: ${error.message}`);
