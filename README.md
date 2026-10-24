@@ -6,7 +6,7 @@
 [![Prisma](https://img.shields.io/badge/Prisma-6.19-2D3748?logo=prisma)](https://www.prisma.io/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql)](https://www.postgresql.org/)
 [![Tests](https://img.shields.io/badge/Vitest-58%20passing-6E9F18?logo=vitest)](https://vitest.dev/)
-[![Multi-Provider AI](https://img.shields.io/badge/AI-Gemini%20%7C%20xAI%20Grok%20%7C%20OpenAI-8E7CC3)](https://ai.google.dev/)
+[![Multi-Provider AI](https://img.shields.io/badge/AI-Gemini%20%7C%20Cloudflare%20Clef%20%7C%20xAI%20%7C%20OpenAI-8E7CC3)](https://ai.google.dev/)
 [![Security](https://img.shields.io/badge/Security-AES--256--GCM-success)](https://nodejs.org/api/crypto.html)
 
 **Codeback** is a generalized, high-performance Instagram DM Customer Intelligence, Lead Qualification, Sales & Support SaaS. Built for **Video & Photo Editors, Product Sellers, Used Phone/Laptop Sellers, Clothing & Fashion Boutiques, Agencies, Freelancers, Coaches, E-commerce, and Content Creators**.
@@ -153,7 +153,7 @@ Every human-readable string comes from one place, and **no raw stored value reac
 | **Frontend** | Next.js 16 (App Router), React 19, Vanilla CSS Modules & Tokens, Axios, Socket.io-client |
 | **Backend API** | Node.js v24, Express v4.21, Socket.io v4.8, Bcryptjs, Cookie-Parser, Express-Session |
 | **Database & ORM** | PostgreSQL 16 (all environments), Prisma ORM v6.19 with committed migrations |
-| **AI Providers** | Google Gemini (`gemini-flash-lite-latest`, `gemini-flash-latest`), xAI Grok (`grok-3-mini`, `grok-2-latest`), OpenAI (`gpt-4o-mini`, `gpt-4o`) |
+| **AI Providers** | Google Gemini (`gemini-flash-lite-latest`, `gemini-flash-latest`), Cloudflare Workers AI (`@cf/cloudflare/clef-flash` for DM classification), xAI Grok (`grok-3-mini`, `grok-2-latest`), OpenAI (`gpt-4o-mini`, `gpt-4o`) |
 | **Cryptography** | Node.js Crypto (AES-256-GCM, HMAC-SHA256, timing-safe comparison) |
 | **Testing** | Vitest + Supertest (58 tests) against a throwaway PostgreSQL |
 
@@ -172,6 +172,17 @@ Every human-readable string comes from one place, and **no raw stored value reac
 | `WEBHOOK_VERIFY_TOKEN` | Meta webhook GET verification. |
 | `REDIRECT_URI` | Must match the Meta dashboard entry **exactly**, no trailing slash. |
 | `FRONTEND_URL` / `BACKEND_URL` | Also drive the CORS allowlist. |
+
+### DM Classification (Cloudflare Workers AI Clef Flash)
+
+| Variable | Notes |
+|---|---|
+| `CLASSIFICATION_PROVIDER` | `clef` or `gemini` (defaults to `gemini` when unset). Routes DM classification only. |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID (required when `CLASSIFICATION_PROVIDER=clef`). |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token with Workers AI read permissions (required when `CLASSIFICATION_PROVIDER=clef`). |
+| `CLEF_MAX_CONCURRENCY` | In-process concurrent requests to Workers AI (positive integer, default: `5`). |
+
+*Automatic Fallback & Circuit Breaker*: Any failure (timeout, 401/403, 429, 5xx, or quota limits) automatically fails over to the Gemini classifier with zero dropped messages. See [docs/CLEF_CLASSIFICATION.md](docs/CLEF_CLASSIFICATION.md) for architecture, circuit breaker, and rollout details.
 
 ### Required in production
 
