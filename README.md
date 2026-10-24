@@ -173,16 +173,42 @@ Every human-readable string comes from one place, and **no raw stored value reac
 | `REDIRECT_URI` | Must match the Meta dashboard entry **exactly**, no trailing slash. |
 | `FRONTEND_URL` / `BACKEND_URL` | Also drive the CORS allowlist. |
 
-### DM Classification (Cloudflare Workers AI Clef Flash)
+### DM Classification Providers
 
-| Variable | Notes |
-|---|---|
-| `CLASSIFICATION_PROVIDER` | `clef` or `gemini` (defaults to `gemini` when unset). Routes DM classification only. |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID (required when `CLASSIFICATION_PROVIDER=clef`). |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token with Workers AI read permissions (required when `CLASSIFICATION_PROVIDER=clef`). |
-| `CLEF_MAX_CONCURRENCY` | In-process concurrent requests to Workers AI (positive integer, default: `5`). |
+DM classification can run on **Cloudflare Workers AI Clef Flash** (`@cf/cloudflare/clef-flash`) with automatic, fail-open fallback to Gemini. Text generation, draft replies, and conversation summaries remain strictly on Gemini.
 
-*Automatic Fallback & Circuit Breaker*: Any failure (timeout, 401/403, 429, 5xx, or quota limits) automatically fails over to the Gemini classifier with zero dropped messages. See [docs/CLEF_CLASSIFICATION.md](docs/CLEF_CLASSIFICATION.md) for architecture, circuit breaker, and rollout details.
+#### Environment Variables
+
+| Variable | Default | Notes |
+|---|---|---|
+| `CLASSIFICATION_PROVIDER` | `gemini` | `clef` or `gemini`. Routes DM classification only. |
+| `CLOUDFLARE_ACCOUNT_ID` | *(none)* | Cloudflare Account ID (required when `CLASSIFICATION_PROVIDER=clef`). |
+| `CLOUDFLARE_API_TOKEN` | *(none)* | Cloudflare API Token with Workers AI read permissions (required when `CLASSIFICATION_PROVIDER=clef`). |
+| `CLEF_MAX_CONCURRENCY` | `5` | Maximum concurrent in-flight requests to Workers AI per process. |
+
+*(These variables and defaults match `.env.example`.)*
+
+#### Provider Precedence
+At runtime, the classifier resolves the provider in this exact order:
+1. **Admin runtime override**: Stored in `app_settings` via the Super Admin Panel.
+2. **Environment variable**: `CLASSIFICATION_PROVIDER`.
+3. **Default**: Falls back to `gemini`.
+
+*Safety Fallback*: If `clef` is selected but credentials are missing, the classifier automatically falls back to `gemini` with reason `missing_credentials`.
+
+#### Super Admin Panel Controls (`/admin/ai`)
+Admins can monitor and manage classification dynamically under **Admin -> AI** with zero downtime or redeployments:
+- **Health & Metrics**: 500-call rolling window tracking call volume, fallback rate %, p50/p95 latency comparison (Clef vs. Gemini), fallback reasons breakdown, and active in-flight concurrency gauge (auto-refreshes every 10 seconds; pauses when the tab is hidden).
+- **Runtime Provider Switch**: Switch between `clef` and `gemini` instantly with required audit log reasoning and automatic cache clearing.
+- **Fixed Test Probe**: Run a built-in synthetic test sample (rate-limited to 6/min; strictly rejects custom input payloads).
+- **Circuit Breaker Reset**: Reset consecutive failures to 0 and close the circuit breaker immediately.
+
+#### Rollback Steps
+- **Runtime Rollback (Zero Redeploy)**: Open `/admin/ai` in the Super Admin Panel, click **Switch to Gemini**, enter an audit reason, and confirm.
+- **Static Rollback**: Set `CLASSIFICATION_PROVIDER=gemini` (or unset it) and restart/redeploy the backend.
+
+For detailed architecture, circuit breaker thresholds, and output contract specs, see [docs/CLEF_CLASSIFICATION.md](docs/CLEF_CLASSIFICATION.md).
+
 
 ### Required in production
 
