@@ -368,10 +368,55 @@ function getFetch(fetchParam) {
   return fetchParam || customFetchImpl || globalThis.fetch;
 }
 
+// Rolling in-memory window of the last 500 classification calls
+const ROLLING_WINDOW_SIZE = 500;
+const rollingCalls = [];
+let lastClefSuccessAt = null;
+let lastFailureAt = null;
+let lastFailureReason = null;
+
+function recordMetric({ provider, latencyMs, fallbackReason = null, timestamp = Date.now() }) {
+  const normalizedProvider = provider === 'cloudflare' || provider === 'clef' ? 'clef' : 'gemini';
+  const entry = {
+    timestamp,
+    provider: normalizedProvider,
+    fallbackReason: fallbackReason || null,
+    latencyMs: Math.max(0, Math.round(latencyMs)),
+  };
+
+  rollingCalls.push(entry);
+  if (rollingCalls.length > ROLLING_WINDOW_SIZE) {
+    rollingCalls.shift();
+  }
+
+  if (normalizedProvider === 'clef' && !fallbackReason) {
+    lastClefSuccessAt = timestamp;
+  }
+  if (fallbackReason) {
+    lastFailureAt = timestamp;
+    lastFailureReason = fallbackReason;
+  }
+}
+
+function calculatePercentile(values, percentile) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.floor(sorted.length * (percentile / 100)));
+  return sorted[index];
+}
+
+function _resetClassificationMetrics() {
+  rollingCalls.length = 0;
+  lastClefSuccessAt = null;
+  lastFailureAt = null;
+  lastFailureReason = null;
+}
+
 /**
  * Log structured line per call. Never logs secret keys or message text.
  */
 function logClassificationCall({ provider, latencyMs, fallbackReason = null }) {
+  recordMetric({ provider, latencyMs, fallbackReason });
   const line = JSON.stringify({
     tag: 'dm_classification',
     provider,
@@ -578,6 +623,144 @@ function determineFallbackReason(err) {
   return 'clef_error';
 }
 
+const OVERRIDE_CACHE_TTL_MS = 15 * 1000;
+let cachedOverride = { value: null, expiresAt: 0 };
+
+function clearProviderOverrideCache() {
+  cachedOverride = { value: null, expiresAt: 0 };
+}
+
+async function getProviderOverride() {
+  const now = Date.now();
+  if (cachedOverride.expiresAt > now) {
+    return cachedOverride.value;
+  }
+  try {
+    const settings = require('../settings');
+    const val = await settings.getSetting('classification_provider');
+    cachedOverride = { value: val, expiresAt: now + OVERRIDE_CACHE_TTL_MS };
+    return val;
+  } catch {
+    return cachedOverride.value;
+  }
+}
+
+async function resolveClassificationProvider() {
+  const override = await getProviderOverride();
+  const envVal = (process.env.CLASSIFICATION_PROVIDER || '').trim().toLowerCase();
+
+  let targetProvider = 'gemini';
+  let source = 'default';
+
+  if (override === 'clef' || override === 'gemini') {
+    targetProvider = override;
+    source = 'override';
+  } else if (envVal === 'clef' || envVal === 'gemini') {
+    targetProvider = envVal;
+    source = 'env';
+  } else {
+    targetProvider = 'gemini';
+    source = 'default';
+  }
+
+  const accountId = (process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const apiToken = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
+  const credentialsPresent = Boolean(accountId && apiToken);
+
+  let effectiveProvider = targetProvider;
+  let disabledReason = null;
+
+  if (targetProvider === 'clef' && !credentialsPresent) {
+    effectiveProvider = 'gemini';
+    disabledReason = 'missing_credentials';
+  }
+
+  return {
+    targetProvider,
+    effectiveProvider,
+    source,
+    credentialsPresent,
+    disabledReason,
+  };
+}
+
+async function getClassificationStats() {
+  const providerInfo = await resolveClassificationProvider();
+  const totalCalls = rollingCalls.length;
+
+  const countsByProvider = { clef: 0, gemini: 0 };
+  const fallbackReasons = {};
+  const clefLatencies = [];
+  const geminiLatencies = [];
+  let fallbackCount = 0;
+
+  for (const call of rollingCalls) {
+    if (call.provider === 'clef') {
+      countsByProvider.clef++;
+      clefLatencies.push(call.latencyMs);
+    } else {
+      countsByProvider.gemini++;
+      geminiLatencies.push(call.latencyMs);
+    }
+
+    if (call.fallbackReason) {
+      fallbackCount++;
+      fallbackReasons[call.fallbackReason] = (fallbackReasons[call.fallbackReason] || 0) + 1;
+    }
+  }
+
+  const fallbackRate = totalCalls > 0 ? fallbackCount / totalCalls : 0;
+  const clefShare = totalCalls > 0 ? countsByProvider.clef / totalCalls : 0;
+
+  const cbState = _getCircuitBreakerState();
+  const now = Date.now();
+  const secondsUntilRetry = cbState.isOpen && cbState.circuitOpenUntil > now
+    ? Math.ceil((cbState.circuitOpenUntil - now) / 1000)
+    : 0;
+
+  const limiter = getLimiter();
+
+  return {
+    windowSize: totalCalls,
+    maxWindowSize: ROLLING_WINDOW_SIZE,
+    totalCalls,
+    countsByProvider,
+    clefShare: Math.round(clefShare * 1000) / 10,
+    fallbackCount,
+    fallbackRate: Math.round(fallbackRate * 1000) / 10,
+    fallbackRateRatio: fallbackRate,
+    fallbackReasons,
+    latency: {
+      clef: {
+        p50: calculatePercentile(clefLatencies, 50),
+        p95: calculatePercentile(clefLatencies, 95),
+      },
+      gemini: {
+        p50: calculatePercentile(geminiLatencies, 50),
+        p95: calculatePercentile(geminiLatencies, 95),
+      },
+    },
+    lastClefSuccessAt,
+    lastFailureAt,
+    lastFailureReason,
+    circuitBreaker: {
+      state: cbState.isOpen ? 'OPEN' : 'CLOSED',
+      isOpen: cbState.isOpen,
+      consecutiveFailures: cbState.consecutiveFailures,
+      secondsUntilRetry,
+    },
+    concurrency: {
+      inFlight: limiter.active,
+      maxConcurrency: limiter.max,
+    },
+    credentialsPresent: providerInfo.credentialsPresent,
+    effectiveProvider: providerInfo.effectiveProvider,
+    targetProvider: providerInfo.targetProvider,
+    source: providerInfo.source,
+    disabledReason: providerInfo.disabledReason,
+  };
+}
+
 /**
  * Main wrapper: Try Clef Flash; on ANY problem, fall back to the existing Gemini classifier.
  * The caller never sees an error from the Clef path.
@@ -590,7 +773,8 @@ async function classifyWithClefOrFallback({
   fetchImpl: explicitFetch,
 }) {
   const fetchImpl = getFetch(explicitFetch);
-  const provider = (process.env.CLASSIFICATION_PROVIDER || 'gemini').trim().toLowerCase();
+  const providerInfo = await resolveClassificationProvider();
+  const provider = providerInfo.effectiveProvider;
 
   // If provider is not 'clef', invoke fallback directly
   if (provider !== 'clef') {
@@ -599,7 +783,7 @@ async function classifyWithClefOrFallback({
     logClassificationCall({
       provider: result.provider || 'gemini',
       latencyMs: Date.now() - started,
-      fallbackReason: null,
+      fallbackReason: providerInfo.disabledReason || null,
     });
     return result;
   }
@@ -689,4 +873,10 @@ module.exports = {
   _getCircuitBreakerState,
   _setFetchImpl,
   _resetFetchImpl,
+  getClassificationStats,
+  calculatePercentile,
+  resolveClassificationProvider,
+  clearProviderOverrideCache,
+  _resetClassificationMetrics,
+  _recordMetric: recordMetric,
 };
