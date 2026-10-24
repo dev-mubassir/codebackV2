@@ -16,7 +16,7 @@ const TOC_ITEMS = [
   { id: 'data-customers', title: '2. Data collected about customers' },
   { id: 'data-senders', title: '3. Data collected about message senders' },
   { id: 'data-use', title: '4. How the data is used' },
-  { id: 'automated-gemini', title: '5. Automated processing & Gemini' },
+  { id: 'automated-ai', title: '5. Automated processing & AI providers' },
   { id: 'sharing', title: '6. Sharing' },
   { id: 'storage', title: '7. Where data is stored' },
   { id: 'retention', title: '8. Retention' },
@@ -148,7 +148,7 @@ export default function PrivacyPolicyPage() {
           <p>
             This is used only to deliver the automated reply the account owner set up — the
             private reply to the comment, and the message with the owner&apos;s link. Auto DM
-            matches keywords itself; comments are never sent to Gemini or any other AI
+            matches keywords itself; comments are never sent to Gemini, Cloudflare, or any other AI
             service.
           </p>
           <div className={styles.calloutBox}>
@@ -193,37 +193,43 @@ export default function PrivacyPolicyPage() {
         </div>
       </section>
 
-      {/* 5. Automated processing and Google Gemini */}
-      <section id="automated-gemini" className={styles.contentCard}>
+      {/* 5. Automated processing and AI providers (Google Gemini & Cloudflare Workers AI) */}
+      <section id="automated-ai" className={styles.contentCard}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardTitle}>
             <span className={styles.sectionNumber}>5</span>
-            Automated processing and Google Gemini
+            Automated processing and AI providers (Google Gemini &amp; Cloudflare Workers AI)
           </h2>
         </div>
         <div className={styles.cardBody}>
           <div className={styles.calloutBox}>
             <p>
-              To categorise a message and to draft replies, the text of that message, recent
-              messages in the same conversation, and the business profile of the account owner
-              are sent to Google&apos;s Gemini API.
+              To categorise an incoming direct message, determine urgency, and infer intent, the
+              text of the message is processed by <strong>Cloudflare Workers AI</strong> (Clef Flash)
+              or <strong>Google Gemini</strong>. To draft suggested replies and summarize conversations,
+              the message history and the business profile of the account owner are sent solely to
+              <strong> Google Gemini</strong>.
             </p>
           </div>
           <p>
-            Gemini processes the content in order to return a classification or a draft reply.
-            Google&apos;s own terms and privacy policies govern that processing.
+            Each provider processes content ephemerally in order to return structured classifications,
+            urgency scores, or draft replies. The respective terms and privacy policies of Cloudflare
+            and Google govern their processing.
           </p>
           <p>
-            Some messages are classified by simple keyword matching alone and are never sent to
-            Gemini.
+            <strong>No model training:</strong> Neither Cloudflare nor Google uses message content
+            transmitted through their enterprise and developer API services to train or fine-tune
+            foundation AI models. Siffty never uses customer message content, conversations, or
+            profiles to train or fine-tune any AI model.
           </p>
           <p>
-            Siffty sends content to Gemini only to receive a classification or draft reply.
-            Siffty does not use message content to train or fine-tune any AI model.
+            <strong>Comment replies (Auto DM) are never sent to AI:</strong> As noted in section 3,
+            Auto DM comment processing operates purely via exact keyword and rule matching. Comment
+            text is never sent to Cloudflare, Google Gemini, or any other artificial intelligence service.
           </p>
           <p>
-            Siffty uses Google&apos;s paid Gemini API service, under which Google does not use
-            the content sent to it to improve its products.
+            Some incoming direct messages may also be categorized through local rule matching and are
+            never sent to external AI providers.
           </p>
         </div>
       </section>
@@ -244,7 +250,14 @@ export default function PrivacyPolicyPage() {
               replies through the Instagram Graph API, under the permissions the account owner
               granted.
             </li>
-            <li><strong>Google (Gemini)</strong> — as described in section 5.</li>
+            <li>
+              <strong>Google (Gemini)</strong> — to draft suggested replies, summarize
+              conversations, and classify direct messages, as described in section 5.
+            </li>
+            <li>
+              <strong>Cloudflare (Workers AI)</strong> — to classify incoming direct messages,
+              as described in section 5.
+            </li>
             <li>
               <strong>Resend (email)</strong> — to deliver Siffty&apos;s emails to you, such as
               sign-in, verification, billing and usage notices.
@@ -273,9 +286,10 @@ export default function PrivacyPolicyPage() {
         <div className={styles.cardBody}>
           <p>
             Siffty&apos;s service and database are hosted in India. The third-party
-            processors Siffty uses — Meta (Instagram), Google (Gemini, described in section 5)
-            and Resend (email delivery) — may process data outside India. If you use Siffty
-            from outside India, your data is transferred to, and stored in, India.
+            processors Siffty uses — Meta (Instagram), Google (Gemini, described in section 5),
+            Cloudflare (Workers AI, described in section 5), and Resend (email delivery) — may
+            process data outside India. If you use Siffty from outside India, your data is
+            transferred to, and stored in, India.
           </p>
         </div>
       </section>

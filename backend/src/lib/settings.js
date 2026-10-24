@@ -58,6 +58,12 @@ const DEFINITIONS = Object.freeze({
     valid: isBool,
     label: 'Enforce plans and trials (billing)',
   },
+  classification_provider: {
+    group: 'ai',
+    default: null,
+    valid: (v) => v === null || v === 'clef' || v === 'gemini',
+    label: 'Runtime DM classification provider override (clef | gemini | null)',
+  },
 
   // ---- Sessions (Gate 2) ----
   user_session_idle_minutes: {

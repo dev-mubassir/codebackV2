@@ -25,6 +25,7 @@ const instagram = require('../lib/instagram');
 const { readAccountToken } = require('../lib/crypto');
 const { refreshAccountToken } = require('../lib/tokenRefresh');
 const aiService = require('../services/aiService');
+const clefClassifier = require('../lib/ai/clefClassifier');
 const { getAIStats } = aiService;
 const { collectHealth } = require('../lib/health');
 const aiRouter = require('../lib/ai/router');
@@ -764,6 +765,133 @@ router.post('/ai/rollback', requireStepUp, async (req, res) => {
   } catch (error) {
     console.error('[Admin] AI rollback error:', error.message);
     res.status(500).json({ error: "Couldn't roll back the AI model. Try again." });
+  }
+});
+
+// ============================================
+// 3d. DM CLASSIFICATION (Cloudflare Clef Flash & Runtime Controls)
+// ============================================
+
+const classificationTestLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 6,
+  message: 'Rate limit: at most 6 classification tests per minute.',
+});
+
+// GET /api/admin/classification/status — rolling metrics, health, breaker, active provider
+router.get('/classification/status', async (req, res) => {
+  try {
+    const stats = await clefClassifier.getClassificationStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('[Admin] Classification status error:', error.message);
+    res.status(500).json({ error: "Couldn't load classification status." });
+  }
+});
+
+// POST /api/admin/classification/provider — switch classification provider at runtime (clef | gemini)
+router.post('/classification/provider', async (req, res) => {
+  if (!onlyFields(req, res, ['provider', 'reason'])) return undefined;
+  const rawProvider = req.body && req.body.provider;
+  const provider = typeof rawProvider === 'string' ? rawProvider.trim().toLowerCase() : '';
+  if (!['clef', 'gemini'].includes(provider)) {
+    return res.status(400).json({ error: 'Provider must be "clef" or "gemini".', code: 'INVALID_PROVIDER' });
+  }
+
+  const rawReason = req.body && req.body.reason;
+  const reason = typeof rawReason === 'string' ? rawReason.trim().slice(0, 500) : null;
+
+  try {
+    const before = await settings.getSetting('classification_provider');
+    await settings.setSetting('classification_provider', provider, req.admin.id);
+    clefClassifier.clearProviderOverrideCache();
+
+    await recordAdminAudit(req, {
+      action: 'CLASSIFICATION_PROVIDER_SET',
+      targetType: 'APP_SETTING',
+      targetId: 'classification_provider',
+      reason,
+      before: { provider: before },
+      after: { provider },
+    });
+
+    const stats = await clefClassifier.getClassificationStats();
+    res.json({ success: true, provider, stats });
+  } catch (error) {
+    console.error('[Admin] Set classification provider error:', error.message);
+    res.status(500).json({ error: "Couldn't update classification provider." });
+  }
+});
+
+// Fixed synthetic message for admin test. Never accepts user input.
+const FIXED_CLASSIFICATION_TEST_SAMPLE = 'How much do you charge for a TikTok style reel promotion?';
+
+// POST /api/admin/classification/test — run one built-in sample test (max 6/min)
+router.post('/classification/test', classificationTestLimiter, async (req, res) => {
+  if (!onlyFields(req, res, [])) return undefined;
+
+  const t0 = Date.now();
+  try {
+    const fallbackFn = async () => {
+      const prompt = aiService.buildClassificationPrompt({ messageText: FIXED_CLASSIFICATION_TEST_SAMPLE });
+      const result = await aiRouter.callAI({
+        prompt,
+        isJson: true,
+        jobType: 'classification',
+        validate: require('../lib/ai/schema').validateClassification,
+      });
+      const validated = aiService.validateAnalysisResult(result.json);
+      return {
+        ...validated,
+        model: result.model,
+        provider: result.provider,
+        failed: false,
+      };
+    };
+
+    const result = await clefClassifier.classifyWithClefOrFallback({
+      messageText: FIXED_CLASSIFICATION_TEST_SAMPLE,
+      fallbackFn,
+      computePriorityScore: aiService.computePriorityScore,
+    });
+
+    const latencyMs = Date.now() - t0;
+    res.json({
+      success: true,
+      category: result.category,
+      provider: result.provider,
+      model: result.model,
+      latencyMs,
+    });
+  } catch (error) {
+    console.error('[Admin] Classification test error:', error.message);
+    res.status(500).json({ error: "Couldn't complete classification test." });
+  }
+});
+
+// POST /api/admin/classification/circuit-breaker/reset — manual reset of circuit breaker
+router.post('/classification/circuit-breaker/reset', async (req, res) => {
+  if (!onlyFields(req, res, ['reason'])) return undefined;
+  const rawReason = req.body && req.body.reason;
+  const reason = typeof rawReason === 'string' ? rawReason.trim().slice(0, 500) : 'Admin manual reset';
+
+  try {
+    clefClassifier._resetCircuitBreaker();
+
+    await recordAdminAudit(req, {
+      action: 'CLASSIFICATION_CIRCUIT_BREAKER_RESET',
+      targetType: 'CIRCUIT_BREAKER',
+      targetId: 'clef',
+      reason,
+      before: { state: 'OPEN' },
+      after: { state: 'CLOSED' },
+    });
+
+    const stats = await clefClassifier.getClassificationStats();
+    res.json({ success: true, stats });
+  } catch (error) {
+    console.error('[Admin] Reset circuit breaker error:', error.message);
+    res.status(500).json({ error: "Couldn't reset circuit breaker." });
   }
 });
 

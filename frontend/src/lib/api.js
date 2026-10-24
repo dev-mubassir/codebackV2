@@ -553,6 +553,28 @@ export async function rollbackAdminAiModel(reason) {
   return data;
 }
 
+// ---- Admin: DM Classification (Cloudflare Clef Flash) ----
+
+export async function getAdminClassificationStatus() {
+  const { data } = await api.get('/api/admin/classification/status');
+  return data;
+}
+
+export async function setAdminClassificationProvider({ provider, reason }) {
+  const { data } = await api.post('/api/admin/classification/provider', { provider, reason });
+  return data;
+}
+
+export async function testAdminClassification() {
+  const { data } = await api.post('/api/admin/classification/test', {});
+  return data;
+}
+
+export async function resetAdminClassificationBreaker(reason) {
+  const { data } = await api.post('/api/admin/classification/circuit-breaker/reset', { reason });
+  return data;
+}
+
 // ---- Admin: kill switches, metrics, announcements, alerts (Gate 7) ----
 
 export async function getAdminFlags() {

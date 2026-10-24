@@ -11,7 +11,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { activateAdminAiModel, getAdminAiConfig, rollbackAdminAiModel, testAdminAiModel } from '@/lib/api';
+import {
+  activateAdminAiModel,
+  getAdminAiConfig,
+  rollbackAdminAiModel,
+  testAdminAiModel,
+  getAdminClassificationStatus,
+  setAdminClassificationProvider,
+  testAdminClassification,
+  resetAdminClassificationBreaker,
+} from '@/lib/api';
 import { Badge, Button, Select, Skeleton } from '@/app/components/ui';
 import { admin as t, errors } from '@/content/copy';
 import { formatDateTime } from '@/content/format';
@@ -43,6 +52,17 @@ export default function AdminAiPage() {
   const [dialogError, setDialogError] = useState('');
   const { withStepUp } = useStepUp();
 
+  // Classification state & controls
+  const [classStatus, setClassStatus] = useState(null);
+  const [classLoading, setClassLoading] = useState(true);
+  const [classError, setClassError] = useState('');
+  const [classSwitchDialog, setClassSwitchDialog] = useState(null); // 'clef' | 'gemini' | null
+  const [classSwitchBusy, setClassSwitchBusy] = useState(false);
+  const [classSwitchError, setClassSwitchError] = useState('');
+  const [classTesting, setClassTesting] = useState(false);
+  const [classTestResult, setClassTestResult] = useState(null);
+  const [classResetting, setClassResetting] = useState(false);
+
   const load = useCallback(async () => {
     try {
       setConfig(await getAdminAiConfig());
@@ -58,6 +78,101 @@ export default function AdminAiPage() {
       .catch(() => { if (!cancelled) setError(errors.admin.settings); });
     return () => { cancelled = true; };
   }, []);
+
+  const loadClassification = useCallback(async () => {
+    try {
+      const data = await getAdminClassificationStatus();
+      setClassStatus(data);
+      setClassError('');
+    } catch {
+      setClassError('Could not load classification status.');
+    } finally {
+      setClassLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let timer = null;
+    let active = true;
+
+    async function poll() {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      try {
+        const data = await getAdminClassificationStatus();
+        if (active) {
+          setClassStatus(data);
+          setClassError('');
+          setClassLoading(false);
+        }
+      } catch {
+        if (active) setClassError('Could not load classification status.');
+      }
+    }
+
+    poll();
+    timer = setInterval(poll, 10000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') poll();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      active = false;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
+
+  async function handleConfirmSwitchProvider(reason) {
+    if (!classSwitchDialog) return;
+    setClassSwitchBusy(true);
+    setClassSwitchError('');
+    try {
+      const result = await setAdminClassificationProvider({
+        provider: classSwitchDialog,
+        reason,
+      });
+      setClassStatus(result.stats);
+      setNotice({ tone: 'success', text: `Classification provider switched to ${classSwitchDialog}.` });
+      setClassSwitchDialog(null);
+    } catch (err) {
+      setClassSwitchError(err?.response?.data?.error || 'Could not switch classification provider.');
+    } finally {
+      setClassSwitchBusy(false);
+    }
+  }
+
+  async function handleRunClassificationTest() {
+    setClassTesting(true);
+    setClassTestResult(null);
+    try {
+      const res = await testAdminClassification();
+      setClassTestResult(res);
+      setNotice({
+        tone: 'success',
+        text: `Classification test completed via ${res.provider}: ${res.category} (${res.latencyMs} ms).`,
+      });
+      await loadClassification();
+    } catch (err) {
+      setNotice({ tone: 'error', text: err?.response?.data?.error || 'Classification test failed.' });
+    } finally {
+      setClassTesting(false);
+    }
+  }
+
+  async function handleResetBreaker() {
+    setClassResetting(true);
+    try {
+      const res = await resetAdminClassificationBreaker('Admin manual reset');
+      setClassStatus(res.stats);
+      setNotice({ tone: 'success', text: 'Circuit breaker reset successfully.' });
+    } catch (err) {
+      setNotice({ tone: 'error', text: err?.response?.data?.error || 'Could not reset circuit breaker.' });
+    } finally {
+      setClassResetting(false);
+    }
+  }
 
   const catalogue = useMemo(() => config?.providers || [], [config]);
   const usable = catalogue.filter((p) => p.keyConfigured);
@@ -120,6 +235,233 @@ export default function AdminAiPage() {
         <p className={`${styles.notice} ${notice.tone === 'error' ? styles.noticeError : styles.noticeSuccess}`} role="status">{notice.text}</p>
       )}
 
+      {/* ========================================================= */}
+      {/* DM Classification Section (Cloudflare Clef Flash)        */}
+      {/* ========================================================= */}
+      <section className={styles.panel}>
+        <div className={styles.panelHeader}>
+          <div>
+            <h2 className={styles.panelTitle}>DM Classification</h2>
+            <p className={styles.panelSubtitle}>
+              Effective provider:{' '}
+              <strong className={styles.cellMono}>{classStatus?.effectiveProvider || '—'}</strong>
+              {' '}(source: {classStatus?.source || 'default'})
+              {classStatus?.targetProvider === 'clef' && !classStatus?.credentialsPresent && (
+                <span className={styles.cellSub}> · Clef selected but credentials missing; staying on Gemini</span>
+              )}
+            </p>
+          </div>
+          {classStatus && (
+            <Badge tone={
+              classStatus.circuitBreaker?.isOpen || (typeof classStatus.fallbackRateRatio === 'number' && classStatus.fallbackRateRatio > 0.2)
+                ? 'danger'
+                : classStatus.effectiveProvider === 'gemini' && classStatus.targetProvider !== 'clef'
+                  ? 'neutral'
+                  : 'positive'
+            }>
+              {classStatus.circuitBreaker?.isOpen || (typeof classStatus.fallbackRateRatio === 'number' && classStatus.fallbackRateRatio > 0.2)
+                ? 'Degraded'
+                : classStatus.effectiveProvider === 'gemini' && classStatus.targetProvider !== 'clef'
+                  ? 'Clef off'
+                  : 'Healthy'}
+            </Badge>
+          )}
+        </div>
+
+        {classLoading && !classStatus && (
+          <div className={styles.loading}><Skeleton lines={4} height={36} /></div>
+        )}
+
+        {classError && !classStatus && (
+          <p className={`${styles.notice} ${styles.noticeError}`}>{classError}</p>
+        )}
+
+        {classStatus && (
+          <>
+            {/* Provider Controls & Action Buttons */}
+            <div className={styles.filters} style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 'var(--ui-space-2)', alignItems: 'center' }}>
+                <span className={styles.metricLabel}>Provider Override:</span>
+                <Button
+                  size="sm"
+                  variant={classStatus.effectiveProvider === 'clef' ? 'primary' : 'secondary'}
+                  disabled={classStatus.effectiveProvider === 'clef'}
+                  onClick={() => { setClassSwitchError(''); setClassSwitchDialog('clef'); }}
+                >
+                  Use Clef
+                </Button>
+                <Button
+                  size="sm"
+                  variant={classStatus.effectiveProvider === 'gemini' && classStatus.targetProvider !== 'clef' ? 'primary' : 'secondary'}
+                  disabled={classStatus.effectiveProvider === 'gemini' && classStatus.targetProvider !== 'clef'}
+                  onClick={() => { setClassSwitchError(''); setClassSwitchDialog('gemini'); }}
+                >
+                  Use Gemini
+                </Button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--ui-space-2)' }}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleRunClassificationTest}
+                  loading={classTesting}
+                >
+                  Test Clef now
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleResetBreaker}
+                  disabled={!classStatus.circuitBreaker?.isOpen}
+                  loading={classResetting}
+                >
+                  Reset breaker
+                </Button>
+              </div>
+            </div>
+
+            {/* Test result display */}
+            {classTestResult && (
+              <p className={`${styles.notice} ${styles.noticeSuccess}`}>
+                Synthetic probe result: Category <strong>{classTestResult.category}</strong> via provider <strong>{classTestResult.provider}</strong> ({classTestResult.model}) in {classTestResult.latencyMs} ms.
+              </p>
+            )}
+
+            {/* Metric Row */}
+            <div className={styles.metricGrid}>
+              <div className={styles.metricCard}>
+                <span className={styles.metricLabel}>Calls in Window</span>
+                <span className={styles.metricValue}>{classStatus.totalCalls} / {classStatus.maxWindowSize}</span>
+                <span className={styles.metricHint}>Last 500 rolling calls</span>
+              </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricLabel}>Clef Share</span>
+                <span className={styles.metricValue}>{classStatus.clefShare}%</span>
+                <span className={styles.metricHint}>{classStatus.countsByProvider?.clef || 0} Clef calls</span>
+              </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricLabel}>Fallback Rate</span>
+                <span className={`${styles.metricValue} ${classStatus.fallbackRateRatio > 0.2 ? styles.valueDanger : ''}`}>
+                  {classStatus.fallbackRate}%
+                </span>
+                <span className={styles.metricHint}>{classStatus.fallbackCount} total fallbacks</span>
+              </div>
+              <div className={styles.metricCard}>
+                <span className={styles.metricLabel}>Clef Latency (p50 / p95)</span>
+                <span className={styles.metricValue}>
+                  {classStatus.latency?.clef?.p50 !== null ? `${classStatus.latency.clef.p50} ms` : '—'}
+                </span>
+                <span className={styles.metricHint}>
+                  p95: {classStatus.latency?.clef?.p95 !== null ? `${classStatus.latency.clef.p95} ms` : '—'}
+                  {classStatus.latency?.gemini?.p50 !== null && ` · Gemini p50: ${classStatus.latency.gemini.p50} ms`}
+                </span>
+              </div>
+            </div>
+
+            {/* Operational Status */}
+            <div className={styles.passwordForm}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--ui-space-3)' }}>
+                <div>
+                  <span className={styles.metricLabel}>Credentials</span>
+                  <div>
+                    {classStatus.credentialsPresent ? (
+                      <Badge tone="positive">Present</Badge>
+                    ) : (
+                      <Badge tone="danger">Absent</Badge>
+                    )}
+                    <span className={styles.cellSub} style={{ marginLeft: 'var(--ui-space-2)' }}>
+                      CLOUDFLARE_ACCOUNT_ID / TOKEN
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <span className={styles.metricLabel}>Circuit Breaker</span>
+                  <div>
+                    <Badge tone={classStatus.circuitBreaker?.isOpen ? 'danger' : 'positive'}>
+                      {classStatus.circuitBreaker?.state || 'CLOSED'}
+                    </Badge>
+                    {classStatus.circuitBreaker?.isOpen && (
+                      <span className={styles.cellSub} style={{ marginLeft: 'var(--ui-space-2)' }}>
+                        Retry in {classStatus.circuitBreaker?.secondsUntilRetry}s
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span className={styles.metricLabel}>In-Flight Concurrency</span>
+                  <div style={{ fontSize: 'var(--ui-text-base)', fontWeight: 600, color: 'var(--ui-ink)' }}>
+                    {classStatus.concurrency?.inFlight || 0} / {classStatus.concurrency?.maxConcurrency || 5} active
+                  </div>
+                </div>
+
+                <div>
+                  <span className={styles.metricLabel}>Last Clef Success</span>
+                  <div className={styles.cellSub}>
+                    {classStatus.lastClefSuccessAt ? formatDateTime(classStatus.lastClefSuccessAt) : 'None recorded'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Fallback Reasons Table */}
+              <div style={{ marginTop: 'var(--ui-space-3)' }}>
+                <span className={styles.metricLabel}>Fallback Reasons Breakdown</span>
+                {classStatus.totalCalls === 0 ? (
+                  <p className={styles.cellSub}>No calls since the last restart</p>
+                ) : Object.keys(classStatus.fallbackReasons || {}).length === 0 ? (
+                  <p className={styles.cellSub}>No fallbacks recorded in the current window.</p>
+                ) : (
+                  <div className={styles.tableScroll} style={{ marginTop: 'var(--ui-space-2)' }}>
+                    <table className={`${styles.table} ${styles.tableCompact}`}>
+                      <thead>
+                        <tr>
+                          <th>Reason</th>
+                          <th>Count</th>
+                          <th>Share of Calls</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(classStatus.fallbackReasons).map(([reason, count]) => (
+                          <tr key={reason}>
+                            <td className={styles.cellMono}>{reason}</td>
+                            <td>{count}</td>
+                            <td>{((count / classStatus.totalCalls) * 100).toFixed(1)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <p className={styles.cellSub} style={{ marginTop: 'var(--ui-space-2)' }}>
+                Note: In-memory metrics and rolling window reset when the backend process restarts.
+              </p>
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Confirmation Dialog for Classification Provider Switch */}
+      {classSwitchDialog && (
+        <ReasonDialog
+          title="Switch Classification Provider"
+          who={classSwitchDialog === 'clef' ? 'Cloudflare Clef Flash (@cf/cloudflare/clef-flash)' : 'Google Gemini Flash-Lite'}
+          body={`Are you sure you want to switch the runtime DM classification provider to ${classSwitchDialog}? This takes effect immediately without a redeploy.`}
+          actionLabel={`Switch to ${classSwitchDialog}`}
+          variant="primary"
+          busy={classSwitchBusy}
+          error={classSwitchError}
+          onConfirm={handleConfirmSwitchProvider}
+          onClose={() => { if (!classSwitchBusy) setClassSwitchDialog(null); }}
+        />
+      )}
+
+      {/* ========================================================= */}
+      {/* Text Generation Models Section (Existing Gemini Router)  */}
+      {/* ========================================================= */}
       <section className={styles.panel}>
         <div className={styles.panelHeader}>
           <div>

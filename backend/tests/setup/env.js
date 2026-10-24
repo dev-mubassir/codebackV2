@@ -72,6 +72,7 @@ process.env.BILLING_ENABLED = 'true';
 // tests that exercise them set them per-case.
 delete process.env.USD_PRICING_ENABLED;
 delete process.env.META_APPROVED;
+process.env.CLASSIFICATION_PROVIDER = 'gemini';
 
 // Never let a test reach a real queue, a real Redis, a real AI provider — or
 // a real MAILBOX. RESEND_API_KEY is present in backend/.env, and without this

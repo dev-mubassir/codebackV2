@@ -121,7 +121,7 @@ describe('Terms and Privacy', () => {
     const start = privacy.indexOf('<section id="sharing"');
     const six = privacy.slice(start, privacy.indexOf('</section>', start));
     const named = [...six.matchAll(/<strong>([^<]+)<\/strong>/g)].map((m) => m[1]);
-    expect(named).toEqual(['Meta (Instagram)', 'Google (Gemini)', 'Resend (email)', 'Cashfree Payments (payments)', 'Northflank (hosting)']);
+    expect(named).toEqual(['Meta (Instagram)', 'Google (Gemini)', 'Cloudflare (Workers AI)', 'Resend (email)', 'Cashfree Payments (payments)', 'Northflank (hosting)']);
   });
 });
 
