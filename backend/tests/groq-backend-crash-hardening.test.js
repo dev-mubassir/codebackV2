@@ -54,7 +54,7 @@ describe('Groq Backend Crash Hardening & Graceful Degradation', () => {
         VALUES ('20261029100000_add_ai_usage_logs', 'checksum', NOW(), '20261029100000_add_ai_usage_logs', '', NULL, NOW(), 1)
         ON CONFLICT (id) DO NOTHING
       `);
-    } catch {}
+    } catch { }
   });
 
   beforeEach(() => {
@@ -144,7 +144,7 @@ describe('Groq Backend Crash Hardening & Graceful Degradation', () => {
     const savedGroqKey = process.env.GROQ_API_KEY;
     delete process.env.GROQ_API_KEY;
 
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => { });
 
     expect(groqTextGen.isGroqConfigured()).toBe(false);
 
