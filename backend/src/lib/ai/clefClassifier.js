@@ -832,6 +832,17 @@ async function classifyWithClefOrFallback({
       latencyMs,
       fallbackReason: null,
     });
+    try {
+      require('./aiUsageLogger').logAiUsage({
+        feature: 'classification',
+        provider: 'cloudflare',
+        model: MODEL_ID,
+        attemptNo: 1,
+        isFallback: false,
+        status: 'success',
+        latencyMs,
+      });
+    } catch { /* fire-and-forget */ }
 
     return formatClefAnalysis({
       category,

@@ -691,6 +691,43 @@ model AiUsageDaily {
   @@map("ai_usage_daily")
 }
 
+// ============================================
+// Comprehensive AI usage tracking log (additive).
+// Metadata ONLY — never stores DM text or prompts.
+// ============================================
+model AiUsageLog {
+  id                String   @id @default(uuid())
+  createdAt         DateTime @default(now()) @map("created_at")
+  userId            String?  @map("user_id")
+  tenantId          String?  @map("tenant_id")
+  feature           String   // auto_reply | draft_reply | summary | classification | other
+  provider          String
+  model             String
+  attemptNo         Int      @default(1) @map("attempt_no")
+  isFallback        Boolean  @default(false) @map("is_fallback")
+  fallbackReason    String?  @map("fallback_reason")
+  status            String   // success | error | timeout | rate_limited | empty
+  httpStatus        Int?     @map("http_status")
+  latencyMs         Int      @map("latency_ms")
+  promptTokens      Int?     @map("prompt_tokens")
+  completionTokens  Int?     @map("completion_tokens")
+  reasoningTokens   Int?     @map("reasoning_tokens")
+  cachedTokens      Int?     @map("cached_tokens")
+  totalTokens       Int?     @map("total_tokens")
+  estimatedCostUsd  Float?   @map("estimated_cost_usd")
+  providerRequestId String?  @map("provider_request_id")
+  errorMessage      String?  @map("error_message")
+  conversationId    String?  @map("conversation_id")
+  messageId         String?  @map("message_id")
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([provider])
+  @@index([feature])
+  @@index([status])
+  @@map("ai_usage_logs")
+}
+
 // One row per scheduled job run (Gate 3). Purged after 30 days by housekeeping.
 model JobRun {
   id         String    @id @default(uuid())

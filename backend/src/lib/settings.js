@@ -64,6 +64,12 @@ const DEFINITIONS = Object.freeze({
     valid: (v) => v === null || v === 'clef' || v === 'gemini',
     label: 'Runtime DM classification provider override (clef | gemini | null)',
   },
+  text_generation_provider: {
+    group: 'ai',
+    default: null,
+    valid: (v) => v === null || v === 'groq' || v === 'gemini',
+    label: 'Runtime text generation provider override (groq | gemini | null)',
+  },
 
   // ---- Sessions (Gate 2) ----
   user_session_idle_minutes: {

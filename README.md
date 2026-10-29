@@ -173,6 +173,52 @@ Every human-readable string comes from one place, and **no raw stored value reac
 | `REDIRECT_URI` | Must match the Meta dashboard entry **exactly**, no trailing slash. |
 | `FRONTEND_URL` / `BACKEND_URL` | Also drive the CORS allowlist. |
 
+### Text Generation Providers (Groq Cloud + Gemini Fallback)
+
+Text generation (auto-reply, Draft AI reply, conversation summaries) runs on **Groq Cloud** (`openai/gpt-oss-20b`) as first-priority with automatic, zero-customer-error fallback to Gemini.
+
+#### Environment Variables
+
+| Variable | Default | Notes |
+|---|---|---|
+| `GROQ_API_KEY` | *(none)* | Groq API Key (Bearer authentication). |
+| `GROQ_TEXT_MODEL` | `openai/gpt-oss-20b` | Text generation model id on Groq. |
+| `GROQ_TIMEOUT_MS` | `15000` | Request timeout in milliseconds. |
+| `GROQ_REASONING_EFFORT` | `low` | Reasoning effort level for reasoning models. |
+| `GROQ_MAX_CONCURRENCY` | `10` | In-process concurrency limiter maximum. |
+| `TEXT_PROVIDER_FORCE` | *(none)* | Kill switch: set to `gemini` to force Gemini and bypass Groq. |
+| `USD_INR` | `84` | USD to INR conversion rate for admin dashboard display. |
+
+#### Provider Precedence & Fallback
+At runtime, text generation resolves the provider in this order:
+1. **Kill switch**: If `TEXT_PROVIDER_FORCE=gemini`, uses Gemini directly.
+2. **Admin runtime override**: Stored in `app_settings` (`text_generation_provider`) via the Super Admin Panel.
+3. **Default**: Groq Cloud first, automatic Gemini fallback on any error (missing key, 401/403, 429, 5xx, timeout, circuit breaker open, empty content).
+
+#### Super Admin Panel Controls (`/admin/ai`)
+- **Runtime Provider Controls**: Switch primary text generator between Groq and Gemini with audit reasoning.
+- **Groq Health Card**: Live status, key configured status, error rate %, circuit breaker state, remaining rate limit tokens and requests.
+- **Probe Test**: Instant live test probe button.
+- **AI Usage Tracking Dashboard**: Token aggregates (prompt, completion, reasoning, cached), cost in USD & INR, daily timeline chart, top customers table, call trace table with filters, and CSV export.
+
+#### Rollback
+If Groq experiences degraded service:
+- **Instant Admin Rollback**: In Super Admin (`/admin/ai`), select **Google Gemini** in the Text Generation Provider control and confirm with an audit reason. The switch applies immediately across all text-generation calls without requiring a service restart.
+- **Environment Kill Switch**: Set `TEXT_PROVIDER_FORCE=gemini` in environment variables.
+
+#### Production Migration Note
+The AI usage tracking migration `20261029100000_add_ai_usage_logs` is **purely additive** (creates table `ai_usage_logs` with indexes; no existing tables are altered or dropped).
+- Apply to production using the owner migration script:
+  ```powershell
+  cd backend
+  powershell -ExecutionPolicy Bypass -File .\scripts\prod-migrate.ps1
+  ```
+- Or execute inside the Northflank API service shell:
+  ```bash
+  npx prisma migrate deploy
+  ```
+- AI usage logging is fire-and-forget: during any gap before migration is applied, text-generation and customer replies continue working uninterrupted without errors.
+
 ### DM Classification Providers
 
 DM classification can run on **Cloudflare Workers AI Clef Flash** (`@cf/cloudflare/clef-flash`) with automatic, fail-open fallback to Gemini. Text generation, draft replies, and conversation summaries remain strictly on Gemini.
