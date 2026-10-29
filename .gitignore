@@ -92,3 +92,5 @@ LOCAL_DEV.md
 next-env.d.ts
 # Local manual-test checklist (contains a local test password)
 MANUAL-TEST.md
+
+incident-logs.txt

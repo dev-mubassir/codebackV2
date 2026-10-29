@@ -201,6 +201,12 @@ function _resetMetrics() {
   sharedState.lastGroqFailureReason = null;
 }
 
+let hasWarnedMissingKey = false;
+
+function _resetWarnedMissingKey() {
+  hasWarnedMissingKey = false;
+}
+
 function getGroqApiKey() {
   return (process.env.GROQ_API_KEY || '').trim() || null;
 }
@@ -424,6 +430,10 @@ async function generateTextWithGroqOrFallback({
   // Pre-call validation for Groq
   let skipGroqReason = null;
   if (!apiKey) {
+    if (!hasWarnedMissingKey) {
+      console.warn('[groqTextGen] GROQ_API_KEY is not set. Groq is marked unavailable; routing text generation cleanly to Gemini fallback.');
+      hasWarnedMissingKey = true;
+    }
     skipGroqReason = 'missing_key';
   } else if (isCircuitOpen()) {
     skipGroqReason = 'circuit_open';
@@ -762,5 +772,6 @@ module.exports = {
   _setFetchImpl,
   _resetFetchImpl,
   _resetMetrics,
+  _resetWarnedMissingKey,
   getLimiter,
 };

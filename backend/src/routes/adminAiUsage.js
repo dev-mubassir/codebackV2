@@ -21,6 +21,7 @@ const { recordAdminAudit } = require('../lib/adminAudit');
 const groqTextGen = require('../lib/ai/groqTextGen');
 const aiRouter = require('../lib/ai/router');
 const { getUsdInrRate } = require('../lib/ai/aiPricing');
+const { isTableMissingError } = require('../lib/ai/aiUsageLogger');
 
 /**
  * CSV helpers with formula injection guard
@@ -319,6 +320,19 @@ router.get('/ai/usage/summary', async (req, res) => {
       },
     });
   } catch (error) {
+    if (isTableMissingError(error)) {
+      const now = new Date();
+      return res.json({
+        migrationPending: true,
+        period: { from: now.toISOString(), to: now.toISOString() },
+        requests: 0,
+        tokens: { total: 0, prompt: 0, completion: 0, reasoning: 0, cached: 0 },
+        cost: { usd: 0, inr: 0, usdInrRate: getUsdInrRate() },
+        fallbacks: { count: 0, rate: 0 },
+        errors: { count: 0, rate: 0 },
+        latency: { avg: null, p95: null },
+      });
+    }
     console.error('[Admin] AI usage summary error:', error.message);
     res.status(500).json({ error: "Couldn't load AI usage summary." });
   }
@@ -408,6 +422,14 @@ router.get('/ai/usage/breakdown', async (req, res) => {
 
     res.json({ models, features, daily });
   } catch (error) {
+    if (isTableMissingError(error)) {
+      return res.json({
+        migrationPending: true,
+        models: [],
+        features: [],
+        daily: [],
+      });
+    }
     console.error('[Admin] AI usage breakdown error:', error.message);
     res.status(500).json({ error: "Couldn't load AI usage breakdown." });
   }
@@ -475,6 +497,16 @@ router.get('/ai/usage/users', async (req, res) => {
 
     res.json({ users: rows, page, limit });
   } catch (error) {
+    if (isTableMissingError(error)) {
+      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+      return res.json({
+        migrationPending: true,
+        users: [],
+        page,
+        limit,
+      });
+    }
     console.error('[Admin] AI usage users error:', error.message);
     res.status(500).json({ error: "Couldn't load user usage breakdown." });
   }
@@ -546,6 +578,20 @@ router.get('/ai/usage/traces', async (req, res) => {
       },
     });
   } catch (error) {
+    if (isTableMissingError(error)) {
+      const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+      return res.json({
+        migrationPending: true,
+        traces: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          pages: 0,
+        },
+      });
+    }
     console.error('[Admin] AI usage traces error:', error.message);
     res.status(500).json({ error: "Couldn't load AI usage traces." });
   }
@@ -652,6 +698,15 @@ router.get('/ai/usage/export', async (req, res) => {
 
     res.end();
   } catch (error) {
+    if (isTableMissingError(error)) {
+      if (!res.headersSent) {
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename="ai-usage-export.csv"');
+        res.setHeader('X-Migration-Pending', 'true');
+        return res.status(200).send('id,created_at,user_id,tenant_id,feature,provider,model,attempt_no,is_fallback,fallback_reason,status,http_status,latency_ms,prompt_tokens,completion_tokens,reasoning_tokens,cached_tokens,total_tokens,estimated_cost_usd,provider_request_id,error_message,conversation_id,message_id\n');
+      }
+      return res.end();
+    }
     console.error('[Admin] AI usage export error:', error.message);
     res.status(500).json({ error: "Couldn't export AI usage data." });
   }

@@ -1,5 +1,5 @@
 /**
- * Refuses to serve traffic when the database is behind the code.
+ * Refuses to serve traffic when the database is behind the code on critical migrations.
  *
  * WHY THIS EXISTS. Deploys and migrations are decoupled here, deliberately:
  * pushing to master auto-deploys the code on Northflank, while
@@ -37,6 +37,16 @@ const prisma = require('./prisma');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', '..', 'prisma', 'migrations');
 
+/**
+ * Migrations that only add optional or decoupled standalone tables with
+ * fail-open fallbacks. When these are pending, the server can safely boot
+ * and serve traffic (such as Instagram DMs) in degraded/fallback mode without
+ * failing closed.
+ */
+const NON_CRITICAL_MIGRATIONS = new Set([
+  '20261029100000_add_ai_usage_logs',
+]);
+
 /** Migration folder names on disk, in apply order. */
 function migrationsOnDisk() {
   if (!fs.existsSync(MIGRATIONS_DIR)) return [];
@@ -64,11 +74,11 @@ async function migrationsApplied() {
 }
 
 /**
- * @returns {Promise<{ok: boolean, missing: string[], unreachable?: boolean}>}
+ * @returns {Promise<{ok: boolean, missing: string[], criticalMissing: string[], nonCriticalMissing: string[], unreachable?: boolean}>}
  */
 async function checkMigrations() {
   const onDisk = migrationsOnDisk();
-  if (onDisk.length === 0) return { ok: true, missing: [] };
+  if (onDisk.length === 0) return { ok: true, missing: [], criticalMissing: [], nonCriticalMissing: [] };
 
   let applied;
   try {
@@ -80,18 +90,27 @@ async function checkMigrations() {
     // start would turn a blip into an outage that needs a human. Only a
     // database we can actually read, and which is definitively behind, is
     // fatal.
-    return { ok: true, missing: [], unreachable: true, error: err.message };
+    return { ok: true, missing: [], criticalMissing: [], nonCriticalMissing: [], unreachable: true, error: err.message };
   }
 
   const missing = onDisk.filter((name) => !applied.has(name));
-  return { ok: missing.length === 0, missing };
+  const criticalMissing = missing.filter((name) => !NON_CRITICAL_MIGRATIONS.has(name));
+  const nonCriticalMissing = missing.filter((name) => NON_CRITICAL_MIGRATIONS.has(name));
+
+  return {
+    ok: criticalMissing.length === 0,
+    missing,
+    criticalMissing,
+    nonCriticalMissing,
+  };
 }
 
 /**
- * Fail closed at boot. Call BEFORE server.listen().
+ * Fail closed at boot for critical schema regressions. Call BEFORE server.listen().
  *
- * Exits the process rather than throwing, so the failure cannot be swallowed
- * by a caller's try/catch and turned back into a silently-serving process.
+ * Exits the process rather than throwing for critical migrations, so the failure cannot
+ * be swallowed by a caller's try/catch and turned back into a silently-serving broken process.
+ * Non-critical additive migrations log a loud warning and let the server boot in fail-open mode.
  */
 async function assertMigrationsCurrent() {
   const result = await checkMigrations();
@@ -103,12 +122,20 @@ async function assertMigrationsCurrent() {
     return;
   }
 
+  if (result.nonCriticalMissing && result.nonCriticalMissing.length > 0) {
+    console.warn('[Server] WARNING: database is missing non-critical additive migration(s):');
+    for (const name of result.nonCriticalMissing) {
+      console.warn(`[Server]          - ${name}`);
+    }
+    console.warn('[Server]          Starting server in fail-open mode; non-critical features will degrade gracefully until migration is applied.');
+  }
+
   if (result.ok) return;
 
-  console.error('[Server] FATAL: the database is BEHIND the code. Refusing to serve traffic.');
+  console.error('[Server] FATAL: the database is BEHIND the code on critical migrations. Refusing to serve traffic.');
   console.error('[Server]');
-  console.error(`[Server] ${result.missing.length} migration(s) applied to the code but not to this database:`);
-  for (const name of result.missing) console.error(`[Server]     - ${name}`);
+  console.error(`[Server] ${result.criticalMissing.length} critical migration(s) applied to the code but not to this database:`);
+  for (const name of result.criticalMissing) console.error(`[Server]     - ${name}`);
   console.error('[Server]');
   console.error('[Server] Prisma Client selects every column its schema declares, so against an');
   console.error('[Server] older database those queries throw. In practice that breaks Instagram');
@@ -121,4 +148,4 @@ async function assertMigrationsCurrent() {
   process.exit(1);
 }
 
-module.exports = { assertMigrationsCurrent, checkMigrations, migrationsOnDisk };
+module.exports = { assertMigrationsCurrent, checkMigrations, migrationsOnDisk, NON_CRITICAL_MIGRATIONS };
