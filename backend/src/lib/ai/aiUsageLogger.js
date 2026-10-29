@@ -4,10 +4,27 @@
  * FIRE-AND-FORGET: A logging failure must never break or delay AI generation.
  * PRIVACY CONTRACT: NEVER stores DM text, prompts, responses, or API keys.
  * Metadata only (tokens, latency, model, user, feature, cost, errors).
+ *
+ * HARDENED: Fails open if `ai_usage_logs` table does not exist yet. Warns once,
+ * buffers up to 100 entries in memory, and never throws or blocks customer responses.
  */
 
 const prisma = require('../prisma');
 const { estimateCostUsd } = require('./aiPricing');
+
+let hasWarnedTableMissing = false;
+const memoryBuffer = [];
+const MAX_MEMORY_BUFFER = 100;
+
+function isTableMissingError(err) {
+  if (!err) return false;
+  return (
+    err.code === 'P2021' ||
+    err.code === '42P01' ||
+    /relation .*ai_usage_logs.* does not exist/i.test(err.message || '') ||
+    /table .*ai_usage_logs.* does not exist/i.test(err.message || '')
+  );
+}
 
 /**
  * Truncate error message safely to avoid huge payloads and prevent leaking sensitive data.
@@ -124,7 +141,23 @@ function logAiUsage(params) {
     };
 
     // Non-blocking fire-and-forget write to DB
-    prisma.aiUsageLog.create({ data }).catch((err) => {
+    prisma.aiUsageLog.create({ data }).then(() => {
+      // If write succeeded and we have buffered rows, flush them!
+      if (memoryBuffer.length > 0) {
+        const toFlush = memoryBuffer.splice(0, memoryBuffer.length);
+        prisma.aiUsageLog.createMany({ data: toFlush }).catch(() => {});
+      }
+    }).catch((err) => {
+      if (isTableMissingError(err)) {
+        if (!hasWarnedTableMissing) {
+          console.warn('[AiUsageLog] Table "ai_usage_logs" does not exist in the database yet. Migration is pending; buffering logs in memory until table is created.');
+          hasWarnedTableMissing = true;
+        }
+        if (memoryBuffer.length < MAX_MEMORY_BUFFER) {
+          memoryBuffer.push(data);
+        }
+        return;
+      }
       console.error('[AiUsageLog] Non-blocking write failed:', err.message);
     });
   } catch (err) {
@@ -132,8 +165,24 @@ function logAiUsage(params) {
   }
 }
 
+function _getMemoryBuffer() {
+  return [...memoryBuffer];
+}
+
+function _clearMemoryBuffer() {
+  memoryBuffer.length = 0;
+}
+
+function _resetWarnedTableMissing() {
+  hasWarnedTableMissing = false;
+}
+
 module.exports = {
   logAiUsage,
   sanitizeErrorMessage,
   normalizeStatus,
+  isTableMissingError,
+  _getMemoryBuffer,
+  _clearMemoryBuffer,
+  _resetWarnedTableMissing,
 };
