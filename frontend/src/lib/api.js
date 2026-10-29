@@ -575,6 +575,74 @@ export async function resetAdminClassificationBreaker(reason) {
   return data;
 }
 
+// ---- Admin: Text Generation & Groq Provider Controls ----
+
+export async function getAdminTextGenStatus() {
+  const { data } = await api.get('/api/admin/text-gen/status');
+  return data;
+}
+
+export async function setAdminTextGenProvider({ provider, reason }) {
+  const { data } = await api.post('/api/admin/text-gen/provider', { provider, reason });
+  return data;
+}
+
+export async function resetAdminTextGenBreaker(reason) {
+  const { data } = await api.post('/api/admin/text-gen/circuit-breaker/reset', { reason });
+  return data;
+}
+
+export async function testAdminTextGen() {
+  const { data } = await api.post('/api/admin/text-gen/test', {});
+  return data;
+}
+
+// ---- Admin: AI Usage Tracking Dashboard ----
+
+export async function getAdminAiUsageSummary(params = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+  }
+  const { data } = await api.get(`/api/admin/ai/usage/summary?${qs.toString()}`);
+  return data;
+}
+
+export async function getAdminAiUsageBreakdown(params = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+  }
+  const { data } = await api.get(`/api/admin/ai/usage/breakdown?${qs.toString()}`);
+  return data;
+}
+
+export async function getAdminAiUsageUsers(params = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+  }
+  const { data } = await api.get(`/api/admin/ai/usage/users?${qs.toString()}`);
+  return data;
+}
+
+export async function getAdminAiUsageTraces(params = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+  }
+  const { data } = await api.get(`/api/admin/ai/usage/traces?${qs.toString()}`);
+  return data;
+}
+
+export function getAdminAiUsageExportUrl(params = {}) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+  }
+  return `/api/admin/ai/usage/export?${qs.toString()}`;
+}
+
 // ---- Admin: kill switches, metrics, announcements, alerts (Gate 7) ----
 
 export async function getAdminFlags() {

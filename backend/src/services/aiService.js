@@ -11,6 +11,8 @@ const router = require('../lib/ai/router');
 const { keyConfigured } = require('../lib/ai/models');
 const { validateClassification, validateSummary } = require('../lib/ai/schema');
 const { classifyWithClefOrFallback } = require('../lib/ai/clefClassifier');
+const { generateTextWithGroqOrFallback } = require('../lib/ai/groqTextGen');
+const { logAiUsage } = require('../lib/ai/aiUsageLogger');
 const {
   CATEGORIES,
   CUSTOMER_TYPES,
@@ -499,6 +501,21 @@ async function analyzeConversation({
     const prompt = buildClassificationPrompt({ messageText, contactUsername, recentMessages, businessProfile });
     const result = await router.callAI({ prompt, isJson: true, jobType: 'classification', tenantId, validate: validateClassification });
     noteSuccess(result);
+    try {
+      logAiUsage({
+        feature: 'classification',
+        provider: result.provider || 'gemini',
+        model: result.model || 'gemini-flash-lite-latest',
+        attemptNo: 1,
+        isFallback: false,
+        status: 'success',
+        latencyMs: 0,
+        promptTokens: result.usage?.input,
+        completionTokens: result.usage?.output,
+        tenantId,
+        userId: tenantId,
+      });
+    } catch { /* fire-and-forget */ }
     const { json, model, provider } = result;
     const validated = validateAnalysisResult(json);
     const scored = computePriorityScore(validated, preferences);
@@ -634,16 +651,37 @@ ${safetyGuidelines}
 
 Draft the reply text:`;
 
+  const callGeminiReply = async () => {
+    const res = await router.callAI({ prompt, isJson: false, timeout: 15000, jobType: 'reply', tenantId });
+    noteSuccess(res);
+    return res;
+  };
+
+  const feature = instructions ? 'draft_reply' : 'auto_reply';
+
   try {
-    const result = await router.callAI({ prompt, isJson: false, timeout: 15000, jobType: 'reply', tenantId });
-    noteSuccess(result);
-    const { text, model, provider } = result;
+    const result = await generateTextWithGroqOrFallback({
+      prompt,
+      isJson: false,
+      feature,
+      userId: tenantId,
+      tenantId,
+      fallbackFn: callGeminiReply,
+    });
+
+    const cleanText = result.text?.replace(/^"|"$/g, '').trim() || null;
     aiStats.replyGenerations++;
+    if (!result.isFallback) {
+      aiStats.lastSuccessfulProvider = result.provider;
+      aiStats.lastSuccessfulModel = result.model;
+    }
     return {
-      text: text?.replace(/^"|"$/g, '').trim() || null,
-      model,
-      provider,
+      text: cleanText,
+      model: result.model,
+      provider: result.provider,
       failed: false,
+      isFallback: result.isFallback || false,
+      fallbackReason: result.fallbackReason || null,
     };
   } catch (error) {
     console.warn(`[AIService] Reply generation failed: ${error.message}`);
@@ -673,17 +711,37 @@ Return ONLY valid JSON:
   "stage": "Three words or fewer naming where this stands, e.g. 'Waiting on price', 'Ready to book', 'Needs your answer'. Sentence case."
 }`;
 
+  const callGeminiSummary = async () => {
+    const res = await router.callAI({ prompt, isJson: true, jobType: 'summary', tenantId, validate: validateSummary });
+    noteSuccess(res);
+    return res;
+  };
+
   try {
-    const result = await router.callAI({ prompt, isJson: true, jobType: 'summary', tenantId, validate: validateSummary });
-    noteSuccess(result);
-    const { json, model, provider } = result;
+    const result = await generateTextWithGroqOrFallback({
+      prompt,
+      isJson: true,
+      feature: 'summary',
+      userId: tenantId,
+      tenantId,
+      fallbackFn: callGeminiSummary,
+      validate: validateSummary,
+    });
+
+    const json = result.json;
     aiStats.summariesGenerated++;
+    if (!result.isFallback) {
+      aiStats.lastSuccessfulProvider = result.provider;
+      aiStats.lastSuccessfulModel = result.model;
+    }
     return {
       summary: truncate(json?.summary, 600) || previousSummary || null,
       stage: truncate(json?.stage, 150),
-      model,
-      provider,
+      model: result.model,
+      provider: result.provider,
       failed: false,
+      isFallback: result.isFallback || false,
+      fallbackReason: result.fallbackReason || null,
     };
   } catch (error) {
     // Keep the last good summary if there is one; otherwise say plainly that
